@@ -11,11 +11,17 @@ Current scope is a **v1 subset** of the original R package's ~50 exported
 functions. Ported: workbook loading (`.twb`/`.twbx`), datasources,
 parameters, raw/calculated fields, joins, relationships (legacy `<relation
 type="join">` and 2020.2+ `<relationships>`), inferred relationships,
-dashboards/dashboard-sheets, and `validate_relationships`. **Not yet
-ported** (v2): formatting, tooltips, colors, axes, sorts, dashboard
-layout/actions, custom SQL, published refs, analytics helpers (calc
-complexity, field usage, replication brief), dependency-graph plotting,
-and the Shiny-inspector equivalent.
+dashboards/dashboard-sheets, `validate_relationships`, custom/initial SQL,
+and published-source detection. **Not yet ported** (v2): formatting,
+tooltips, colors, axes, sorts, dashboard layout/actions, analytics
+helpers (calc complexity, field usage, replication brief), and the
+Shiny-inspector equivalent.
+
+Also added, with no R equivalent (Python-native extras -- see "Non-R
+modules" below): Graphviz DOT export of the relationship graph
+(replaces the R package's igraph/ggraph-based plotting with a
+dependency-free alternative), workbook-to-workbook diff, folder/batch
+analysis across many workbooks, and Jupyter rich display.
 
 ## Setup
 
@@ -82,20 +88,29 @@ the upstream package, function-for-function:
 | `relationships.py` | `R/relationships.R` | `extract_relations`, `build_object_table_mapping`, `extract_relationships` (2020.2+ model) |
 | `dashboards.py` | `R/dashboard_details.R` (subset) | `list_dashboards`, `dashboard_sheets` |
 | `validators.py` | `R/validators.R` | `validate_relationships` |
+| `sql.py` | `R/sql.R` | `extract_custom_sql` (`twb_custom_sql`), `extract_initial_sql` (`twb_initial_sql`) |
+| `published.py` | `R/published.R` | `extract_published_refs` (`twb_published_refs`) |
 | `parser.py` | `R/twb_parser.R` (`TwbParser` R6 class) | The `TwbParser` façade tying every module together |
-| `_tables.py` | — (Python-only) | Name → `TwbParser` accessor registry shared by `cli.py` and `webgui.py`, not ported from R |
-| `cli.py` | — (Python-only) | `twbparser` command-line entry point |
-| `webgui.py` | — (Python-only, loosely mirrors `run_twbparser_app`/Shiny) | `twbparser-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency |
 
 `parser.py`'s `TwbParser.__init__` mirrors the R6 constructor: it eagerly
 computes every cached DataFrame, guarding each with `_safe_call` (the port
 of R's `safe_call`/`tryCatch`) so a malformed workbook degrades to empty,
 correctly-columned DataFrames instead of raising.
 
-`_tables.py`, `cli.py`, and `webgui.py` have no R source to track — they're
-the Python-native user-facing layer on top of `TwbParser`. Adding a new
-extractor to `TwbParser`? Add it to `_tables.TABLE_SPECS` too so it's
-automatically available from both the CLI and the GUI.
+### Non-R modules
+
+These have no upstream R source to track — they're either the
+Python-native user-facing layer on top of `TwbParser`, or features added
+beyond the R package's scope:
+
+| Python module | What it is |
+|---|---|
+| `_tables.py` | Name → `TwbParser`-accessor registry shared by `cli.py`, `webgui.py`, `diff.py`, and `batch.py`. Adding a new extractor to `TwbParser`? Add it here too so it's automatically available everywhere else. |
+| `cli.py` | `twbparser` command-line entry point, plus the `diff`/`batch` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
+| `webgui.py` | `twbparser-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
+| `graph.py` | `to_dot()`: Graphviz DOT export of joins/relationships (+ optional inferred, as dashed edges). Replaces the R package's igraph/ggraph-based `plot_dependency_graph`/`plot_relationship_graph` with a dependency-free text format any Graphviz-compatible tool can render. |
+| `diff.py` | `diff_tables()`/`diff_workbooks()`: row-level added/removed diff between two workbooks' same-named table, via `_tables.TABLE_SPECS`. No "changed" classification without a natural key — a changed row shows as one removed + one added row. |
+| `batch.py` | `scan_folder()`: runs one table across every `.twb`/`.twbx` in a directory, concatenated with a `workbook` column. Skips (with a warning) any file that fails to load/extract rather than aborting the batch. |
 
 ## Porting conventions (read before adding/modifying a function)
 

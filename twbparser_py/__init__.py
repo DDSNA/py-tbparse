@@ -4,9 +4,11 @@ Parses Tableau .twb/.twbx workbook files into pandas DataFrames. Ported
 from https://github.com/PrigasG/twbparser (MIT licensed).
 """
 
+from .batch import scan_folder
 from .calculated_fields import extract_calculated_fields, extract_raw_fields
 from .dashboards import dashboard_sheets, list_dashboards
 from .datasources import extract_datasource_details, extract_named_connections, extract_parameters
+from .diff import diff_tables, diff_workbooks
 from .fields import extract_columns_with_table_source, infer_implicit_relationships
 from .graph import to_dot
 from .joins import extract_joins
@@ -39,6 +41,9 @@ __all__ = [
     "extract_twb_from_twbx",
     "twbx_extract_files",
     "twbx_list",
+    "diff_tables",
+    "diff_workbooks",
+    "scan_folder",
 ]
 
 try:

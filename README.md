@@ -6,10 +6,16 @@ DataFrames. No R runtime required — pure `lxml` XML parsing.
 
 This is a v1 subset port covering the parser's core: workbook loading,
 datasources, parameters, fields, calculated fields, joins, relationships
-(legacy and 2020.2+), inferred relationships, dashboards, and relationship
-validation. Formatting/tooltips/colors/axes/sorts, dashboard
-layout/actions, custom SQL, published refs, analytics helpers, graph
-plotting, and the Shiny-inspector equivalent are not yet ported.
+(legacy and 2020.2+), inferred relationships, dashboards, relationship
+validation, custom/initial SQL, and published-source detection.
+Formatting/tooltips/colors/axes/sorts, dashboard layout/actions,
+analytics helpers (calc complexity, field usage, replication brief),
+and the Shiny-inspector equivalent are not yet ported.
+
+Beyond the R original, this port adds a few Python-native extras: a
+Graphviz DOT export of the relationship graph, a workbook-to-workbook
+diff, folder/batch analysis across many workbooks, and Jupyter rich
+display (`_repr_html_`).
 
 ## Install
 
@@ -31,8 +37,18 @@ p.get_relationships()
 p.get_inferred_relationships()
 p.get_dashboards()
 p.get_dashboard_sheets()
+p.get_custom_sql()
+p.get_initial_sql()
+p.get_published_refs()
+p.get_relationship_graph_dot()   # Graphviz DOT string
 p.validate()
 p.get_overview()
+p  # in Jupyter: renders get_overview() via _repr_html_
+
+from twbparser_py import diff_workbooks, scan_folder
+
+diff_workbooks(TwbParser("v1.twb"), TwbParser("v2.twb"), table="datasources")
+scan_folder("./workbooks", table="datasources")  # one row per workbook x datasource
 ```
 
 ### CLI
@@ -44,12 +60,18 @@ twbparser workbook.twb calculated-fields             # print a table
 twbparser workbook.twb fields --format csv -o fields.csv
 twbparser workbook.twbx dashboard-sheets --dashboard "Sales Overview"
 twbparser workbook.twb validate                       # exit code 2 if invalid
+twbparser workbook.twb graph --include-inferred > relationships.dot
+twbparser diff old.twb new.twb datasources             # row-level added/removed
+twbparser batch ./workbooks datasources                # one table, every workbook in a folder
 ```
 
 Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`,
 `calculated-fields`, `joins`, `relations`, `relationships`,
-`inferred-relationships`, `dashboards`, `dashboard-sheets`. `--format`
-is `table` (default), `csv`, or `json`.
+`inferred-relationships`, `dashboards`, `dashboard-sheets`,
+`custom-sql`, `initial-sql`, `published-refs`. `--format` is `table`
+(default), `csv`, or `json` (`graph` always prints Graphviz DOT text
+regardless of `--format`). `diff`/`batch` accept most of the same table
+names, minus `graph`/`validate`/`tables`.
 
 ### GUI
 
@@ -63,10 +85,11 @@ twbparser-gui --no-browser --port 8765   # just run the server, e.g. for a headl
 ```
 
 Pick a table from the dropdown, filter `dashboard-sheets` by dashboard,
-toggle "include Parameters" for `calculated-fields`, and export the
-current view as CSV. All state lives server-side in memory for the life
-of the process — it's a single-user local tool, not something to expose
-on a shared network.
+toggle "include Parameters" for `calculated-fields`, pick `graph` to
+preview/export a Graphviz DOT digraph of the relationships, and export
+any tabular view as CSV. All state lives server-side in memory for the
+life of the process — it's a single-user local tool, not something to
+expose on a shared network.
 
 ## Testing
 

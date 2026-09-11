@@ -92,3 +92,32 @@ def test_new_v2_tables_are_listed(capsys):
     assert rc == 0
     for name in ("custom-sql", "initial-sql", "published-refs"):
         assert name in out
+
+
+def test_diff_subcommand_self_is_empty(wenjie_path, capsys):
+    rc = cli.main(["diff", wenjie_path, wenjie_path, "datasources"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "(empty)" in out
+
+
+def test_diff_subcommand_missing_file(wenjie_path, capsys):
+    rc = cli.main(["diff", wenjie_path, "nope.twb"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "error:" in err
+
+
+def test_batch_subcommand_lists_both_fixtures(capsys):
+    rc = cli.main(["batch", "tests/fixtures", "overview"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "test_for_wenjie.twb" in out
+    assert "test_for_zip.twbx" in out or "test-for_zip.twb" in out
+
+
+def test_batch_subcommand_not_a_directory(wenjie_path, capsys):
+    rc = cli.main(["batch", wenjie_path])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "error:" in err
