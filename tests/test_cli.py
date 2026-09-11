@@ -75,7 +75,7 @@ def test_graph_prints_dot(wenjie_path, capsys):
     rc = cli.main([wenjie_path, "graph"])
     out = capsys.readouterr().out
     assert rc == 0
-    assert out.startswith("digraph twb {")
+    assert out.startswith("digraph \"twb\" {")
     assert "Sheet1" in out
 
 
@@ -83,7 +83,7 @@ def test_graph_output_to_file(wenjie_path, tmp_path):
     out_file = tmp_path / "graph.dot"
     rc = cli.main([wenjie_path, "graph", "--output", str(out_file)])
     assert rc == 0
-    assert out_file.read_text().startswith("digraph twb {")
+    assert out_file.read_text().startswith("digraph \"twb\" {")
 
 
 def test_new_v2_tables_are_listed(capsys):
@@ -121,3 +121,17 @@ def test_batch_subcommand_not_a_directory(wenjie_path, capsys):
     err = capsys.readouterr().err
     assert rc == 1
     assert "error:" in err
+
+
+def test_diff_keyword_does_not_shadow_a_real_file_named_diff(tmp_path, monkeypatch, capsys):
+    # A workbook literally named "diff" (no extension) sitting in the
+    # current directory must be treated as that workbook, not hijacked
+    # into the diff subcommand.
+    (tmp_path / "diff").write_text("<workbook/>")
+    monkeypatch.chdir(tmp_path)
+    rc = cli.main(["diff"])
+    err = capsys.readouterr().err
+    # Reaches TwbParser("diff") and fails on the extension check, not on
+    # the diff subcommand's "workbook_a/workbook_b required" usage error.
+    assert rc == 1
+    assert "Unsupported file type" in err

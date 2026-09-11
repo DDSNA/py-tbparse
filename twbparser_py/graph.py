@@ -67,7 +67,9 @@ def to_dot(
 
     nodes = sorted({n for left, right, _, _ in edges for n in (left, right)})
 
-    lines = [f"digraph {graph_name} {{", "  rankdir=LR;", '  node [shape=box];']
+    # Quote the graph name -- a bare DOT ID can't contain spaces/braces/etc,
+    # and graph_name is a public parameter so a caller could pass anything.
+    lines = [f'digraph "{_escape(graph_name)}" {{', "  rankdir=LR;", '  node [shape=box];']
     for n in nodes:
         lines.append(f'  "{_escape(n)}";')
     for left, right, label, inferred in edges:

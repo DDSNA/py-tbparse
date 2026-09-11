@@ -42,3 +42,27 @@ def test_diff_workbooks_unknown_table_raises(wenjie_path):
 
     with pytest.raises(ValueError):
         diff_workbooks(a, b, table="not-a-table")
+
+
+def test_diff_tables_handles_mismatched_dtypes_for_missing_columns():
+    # A column that's all-missing on one side becomes object dtype while
+    # the same column with real values on the other side is int64 --
+    # routine for sparse Tableau attributes (e.g. dashboard-sheets'
+    # x/y/w/h). Must not raise.
+    a = pd.DataFrame([{"name": "z1", "x": None}])
+    b = pd.DataFrame([{"name": "z1", "x": 5}])
+    out = diff_tables(a, b)
+    assert len(out) == 2
+    assert set(out["_diff"]) == {"added", "removed"}
+
+
+def test_diff_tables_is_multiset_aware():
+    # A row appearing twice in a and once in b is a genuine removal of
+    # one occurrence, not a no-op (as a naive merge would report, since
+    # the single b-side row satisfies one of the two a-side matches).
+    a = pd.DataFrame([{"x": 1}, {"x": 1}])
+    b = pd.DataFrame([{"x": 1}])
+    out = diff_tables(a, b)
+    assert len(out) == 1
+    assert out.iloc[0]["_diff"] == "removed"
+    assert out.iloc[0]["x"] == 1

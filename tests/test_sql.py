@@ -54,7 +54,26 @@ def test_extract_initial_sql():
     assert df.iloc[0]["initial_sql"] == "SET search_path TO public;"
 
 
-def test_extract_initial_sql_named_connection_uses_caption():
+def test_extract_initial_sql_named_connection_uses_name():
+    xml_doc = xml_from_string(
+        """
+        <workbook>
+          <named-connection name="conn1" caption="My Conn">
+            <initial-sql>SELECT 1;</initial-sql>
+          </named-connection>
+        </workbook>
+        """
+    )
+    df = extract_initial_sql(xml_doc)
+    assert df.iloc[0]["connection_id"] == "conn1"
+
+
+def test_extract_initial_sql_no_name_attribute_stays_none():
+    # R's xml_attr(...) %||% xml_attr(..., "caption") operates on the
+    # whole per-node name vector at once; since xml_attr() never returns
+    # NULL for a non-empty nodeset (missing attrs become NA elements),
+    # the caption fallback never actually fires in R. connection_id stays
+    # None/NA here even though a caption is present, matching that.
     xml_doc = xml_from_string(
         """
         <workbook>
@@ -65,7 +84,7 @@ def test_extract_initial_sql_named_connection_uses_caption():
         """
     )
     df = extract_initial_sql(xml_doc)
-    assert df.iloc[0]["connection_id"] == "My Conn"
+    assert df.iloc[0]["connection_id"] is None
 
 
 def test_extract_initial_sql_empty():

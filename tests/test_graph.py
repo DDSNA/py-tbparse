@@ -11,7 +11,7 @@ def test_to_dot_basic_structure():
     relationships = pd.DataFrame(columns=["left_table", "right_table", "left_field", "right_field", "operator"])
 
     dot = to_dot(joins, relationships)
-    assert dot.startswith("digraph twb {")
+    assert dot.startswith("digraph \"twb\" {")
     assert dot.endswith("}")
     assert '"Orders";' in dot
     assert '"Customers";' in dot
@@ -33,7 +33,7 @@ def test_to_dot_inferred_edges_are_dashed():
 def test_to_dot_empty_inputs():
     empty = pd.DataFrame(columns=["left_table", "right_table", "left_field", "right_field", "operator"])
     dot = to_dot(empty, empty)
-    assert dot == "digraph twb {\n  rankdir=LR;\n  node [shape=box];\n}"
+    assert dot == "digraph \"twb\" {\n  rankdir=LR;\n  node [shape=box];\n}"
 
 
 def test_to_dot_escapes_quotes_in_names():
@@ -46,10 +46,18 @@ def test_to_dot_escapes_quotes_in_names():
     assert 'Weird\\"Table' in dot
 
 
+def test_to_dot_quotes_and_escapes_graph_name():
+    # graph_name is a public parameter; a bare DOT ID can't contain
+    # spaces/quotes, so an arbitrary caller-supplied name must be quoted.
+    empty = pd.DataFrame(columns=["left_table", "right_table", "left_field", "right_field", "operator"])
+    dot = to_dot(empty, empty, graph_name='My "Graph"')
+    assert dot.startswith('digraph "My \\"Graph\\"" {')
+
+
 def test_parser_get_relationship_graph_dot(wenjie_path):
     p = TwbParser(wenjie_path)
     dot = p.get_relationship_graph_dot()
-    assert dot.startswith("digraph twb {")
+    assert dot.startswith("digraph \"twb\" {")
     assert "Sheet1" in dot
     assert "Municipal_Boundaries_of_NJ" in dot
 

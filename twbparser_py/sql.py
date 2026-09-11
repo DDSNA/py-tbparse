@@ -59,9 +59,14 @@ def extract_initial_sql(xml_doc) -> pd.DataFrame:
     rows = []
     for node in nodes:
         parent = node.getparent()
-        conn_id = None
-        if parent is not None:
-            conn_id = parent.get("name") or parent.get("caption")
+        # R's `xml_attr(xml_parent(nodes), "name") %||% xml_attr(..., "caption")`
+        # operates on the whole name-vector at once: since xml_attr()
+        # never returns NULL for a non-empty nodeset (missing attributes
+        # become NA elements, not a NULL vector), `%||%` never actually
+        # substitutes the caption vector -- it's dead code in the R
+        # source. Match that (quirky but real) behavior: use only `name`,
+        # with no per-node caption fallback.
+        conn_id = parent.get("name") if parent is not None else None
         rows.append(
             {
                 "connection_id": conn_id,

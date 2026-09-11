@@ -13,7 +13,7 @@ _PUBLISHED_MARKER_RE = re.compile(
     r"published|tableau server|tableau cloud|catalog-id|content-url", re.IGNORECASE
 )
 
-_PUBLISHED_COLUMNS = ["name", "caption", "likely_published", "hints"]
+_PUBLISHED_COLUMNS = ["name", "caption", "hasconn", "likely_published", "hints"]
 
 
 def extract_published_refs(xml_doc) -> pd.DataFrame:
@@ -43,6 +43,7 @@ def extract_published_refs(xml_doc) -> pd.DataFrame:
             {
                 "name": ds.get("name"),
                 "caption": ds.get("caption"),
+                "hasconn": hasconn,
                 "likely_published": likely_published,
                 "hints": hints,
             }

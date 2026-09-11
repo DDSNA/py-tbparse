@@ -144,9 +144,12 @@ def _run_batch(argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     raw_argv = sys.argv[1:] if argv is None else list(argv)
-    if raw_argv[:1] == ["diff"]:
+    # "diff"/"batch" are reserved subcommand keywords, but don't let that
+    # shadow an actual workbook that happens to be named exactly "diff" or
+    # "batch" (no extension) sitting in the current directory.
+    if raw_argv[:1] == ["diff"] and not Path("diff").exists():
         return _run_diff(raw_argv[1:])
-    if raw_argv[:1] == ["batch"]:
+    if raw_argv[:1] == ["batch"] and not Path("batch").exists():
         return _run_batch(raw_argv[1:])
 
     args = build_arg_parser().parse_args(argv)

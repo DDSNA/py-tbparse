@@ -113,7 +113,7 @@ def test_graph_endpoint(server, wenjie_path):
     _post(server, "/load", {"path": wenjie_path})
     status, data = _get(server, "/graph")
     assert status == 200
-    assert data["dot"].startswith("digraph twb {")
+    assert data["dot"].startswith("digraph \"twb\" {")
     assert "Sheet1" in data["dot"]
 
 
@@ -123,4 +123,4 @@ def test_graph_download(server, wenjie_path):
         assert r.status == 200
         assert r.headers.get("Content-Type", "").startswith("text/vnd.graphviz")
         body = r.read().decode()
-    assert body.startswith("digraph twb {")
+    assert body.startswith("digraph \"twb\" {")
