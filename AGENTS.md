@@ -55,11 +55,19 @@ the upstream package, function-for-function:
 | `dashboards.py` | `R/dashboard_details.R` (subset) | `list_dashboards`, `dashboard_sheets` |
 | `validators.py` | `R/validators.R` | `validate_relationships` |
 | `parser.py` | `R/twb_parser.R` (`TwbParser` R6 class) | The `TwbParser` façade tying every module together |
+| `_tables.py` | — (Python-only) | Name → `TwbParser` accessor registry shared by `cli.py` and `webgui.py`, not ported from R |
+| `cli.py` | — (Python-only) | `twbparser` command-line entry point |
+| `webgui.py` | — (Python-only, loosely mirrors `run_twbparser_app`/Shiny) | `twbparser-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency |
 
 `parser.py`'s `TwbParser.__init__` mirrors the R6 constructor: it eagerly
 computes every cached DataFrame, guarding each with `_safe_call` (the port
 of R's `safe_call`/`tryCatch`) so a malformed workbook degrades to empty,
 correctly-columned DataFrames instead of raising.
+
+`_tables.py`, `cli.py`, and `webgui.py` have no R source to track — they're
+the Python-native user-facing layer on top of `TwbParser`. Adding a new
+extractor to `TwbParser`? Add it to `_tables.TABLE_SPECS` too so it's
+automatically available from both the CLI and the GUI.
 
 ## Porting conventions (read before adding/modifying a function)
 

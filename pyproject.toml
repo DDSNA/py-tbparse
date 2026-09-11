@@ -17,6 +17,10 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=7"]
 
+[project.scripts]
+twbparser = "twbparser_py.cli:main"
+twbparser-gui = "twbparser_py.webgui:main"
+
 [tool.setuptools.packages.find]
 include = ["twbparser_py*"]
 

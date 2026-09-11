@@ -35,6 +35,39 @@ p.validate()
 p.get_overview()
 ```
 
+### CLI
+
+```bash
+twbparser workbook.twb                              # overview (default table)
+twbparser workbook.twb tables                        # list available tables
+twbparser workbook.twb calculated-fields             # print a table
+twbparser workbook.twb fields --format csv -o fields.csv
+twbparser workbook.twbx dashboard-sheets --dashboard "Sales Overview"
+twbparser workbook.twb validate                       # exit code 2 if invalid
+```
+
+Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`,
+`calculated-fields`, `joins`, `relations`, `relationships`,
+`inferred-relationships`, `dashboards`, `dashboard-sheets`. `--format`
+is `table` (default), `csv`, or `json`.
+
+### GUI
+
+A local, browser-based GUI — standard library only (`http.server` +
+vanilla JS), no GUI toolkit or extra dependency required:
+
+```bash
+twbparser-gui workbook.twb   # opens your default browser
+twbparser-gui                # opens with an empty path field; paste one and click Load
+twbparser-gui --no-browser --port 8765   # just run the server, e.g. for a headless box
+```
+
+Pick a table from the dropdown, filter `dashboard-sheets` by dashboard,
+toggle "include Parameters" for `calculated-fields`, and export the
+current view as CSV. All state lives server-side in memory for the life
+of the process — it's a single-user local tool, not something to expose
+on a shared network.
+
 ## Testing
 
 ```bash
