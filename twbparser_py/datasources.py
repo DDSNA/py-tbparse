@@ -13,6 +13,16 @@ import pandas as pd
 
 from ._clean import attr_safe_get, basename_safe, clean_table, strip_brackets
 
+
+def _coalesce(*vals):
+    """First non-None value, unlike Python's `or` this keeps "" (matches
+    R's `dplyr::coalesce()`/`%||%`, which only substitute on NA/NULL, not
+    on empty strings)."""
+    for v in vals:
+        if v is not None:
+            return v
+    return None
+
 _ATHENA_RE = re.compile(r"athena\.", re.IGNORECASE)
 _ATHENA_REGION_RE = re.compile(r".*athena\.([^.]+)\..*")
 _TRAILING_HEX32 = re.compile(r"_[0-9A-Fa-f]{32}$")
@@ -64,13 +74,15 @@ def extract_named_connections(xml_doc) -> pd.DataFrame:
         schema = attr_safe_get(a, "schema")
         warehouse = attr_safe_get(a, "warehouse")
 
-        target = server or directory or fn
+        target = _coalesce(server, directory, fn)
 
         region = None
         if server and _ATHENA_RE.search(server):
-            m = _ATHENA_REGION_RE.match(server.lower())
-            if m:
-                region = m.group(1)
+            # R's sub() returns the original (lowercased) string unchanged
+            # when the finer region pattern doesn't match, rather than NA.
+            low = server.lower()
+            m = _ATHENA_REGION_RE.match(low)
+            region = m.group(1) if m else low
 
         rows.append(
             {

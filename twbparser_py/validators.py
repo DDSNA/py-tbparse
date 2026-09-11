@@ -23,9 +23,18 @@ def _clean_pool(series: pd.Series) -> list[str]:
 
 
 def _base_token(x) -> str:
-    s = _clean_str(x)
-    m = _FUNC_CALL_FULL_RE.fullmatch(s)
-    inside = m.group(1) if m else s
+    # R's base_token() runs the function-call regex on the raw value
+    # first, and only strips brackets/whitespace afterward -- do the same
+    # order here, since pre-trimming changes which values match the
+    # anchored NAME(...) pattern (e.g. a whitespace-padded raw value would
+    # no longer match after pre-trimming in R, but would in Python if we
+    # cleaned first).
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        raw = ""
+    else:
+        raw = str(x)
+    m = _FUNC_CALL_FULL_RE.fullmatch(raw)
+    inside = m.group(1) if m else raw
     inside = re.sub(r"[\[\]]", "", inside).strip()
     parts = [p for p in inside.split(".") if p]
     return parts[-1] if parts else inside

@@ -1,7 +1,9 @@
 """Dashboard listing and worksheet-placement extraction.
 
-Port of R/dashboard_details.R (`twb_dashboard_sheets`) plus a simple
-dashboard-name lister (mirrors `.ins_dashboards`).
+Port of R/dashboard_details.R (`twb_dashboard_sheets`). `list_dashboards`
+is a deliberately simplified name-only lister for this v1 subset, not a
+full port of R's `.ins_dashboards` (which also reports per-dashboard
+worksheet/zone counts) -- see AGENTS.md's v2 scope.
 """
 
 from __future__ import annotations
@@ -15,14 +17,22 @@ _SHEETS_COLUMNS = ["dashboard", "sheet", "zone_id", "x", "y", "w", "h"]
 
 
 def _int_attr(node, name) -> Optional[int]:
-    """Port of `.int_attr`."""
+    """Port of `.int_attr`.
+
+    R's `as.integer(xml_attr(...))` parses the string as a double first and
+    truncates, so a fractional coordinate like "682.666" (Tableau does emit
+    these for some floating-layout zones) becomes 682 rather than failing.
+    """
     val = node.get(name)
     if val is None:
         return None
     try:
         return int(val)
-    except (TypeError, ValueError):
-        return None
+    except ValueError:
+        try:
+            return int(float(val))
+        except (TypeError, ValueError):
+            return None
 
 
 def _dashboard_xpath(dashboard: Optional[str]) -> str:

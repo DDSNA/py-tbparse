@@ -74,7 +74,14 @@ class TwbParser:
             {"data_sources": pd.DataFrame(), "parameters": pd.DataFrame(), "all_sources": pd.DataFrame()},
             self.xml_doc,
         )
-        self.calculated_fields = _safe_call(extract_calculated_fields, pd.DataFrame(), self.xml_doc)
+        # Cache with include_parameters=True so get_calculated_fields()'s
+        # own include_parameters flag can actually restore Parameters rows
+        # later -- caching with the extractor's default (False) would drop
+        # them permanently and make that flag a no-op (a bug present in the
+        # upstream R package, not reproduced here).
+        self.calculated_fields = _safe_call(
+            extract_calculated_fields, pd.DataFrame(), self.xml_doc, include_parameters=True
+        )
         self.last_validation: Optional[dict] = None
 
     # --- TWBX helpers ---
@@ -163,7 +170,7 @@ class TwbParser:
                     "datasources": _n(self.get_datasources()),
                     "parameters": _n(self.get_parameters()),
                     "relationships": _n(self.relationships),
-                    "calculated_fields": _n(self.calculated_fields),
+                    "calculated_fields": _n(self.get_calculated_fields()),
                     "raw_fields": _n(self.fields),
                     "inferred_relationships": _n(self.inferred_relationships),
                     "dashboards": n_dash,

@@ -40,7 +40,9 @@ def extract_relations(xml_doc) -> pd.DataFrame:
                 "connection": attr_safe_get(attrs, "connection"),
                 "type": attr_safe_get(attrs, "type"),
                 "join": attr_safe_get(attrs, "join"),
-                "custom_sql": "".join(node.itertext()) or None,
+                # R's xml_text() always returns a string (never NULL), so
+                # a relation with no text keeps "" rather than becoming NA.
+                "custom_sql": "".join(node.itertext()),
             }
         )
     return pd.DataFrame(rows, columns=_RELATION_COLUMNS).drop_duplicates()
@@ -142,7 +144,9 @@ def extract_relationships(xml_doc) -> pd.DataFrame:
         if ex is None:
             continue
 
-        op = ex.get("op") or "="
+        # xpath predicate [@op] guarantees the attribute is present (though
+        # possibly empty) -- preserve "" rather than forcing "=".
+        op = ex.get("op")
         expr_children = ex.findall("./expression")
         lhs = expr_children[0] if len(expr_children) > 0 else None
         rhs = expr_children[1] if len(expr_children) > 1 else None

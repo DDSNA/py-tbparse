@@ -51,3 +51,24 @@ def test_extract_joins_empty():
     xml_doc = xml_from_string("<workbook></workbook>")
     joins = extract_joins(xml_doc)
     assert joins.empty
+
+
+def test_extract_joins_preserves_empty_operator():
+    # A present-but-empty op="" attribute must be kept as "", not coerced
+    # to "=" -- xpath's [@op] predicate guarantees it's present, so this
+    # isn't the "missing attribute" case that legitimately defaults to "=".
+    xml_doc = xml_from_string(
+        """
+        <workbook>
+          <relation type="join" join="left">
+            <expression op="">
+              <expression op="[Orders].[CustomerID]"/>
+              <expression op="[Customers].[CustomerID]"/>
+            </expression>
+          </relation>
+        </workbook>
+        """
+    )
+    joins = extract_joins(xml_doc)
+    assert len(joins) == 1
+    assert joins.iloc[0]["operator"] == ""

@@ -1,4 +1,5 @@
 from twbparser_py import dashboard_sheets, list_dashboards
+from twbparser_py.dashboards import _int_attr
 from conftest import xml_from_string
 
 _XML = """
@@ -40,3 +41,17 @@ def test_dashboard_sheets_filtered_by_name():
     assert len(sheets) == 1
     sheets_missing = dashboard_sheets(xml_doc, dashboard="Nope")
     assert sheets_missing.empty
+
+
+def test_int_attr_truncates_fractional_coordinates():
+    # R's as.integer(xml_attr(...)) parses via double and truncates, so a
+    # fractional zone coordinate (Tableau emits these for some
+    # floating-layout zones) must truncate rather than come back as None.
+    xml_doc = xml_from_string('<zone w="682.666"/>')
+    assert _int_attr(xml_doc, "w") == 682
+
+
+def test_int_attr_none_for_missing_or_garbage():
+    xml_doc = xml_from_string('<zone w="not-a-number"/>')
+    assert _int_attr(xml_doc, "w") is None
+    assert _int_attr(xml_doc, "missing") is None

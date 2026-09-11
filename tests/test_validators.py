@@ -1,7 +1,7 @@
 import pandas as pd
 
 from twbparser_py import TwbParser
-from twbparser_py.validators import validate_relationships
+from twbparser_py.validators import _base_token, validate_relationships
 
 
 class _FakeParser:
@@ -47,3 +47,16 @@ def test_validate_relationships_on_real_fixture(wenjie_path):
     parser = TwbParser(wenjie_path)
     result = parser.validate()
     assert result["ok"] is True
+
+
+def test_base_token_well_formed_function_call():
+    assert _base_token("INT([GEOID])") == "GEOID"
+
+
+def test_base_token_whitespace_padded_value_does_not_simplify():
+    # R runs the anchored NAME(...) regex on the raw value first; leading/
+    # trailing whitespace makes the fullmatch fail, so R falls back to the
+    # (bracket-stripped, trimmed) raw string rather than unwrapping the
+    # function call. Pre-trimming before the regex (as a naive port would)
+    # changes the result.
+    assert _base_token(" INT([GEOID]) ") == "INT(GEOID)"

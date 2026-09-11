@@ -65,7 +65,11 @@ def extract_joins(xml_doc) -> pd.DataFrame:
             kids = en.xpath("./expression")
             if len(kids) != 2:
                 continue
-            op = en.get("op") or "="
+            # xpath predicate [@op] guarantees the attribute is present
+            # (though possibly empty) -- preserve "" rather than forcing "="
+            # (matches R, where xml_attr() already returned a non-NULL
+            # string here, so `%||%` never substitutes).
+            op = en.get("op")
             lf = _field_from_expr(kids[0])
             rf = _field_from_expr(kids[1])
             if not lf or not rf:
