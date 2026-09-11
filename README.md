@@ -17,6 +17,21 @@ Graphviz DOT export of the relationship graph, a workbook-to-workbook
 diff, folder/batch analysis across many workbooks, and Jupyter rich
 display (`_repr_html_`).
 
+### Why this was straightforward to build
+
+`.twb` is plain XML, and `.twbx` is just a zip wrapper around one. That's
+why parsing it natively in Python (no R, no reverse-engineering) was
+tractable as a weekend-scale project. Power BI's equivalent file format,
+`.pbix`, is a binary container built around the proprietary VertiPaq
+columnar storage engine — reading it programmatically needed a dedicated
+reverse-engineering effort ([PBIXRay](https://github.com/Hugoberry/pbixray),
+[pbi-tools](https://github.com/pbi-tools/pbi-tools)) that a project like
+this one never had to do. The two ecosystems aren't symmetric, though:
+Tableau's own official Python tooling for *server* automation
+([`tableauserverclient`](https://pypi.org/project/tableauserverclient/),
+`tabcmd`) is more mature and more open than anything Microsoft ships
+for Power BI's REST API.
+
 ## Install
 
 ```bash
