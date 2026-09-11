@@ -34,4 +34,9 @@ __all__ = [
     "twbx_list",
 ]
 
-__version__ = "0.1.0"
+try:
+    from importlib.metadata import PackageNotFoundError, version
+
+    __version__ = version("twbparser-py")
+except PackageNotFoundError:  # pragma: no cover - not installed, e.g. running from source
+    __version__ = "0.0.0+unknown"

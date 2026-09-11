@@ -38,6 +38,34 @@ There is no linter/formatter configured yet — match existing style
 (no trailing comments unless explaining non-obvious behavior, type hints
 via `from __future__ import annotations`).
 
+## Release / packaging
+
+```bash
+.venv/bin/pip install -e ".[dev]"     # build + twine
+rm -rf dist build twbparser_py.egg-info
+.venv/bin/python -m build              # produces dist/*.whl and dist/*.tar.gz
+.venv/bin/twine check dist/*           # validates metadata/README rendering
+```
+
+Version is single-sourced from `pyproject.toml`'s `[project].version`;
+`twbparser_py.__version__` reads it back via `importlib.metadata` at
+runtime (see `__init__.py`), so don't hardcode a second copy.
+
+Before bumping the version for a release: update `CHANGELOG.md`, bump
+`version` in `pyproject.toml`, then rebuild and smoke-test the wheel in a
+throwaway venv (`pip install dist/*.whl`, run `twbparser --help` and
+`twbparser-gui --help`, run pytest against an extracted sdist) — this
+catches packaging bugs (missing files, wrong entry points) that an
+editable install won't.
+
+CI (`.github/workflows/ci.yml`) runs pytest across Python 3.9–3.13 and
+builds+checks the distribution on every push/PR. Release
+(`.github/workflows/release.yml`) publishes to PyPI via trusted
+publishing (OIDC, no stored token) when a GitHub Release is published —
+this needs to be configured once on the PyPI project's "Trusted
+Publishers" settings page before the first release, and needs a
+`release` GitHub Environment created in repo settings.
+
 ## Architecture
 
 Each `twbparser_py/*.py` module is a direct port of one R source file in
