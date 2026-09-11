@@ -62,6 +62,18 @@ def _dashboard_sheets(p: TwbParser, dashboard: str | None = None, **_kw) -> pd.D
     return p.get_dashboard_sheets(dashboard=dashboard or None)
 
 
+def _custom_sql(p: TwbParser, **_kw) -> pd.DataFrame:
+    return p.get_custom_sql()
+
+
+def _initial_sql(p: TwbParser, **_kw) -> pd.DataFrame:
+    return p.get_initial_sql()
+
+
+def _published_refs(p: TwbParser, **_kw) -> pd.DataFrame:
+    return p.get_published_refs()
+
+
 # Order here is display order in both the CLI's `tables` listing and the
 # GUI's table dropdown.
 TABLE_SPECS: dict[str, Callable[..., pd.DataFrame]] = {
@@ -77,6 +89,9 @@ TABLE_SPECS: dict[str, Callable[..., pd.DataFrame]] = {
     "inferred-relationships": _inferred_relationships,
     "dashboards": _dashboards,
     "dashboard-sheets": _dashboard_sheets,
+    "custom-sql": _custom_sql,
+    "initial-sql": _initial_sql,
+    "published-refs": _published_refs,
 }
 
 TABLE_NAMES = list(TABLE_SPECS)

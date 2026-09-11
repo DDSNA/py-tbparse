@@ -16,8 +16,11 @@ from .calculated_fields import extract_calculated_fields, extract_raw_fields
 from .dashboards import dashboard_sheets, list_dashboards
 from .datasources import extract_datasource_details
 from .fields import extract_columns_with_table_source, infer_implicit_relationships
+from .graph import to_dot
 from .joins import extract_joins
+from .published import extract_published_refs
 from .relationships import extract_relations, extract_relationships
+from .sql import extract_custom_sql, extract_initial_sql
 from .validators import validate_relationships
 
 
@@ -82,6 +85,9 @@ class TwbParser:
         self.calculated_fields = _safe_call(
             extract_calculated_fields, pd.DataFrame(), self.xml_doc, include_parameters=True
         )
+        self.custom_sql = _safe_call(extract_custom_sql, pd.DataFrame(), self.xml_doc)
+        self.initial_sql = _safe_call(extract_initial_sql, pd.DataFrame(), self.xml_doc)
+        self.published_refs = _safe_call(extract_published_refs, pd.DataFrame(), self.xml_doc)
         self.last_validation: Optional[dict] = None
 
     # --- TWBX helpers ---
@@ -137,6 +143,15 @@ class TwbParser:
     def get_raw_fields(self) -> pd.DataFrame:
         return _safe_call(extract_raw_fields, pd.DataFrame(), self.xml_doc)
 
+    def get_custom_sql(self) -> pd.DataFrame:
+        return self.custom_sql
+
+    def get_initial_sql(self) -> pd.DataFrame:
+        return self.initial_sql
+
+    def get_published_refs(self) -> pd.DataFrame:
+        return self.published_refs
+
     def get_dashboards(self) -> pd.DataFrame:
         return _safe_call(list_dashboards, pd.DataFrame(columns=["name"]), self.xml_doc)
 
@@ -147,6 +162,20 @@ class TwbParser:
             self.xml_doc,
             dashboard,
         )
+
+    def get_relationship_graph_dot(self, include_inferred: bool = False) -> str:
+        """Render joins + relationships (and optionally inferred
+        relationships) as a Graphviz DOT digraph string."""
+        return to_dot(
+            self.get_joins(),
+            self.get_relationships(),
+            self.get_inferred_relationships() if include_inferred else None,
+        )
+
+    def _repr_html_(self) -> str:
+        """Rich display for Jupyter/IPython: renders `get_overview()`."""
+        overview_html = self.get_overview().to_html(index=False, na_rep="")
+        return f"<div><b>TwbParser</b>: {os.path.basename(self.path or '')}</div>{overview_html}"
 
     # --- validator bridge ---
     def validate(self, error: bool = False) -> dict:

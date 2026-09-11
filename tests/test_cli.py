@@ -69,3 +69,26 @@ def test_dashboard_sheets_with_filter(wenjie_path, capsys):
 def test_unknown_table_rejected_by_argparse(wenjie_path):
     with pytest.raises(SystemExit):
         cli.main([wenjie_path, "not-a-real-table"])
+
+
+def test_graph_prints_dot(wenjie_path, capsys):
+    rc = cli.main([wenjie_path, "graph"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out.startswith("digraph twb {")
+    assert "Sheet1" in out
+
+
+def test_graph_output_to_file(wenjie_path, tmp_path):
+    out_file = tmp_path / "graph.dot"
+    rc = cli.main([wenjie_path, "graph", "--output", str(out_file)])
+    assert rc == 0
+    assert out_file.read_text().startswith("digraph twb {")
+
+
+def test_new_v2_tables_are_listed(capsys):
+    rc = cli.main(["ignored.twb", "tables"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    for name in ("custom-sql", "initial-sql", "published-refs"):
+        assert name in out

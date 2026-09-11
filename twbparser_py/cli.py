@@ -43,9 +43,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "table",
         nargs="?",
         default="overview",
-        choices=[*TABLE_NAMES, "validate", "tables"],
+        choices=[*TABLE_NAMES, "validate", "tables", "graph"],
         help="which table to print (default: overview); 'tables' lists options; "
-        "'validate' checks relationships",
+        "'validate' checks relationships; 'graph' prints a Graphviz DOT digraph "
+        "of joins/relationships",
     )
     ap.add_argument(
         "--format", "-f", choices=["table", "csv", "json"], default="table",
@@ -58,6 +59,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--include-parameters", action="store_true",
         help="include the 'Parameters' datasource in 'calculated-fields'",
+    )
+    ap.add_argument(
+        "--include-inferred", action="store_true",
+        help="for 'graph': also include dashed edges from inferred_relationships",
     )
     return ap
 
@@ -75,6 +80,11 @@ def main(argv: list[str] | None = None) -> int:
     except (FileNotFoundError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+
+    if args.table == "graph":
+        dot = parser.get_relationship_graph_dot(include_inferred=args.include_inferred)
+        _write(dot, args.output)
+        return 0
 
     if args.table == "validate":
         result = parser.validate()

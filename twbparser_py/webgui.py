@@ -74,8 +74,11 @@ _PAGE = """<!doctype html>
   <label id="paramsWrap" style="display:none">
     <input type="checkbox" id="includeParams"> include Parameters
   </label>
+  <label id="inferredWrap" style="display:none">
+    <input type="checkbox" id="includeInferred"> include inferred (dashed)
+  </label>
   <a id="exportLink" href="#" download>
-    <button type="button">Export CSV</button>
+    <button type="button" id="exportBtn">Export CSV</button>
   </a>
 </div>
 <div id="meta"></div>
@@ -100,11 +103,18 @@ async function fetchJSON(url, opts) {
 function populateTables() {
   const sel = $('tableSel');
   sel.innerHTML = '';
-  (window.TABLE_NAMES || []).forEach((name) => {
+  const names = (window.TABLE_NAMES || []).concat(['graph']);
+  names.forEach((name) => {
     const opt = document.createElement('option');
     opt.value = name; opt.textContent = name;
     sel.appendChild(opt);
   });
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
 }
 
 async function loadWorkbook() {
@@ -136,6 +146,22 @@ async function showTable() {
   const name = $('tableSel').value;
   $('dashboardWrap').style.display = name === 'dashboard-sheets' ? '' : 'none';
   $('paramsWrap').style.display = name === 'calculated-fields' ? '' : 'none';
+  $('inferredWrap').style.display = name === 'graph' ? '' : 'none';
+  $('exportBtn').textContent = name === 'graph' ? 'Export DOT' : 'Export CSV';
+
+  if (name === 'graph') {
+    const params = new URLSearchParams();
+    if ($('includeInferred').checked) params.set('include_inferred', 'true');
+    try {
+      const data = await fetchJSON('/graph?' + params.toString());
+      $('tableWrap').innerHTML = '<pre>' + escapeHtml(data.dot) + '</pre>';
+      $('meta').textContent = data.dot.split('\n').length + ' line(s)';
+      $('exportLink').href = '/graph?' + params.toString() + '&download=1';
+    } catch (e) {
+      setStatus('Error: ' + e.message, true);
+    }
+    return;
+  }
 
   const params = new URLSearchParams({name});
   if (name === 'dashboard-sheets' && $('dashboardSel').value) {
@@ -159,6 +185,7 @@ $('path').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadWorkbo
 $('tableSel').addEventListener('change', showTable);
 $('dashboardSel').addEventListener('change', showTable);
 $('includeParams').addEventListener('change', showTable);
+$('includeInferred').addEventListener('change', showTable);
 
 populateTables();
 if (window.PRELOAD_PATH) {
@@ -228,6 +255,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": f"unknown table '{name}'"}, 404)
                 return
             self._send_json({"html": _df_to_html(df), "rows": int(len(df))})
+            return
+
+        if parsed.path == "/graph":
+            if _STATE["parser"] is None:
+                self._send_json({"error": "No workbook loaded"}, 400)
+                return
+            include_inferred = (qs.get("include_inferred") or ["false"])[0] == "true"
+            dot = _STATE["parser"].get_relationship_graph_dot(include_inferred=include_inferred)
+            if (qs.get("download") or ["0"])[0] == "1":
+                self._send(
+                    200,
+                    dot,
+                    "text/vnd.graphviz; charset=utf-8",
+                    {"Content-Disposition": 'attachment; filename="relationships.dot"'},
+                )
+                return
+            self._send_json({"dot": dot})
             return
 
         if parsed.path == "/dashboards":

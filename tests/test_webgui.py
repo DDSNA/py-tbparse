@@ -101,3 +101,26 @@ def test_dashboards_endpoint_empty_before_load(server):
     status, data = _get(server, "/dashboards")
     assert status == 200
     assert data["dashboards"] == []
+
+
+def test_graph_before_load_errors(server):
+    status, data = _get(server, "/graph")
+    assert status == 400
+    assert "error" in data
+
+
+def test_graph_endpoint(server, wenjie_path):
+    _post(server, "/load", {"path": wenjie_path})
+    status, data = _get(server, "/graph")
+    assert status == 200
+    assert data["dot"].startswith("digraph twb {")
+    assert "Sheet1" in data["dot"]
+
+
+def test_graph_download(server, wenjie_path):
+    _post(server, "/load", {"path": wenjie_path})
+    with urllib.request.urlopen(server + "/graph?download=1") as r:
+        assert r.status == 200
+        assert r.headers.get("Content-Type", "").startswith("text/vnd.graphviz")
+        body = r.read().decode()
+    assert body.startswith("digraph twb {")
