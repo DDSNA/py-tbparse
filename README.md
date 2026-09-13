@@ -116,6 +116,18 @@ pytest
 Fixtures in `tests/fixtures/` are the same tiny sample workbooks used by
 the original R package's test suite (`inst/extdata/`).
 
+The GUI additionally has end-to-end tests that drive the page in a real
+headless Chromium (via Playwright) and fail on any uncaught JavaScript
+error. They're opt-in — without the browser installed they skip and the
+rest of the suite runs normally:
+
+```bash
+pip install -e ".[test,browser]"
+playwright install chromium          # add --with-deps if you have root
+./scripts/setup-browser-libs.sh      # no-root alternative to --with-deps
+pytest tests/test_gui_browser.py
+```
+
 ## Credit
 
 Ported from the R implementation by George Arthur

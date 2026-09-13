@@ -40,6 +40,16 @@ python3 -m venv .venv
 .venv/bin/python -m py_compile twbparser_py/*.py     # syntax check
 ```
 
+Browser (GUI) tests need a one-time setup; without it they skip and the
+rest of the suite still runs:
+
+```bash
+.venv/bin/pip install -e ".[browser]"
+.venv/bin/playwright install chromium
+./scripts/setup-browser-libs.sh        # only on a machine without root
+.venv/bin/python -m pytest -q tests/test_gui_browser.py
+```
+
 There is no linter/formatter configured yet — match existing style
 (no trailing comments unless explaining non-obvious behavior, type hints
 via `from __future__ import annotations`).
@@ -153,6 +163,32 @@ beyond the R package's scope:
 - When in doubt about expected output, that's a signal to install R +
   the `twbparser` package and diff against the real function's output on
   the same fixture, rather than guessing.
+
+### Testing the GUI
+
+`tests/test_webgui.py` drives the HTTP endpoints directly — it never
+executes the page's JavaScript. That blind spot shipped a real bug: a
+`SyntaxError` in the inline `<script>` (a `\n` in a non-raw Python
+string became a literal newline, splitting a JS string literal across
+two lines) killed the entire script, so no handlers bound and the UI was
+inert — with the whole suite green.
+
+So: **any change to `webgui.py`'s `_PAGE` needs a browser test**, in
+`tests/test_gui_browser.py`, which runs the page in real headless
+Chromium via Playwright and fails on any uncaught JS error. The cheap
+structural guards in `test_webgui.py` (unterminated string literals,
+bracket balance) are a backstop, not a substitute.
+
+Watch for this specific trap: `_PAGE` is a normal Python string, so any
+backslash escape meant for the *browser* must be doubled (`'\\n'` in the
+Python source so JS receives `'\n'`).
+
+`scripts/setup-browser-libs.sh` unpacks Chromium's system libraries into
+a gitignored `.browser-libs/` instead of apt-installing them as root;
+the test fixture picks that directory up automatically via
+`LD_LIBRARY_PATH`. Don't add `pytest-playwright` — it's a pytest plugin
+that imports playwright at startup, which makes collection fail for
+anyone who doesn't have it installed.
 
 ## Commit / PR conventions
 

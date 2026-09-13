@@ -5,3 +5,5 @@ __pycache__/
 .venv/
 build/
 dist/
+# unpacked Chromium system libraries (see scripts/setup-browser-libs.sh)
+.browser-libs/
