@@ -155,7 +155,7 @@ async function showTable() {
     try {
       const data = await fetchJSON('/graph?' + params.toString());
       $('tableWrap').innerHTML = '<pre>' + escapeHtml(data.dot) + '</pre>';
-      $('meta').textContent = data.dot.split('\n').length + ' line(s)';
+      $('meta').textContent = data.dot.split('\\n').length + ' line(s)';
       $('exportLink').href = '/graph?' + params.toString() + '&download=1';
     } catch (e) {
       setStatus('Error: ' + e.message, true);

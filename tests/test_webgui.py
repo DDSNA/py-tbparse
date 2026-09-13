@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -7,6 +8,15 @@ from http.server import ThreadingHTTPServer
 import pytest
 
 from twbparser_py import webgui
+
+
+def _page_script(base) -> str:
+    """The <script> body of the served page, as the browser receives it."""
+    with urllib.request.urlopen(base + "/") as r:
+        page = r.read().decode()
+    match = re.search(r"<script>(.*?)</script>", page, re.S)
+    assert match, "served page has no <script> block"
+    return match.group(1)
 
 
 @pytest.fixture
@@ -101,6 +111,51 @@ def test_dashboards_endpoint_empty_before_load(server):
     status, data = _get(server, "/dashboards")
     assert status == 200
     assert data["dashboards"] == []
+
+
+def test_page_js_has_no_string_literal_split_across_lines(server):
+    # Regression: _PAGE is a non-raw Python string, so writing '\n' inside
+    # the embedded JS made *Python* emit a real newline, splitting a JS
+    # string literal across two physical lines. That's a SyntaxError, and
+    # it kills the whole <script> -- no listeners bind, the table dropdown
+    # stays empty and the Load button does nothing. A JS string literal
+    # can't span a physical line, so an odd number of unescaped quotes on
+    # any line means an unterminated literal.
+    js = _page_script(server)
+    offenders = []
+    for lineno, line in enumerate(js.splitlines(), 1):
+        for quote in ("'", '"'):
+            if len(re.findall(r"(?<!\\)" + quote, line)) % 2:
+                offenders.append((lineno, quote, line.strip()[:60]))
+    assert not offenders, f"unterminated JS string literal(s): {offenders}"
+
+
+def test_page_js_escapes_newline_for_javascript(server):
+    # The JS must receive a two-character \n escape, not a literal newline.
+    js = _page_script(server)
+    assert r"split('\n')" in js
+
+
+def test_page_js_brackets_are_balanced(server):
+    js = _page_script(server)
+    # Strip string literals first so braces/parens inside them don't count.
+    stripped = re.sub(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"", "''", js)
+    for opener, closer in (("{", "}"), ("(", ")"), ("[", "]")):
+        assert stripped.count(opener) == stripped.count(closer), (
+            f"unbalanced {opener}{closer} in page JS"
+        )
+
+
+def test_page_js_binds_expected_handlers(server):
+    # Cheap guard that the interactive wiring is present at all.
+    js = _page_script(server)
+    for fragment in (
+        "$('loadBtn').addEventListener",
+        "$('tableSel').addEventListener",
+        "function populateTables()",
+        "populateTables();",
+    ):
+        assert fragment in js, f"missing JS wiring: {fragment}"
 
 
 def test_graph_before_load_errors(server):
