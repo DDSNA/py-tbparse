@@ -30,7 +30,21 @@ def _df_to_html(df: pd.DataFrame) -> str:
     return df.to_html(index=False, na_rep="", classes="tbl", border=0, escape=True)
 
 
-_PAGE = """<!doctype html>
+def _json_for_script(obj) -> str:
+    """`json.dumps()` output safe to splice into an HTML `<script>` block.
+
+    `json.dumps` doesn't escape `/`, so a loaded workbook path containing
+    the literal text `</script>` would close the script tag early in the
+    browser's HTML parser (parsed before any JS ever runs) and let
+    arbitrary markup/script from that path follow it on the page.
+    Escaping every solidus as `\\/` -- a legal JSON escape -- neutralizes
+    any such closing-tag sequence regardless of case or which tag it
+    targets, without changing the decoded value.
+    """
+    return json.dumps(obj).replace("/", "\\/")
+
+
+_PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -155,7 +169,7 @@ async function showTable() {
     try {
       const data = await fetchJSON('/graph?' + params.toString());
       $('tableWrap').innerHTML = '<pre>' + escapeHtml(data.dot) + '</pre>';
-      $('meta').textContent = data.dot.split('\\n').length + ' line(s)';
+      $('meta').textContent = data.dot.split('\n').length + ' line(s)';
       $('exportLink').href = '/graph?' + params.toString() + '&download=1';
     } catch (e) {
       setStatus('Error: ' + e.message, true);
@@ -235,8 +249,8 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/":
             page = _PAGE.replace(
                 "populateTables();",
-                f"window.TABLE_NAMES = {json.dumps(TABLE_NAMES)};\n"
-                f"window.PRELOAD_PATH = {json.dumps(_STATE['path'])};\n"
+                f"window.TABLE_NAMES = {_json_for_script(TABLE_NAMES)};\n"
+                f"window.PRELOAD_PATH = {_json_for_script(_STATE['path'])};\n"
                 "populateTables();",
             )
             self._send(200, page)

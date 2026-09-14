@@ -74,8 +74,12 @@ throwaway venv (`pip install dist/*.whl`, run `twbparser --help` and
 catches packaging bugs (missing files, wrong entry points) that an
 editable install won't.
 
-CI (`.github/workflows/ci.yml`) runs pytest across Python 3.9–3.13 and
-builds+checks the distribution on every push/PR. Release
+CI (`.github/workflows/ci.yml`) runs pytest across Python 3.9–3.13, runs
+the browser GUI tests in real Chromium (`gui` job), and builds+checks the
+distribution on every push/PR. `build` depends on both `test` and `gui`
+— don't drop `gui` from `build`'s `needs`, or a broken-page build can
+succeed and publish an artifact while the one job that would have caught
+it fails off to the side. Release
 (`.github/workflows/release.yml`) publishes to PyPI via trusted
 publishing (OIDC, no stored token) when a GitHub Release is published —
 this needs to be configured once on the PyPI project's "Trusted
@@ -135,14 +139,30 @@ beyond the R package's scope:
    `.xpath(...)` calls.
 3. **Empty-input contract**: every extractor returns an empty DataFrame
    with the *correct columns* (not just `pd.DataFrame()`) when there's no
-   matching XML — callers (esp. `parser.py`) rely on this.
+   matching XML — callers (esp. `parser.py`) rely on this. Each module
+   exposes its column list as a `_XXX_COLUMNS` constant (e.g.
+   `joins._JOIN_COLUMNS`, `datasources._DATASOURCE_COLUMNS`) precisely so
+   `parser.py`'s `_safe_call` fallbacks can reuse it instead of retyping
+   the list a second time (which drifted out of sync once already).
 4. **Cleaning helpers**: always route table/field name cleanup through
    `_clean.clean_table` / `_clean.clean_field` / `_clean.strip_brackets`
-   rather than re-deriving regexes inline.
+   rather than re-deriving regexes inline. Same for "is this value
+   missing" checks — use `_clean.is_missing(x)`, not a hand-rolled
+   `pd.isna()`/`isinstance(x, float)` check (its edge cases, like NaT or
+   array-likes, are easy to get subtly wrong per call site).
 5. **No R dependency, ever.** If a future port needs something R gets
    from `dplyr`/`igraph` for free (e.g. graph layout for
    `plot_dependency_graph`), find a pure-Python equivalent or scope it
    out — don't reach for `rpy2`/subprocess-to-R.
+6. **XPath string literals**: never build one with
+   `f"...='{value}'"` or a `.replace("'", "")` — user/workbook-controlled
+   values (a dashboard name, say) can contain `'`, `"`, or both, and
+   XPath 1.0 has no in-literal escape character. Use
+   `dashboards._xpath_string_literal(value)` (or extend it if a new
+   module needs the same thing), which picks a quoting style or falls
+   back to `concat()` as needed — verified against real `lxml` evaluation
+   for the tricky cases (leading/trailing/consecutive quotes, both quote
+   types at once).
 
 ## Testing conventions
 
@@ -179,16 +199,31 @@ Chromium via Playwright and fails on any uncaught JS error. The cheap
 structural guards in `test_webgui.py` (unterminated string literals,
 bracket balance) are a backstop, not a substitute.
 
-Watch for this specific trap: `_PAGE` is a normal Python string, so any
-backslash escape meant for the *browser* must be doubled (`'\\n'` in the
-Python source so JS receives `'\n'`).
+`_PAGE` is declared as `r"""..."""` (a **raw** string) specifically so
+this can't recur: without `r`, any backslash escape meant for the
+*browser* (`\n`, `\t`, a future `\'`) would need doubling in the Python
+source, and forgetting to double it silently corrupts the embedded JS
+instead of erroring. Keep it raw — write JS escapes the normal JS way
+(`'\n'`, not `'\\n'`).
+
+Any server-side value spliced into `_PAGE` (currently `TABLE_NAMES` and
+the preloaded workbook path) must go through `_json_for_script()`, not
+bare `json.dumps()`. `json.dumps` doesn't escape `/`, so a value
+containing the literal text `</script>` closes the script tag early in
+the browser's HTML parser — this is real, not theoretical, since the
+workbook path is user-controlled input; see
+`test_preload_path_cannot_break_out_of_script_tag` for a reproduction.
 
 `scripts/setup-browser-libs.sh` unpacks Chromium's system libraries into
 a gitignored `.browser-libs/` instead of apt-installing them as root;
 the test fixture picks that directory up automatically via
-`LD_LIBRARY_PATH`. Don't add `pytest-playwright` — it's a pytest plugin
-that imports playwright at startup, which makes collection fail for
-anyone who doesn't have it installed.
+`LD_LIBRARY_PATH`. It verifies each download against the checksum
+`apt-get --print-uris` reports for it (SHA256 if offered, MD5Sum as the
+realistic fallback — this environment's apt only emits MD5Sum) before
+extracting; don't remove that step to "simplify" the script. Don't add
+`pytest-playwright` — it's a pytest plugin that imports playwright at
+startup, which makes collection fail for anyone who doesn't have it
+installed.
 
 ## Commit / PR conventions
 

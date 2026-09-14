@@ -55,7 +55,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, gui]
     steps:
       - uses: actions/checkout@v4
 

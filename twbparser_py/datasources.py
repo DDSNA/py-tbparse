@@ -27,6 +27,17 @@ _ATHENA_RE = re.compile(r"athena\.", re.IGNORECASE)
 _ATHENA_REGION_RE = re.compile(r".*athena\.([^.]+)\..*")
 _TRAILING_HEX32 = re.compile(r"_[0-9A-Fa-f]{32}$")
 
+_DATASOURCE_COLUMNS = [
+    "datasource", "primary_table", "connection_id", "connection_caption",
+    "connection_class", "connection_target", "datasource_name",
+    "field_count", "connection_type", "location",
+]
+_PARAMETER_COLUMNS = [
+    "datasource", "name", "tableau_internal_name", "datatype", "role",
+    "parameter_type", "allowable_type", "current_value", "is_parameter",
+    "table", "table_clean",
+]
+
 _DATASOURCE_XPATH = (
     "/workbook/datasources/datasource[@name and not(ancestor::view)]"
 )
@@ -105,7 +116,7 @@ def extract_parameters(xml_doc) -> pd.DataFrame:
     """Port of `extract_parameters()`."""
     ds_nodes = xml_doc.xpath(_DATASOURCE_XPATH)
     if not ds_nodes:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=_PARAMETER_COLUMNS)
 
     rows = []
     for ds in ds_nodes:
@@ -135,12 +146,7 @@ def extract_parameters(xml_doc) -> pd.DataFrame:
                     "table_clean": clean_table(raw_tbl),
                 }
             )
-    cols = [
-        "datasource", "name", "tableau_internal_name", "datatype", "role",
-        "parameter_type", "allowable_type", "current_value", "is_parameter",
-        "table", "table_clean",
-    ]
-    return pd.DataFrame(rows, columns=cols).drop_duplicates()
+    return pd.DataFrame(rows, columns=_PARAMETER_COLUMNS).drop_duplicates()
 
 
 def extract_datasource_details(xml_doc) -> dict:
@@ -238,15 +244,10 @@ def extract_datasource_details(xml_doc) -> dict:
             final["datasource_name"].notna(), final["connection_caption"]
         )
 
-    keep = [
-        "datasource", "primary_table", "connection_id", "connection_caption",
-        "connection_class", "connection_target", "datasource_name",
-        "field_count", "connection_type", "location",
-    ]
-    for c in keep:
+    for c in _DATASOURCE_COLUMNS:
         if c not in final.columns:
             final[c] = pd.Series(dtype="object")
-    final = final[keep]
+    final = final[_DATASOURCE_COLUMNS]
 
     try:
         params = extract_parameters(xml_doc)

@@ -11,6 +11,7 @@ import collections
 
 import pandas as pd
 
+from ._clean import is_missing
 from ._tables import TABLE_SPECS
 from .parser import TwbParser
 
@@ -22,14 +23,7 @@ def _normalize_cell(v):
     single value so rows compare equal regardless of which dtype pandas
     happened to pick per-column, and so the value is hashable for the
     multiset comparison below."""
-    if v is None:
-        return None
-    try:
-        if pd.isna(v):
-            return None
-    except (TypeError, ValueError):
-        pass
-    return v
+    return None if is_missing(v) else v
 
 
 def diff_tables(a_df: pd.DataFrame, b_df: pd.DataFrame) -> pd.DataFrame:

@@ -4,6 +4,7 @@ import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -90,6 +91,46 @@ def test_load_missing_file(server):
     status, data = _post(server, "/load", {"path": "nope.twb"})
     assert status == 400
     assert "error" in data
+
+
+def test_preload_path_cannot_break_out_of_script_tag(server, wenjie_path, tmp_path):
+    # _STATE['path'] (whatever string was POSTed to /load) gets spliced
+    # into the served page's <script> block via json.dumps(). json.dumps
+    # doesn't escape '/', so a path containing the literal text
+    # "</script>" would close the script tag early in the browser's HTML
+    # parser -- before any JS runs -- letting arbitrary markup/script
+    # from that path follow it on the page.
+    #
+    # A literal "/" can't appear inside one filename component (it's the
+    # OS path separator), but the dangerous 9-char sequence "</script>"
+    # can still appear in the *stringified path* by spanning a directory
+    # boundary: a dir literally named "<" containing a dir literally
+    # named "script>" -- both perfectly legal Linux filenames on their
+    # own -- concatenate to ".../</script>/..." once joined with "/".
+    evil_dir = tmp_path / "<" / "script>"
+    evil_dir.mkdir(parents=True)
+    evil_workbook = evil_dir / "wb.twb"
+    evil_workbook.write_bytes(Path(wenjie_path).read_bytes())
+    assert "</script>" in str(evil_workbook), "test setup didn't reproduce the trigger sequence"
+
+    status, data = _post(server, "/load", {"path": str(evil_workbook)})
+    assert status == 200
+    assert data["ok"] is True
+
+    with urllib.request.urlopen(server + "/") as r:
+        page = r.read().decode()
+
+    # The page must contain exactly one <script> element: if the path's
+    # embedded "</script>" broke out of the intended script block, the
+    # HTML parser would see (and this would count) a second one.
+    assert page.count("<script>") == 1
+    assert page.count("</script>") == 1
+    # But the path itself (escaped) must still be present and round-trip
+    # correctly -- \/ is a legal JSON escape, so json.loads decodes it
+    # back to "/" on its own, no manual unescaping needed.
+    js = re.search(r"<script>(.*?)</script>", page, re.S).group(1)
+    literal = re.search(r"PRELOAD_PATH = (\".*?\");", js).group(1)
+    assert json.loads(literal) == str(evil_workbook)
 
 
 def test_unknown_table_404(server, wenjie_path):

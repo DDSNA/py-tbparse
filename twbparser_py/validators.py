@@ -9,11 +9,13 @@ import re
 
 import pandas as pd
 
+from ._clean import is_missing
+
 _FUNC_CALL_FULL_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\((.*)\)")
 
 
 def _clean_str(x) -> str:
-    if x is None or (isinstance(x, float) and pd.isna(x)):
+    if is_missing(x):
         return ""
     return re.sub(r"[\[\]]", "", str(x)).strip()
 
@@ -29,7 +31,7 @@ def _base_token(x) -> str:
     # anchored NAME(...) pattern (e.g. a whitespace-padded raw value would
     # no longer match after pre-trimming in R, but would in Python if we
     # cleaned first).
-    if x is None or (isinstance(x, float) and pd.isna(x)):
+    if is_missing(x):
         raw = ""
     else:
         raw = str(x)

@@ -1,5 +1,5 @@
 from twbparser_py import dashboard_sheets, list_dashboards
-from twbparser_py.dashboards import _int_attr
+from twbparser_py.dashboards import _int_attr, _xpath_string_literal
 from conftest import xml_from_string
 
 _XML = """
@@ -55,3 +55,53 @@ def test_int_attr_none_for_missing_or_garbage():
     xml_doc = xml_from_string('<zone w="not-a-number"/>')
     assert _int_attr(xml_doc, "w") is None
     assert _int_attr(xml_doc, "missing") is None
+
+
+def test_dashboard_sheets_filter_handles_apostrophe_in_name():
+    # The old implementation stripped "'" out of the filter value instead
+    # of escaping it, so a real dashboard named "Sales's Report" (which
+    # the GUI's own dropdown offers verbatim, via get_dashboards()) could
+    # never be matched by --dashboard/dashboard=.
+    xml_doc = xml_from_string(
+        """
+        <workbook>
+          <dashboards>
+            <dashboard name="Sales's Report">
+              <zones>
+                <zone id="1" worksheet="Sheet1" x="0" y="0" w="600" h="400"/>
+              </zones>
+            </dashboard>
+          </dashboards>
+        </workbook>
+        """
+    )
+    sheets = dashboard_sheets(xml_doc, dashboard="Sales's Report")
+    assert len(sheets) == 1
+    assert sheets.iloc[0]["dashboard"] == "Sales's Report"
+
+
+def test_xpath_string_literal_plain():
+    assert _xpath_string_literal("Overview") == "'Overview'"
+
+
+def test_xpath_string_literal_single_quote():
+    assert _xpath_string_literal("Sales's Report") == '"Sales\'s Report"'
+
+
+def test_xpath_string_literal_double_quote():
+    assert _xpath_string_literal('He said "hi"') == "'He said \"hi\"'"
+
+
+def test_xpath_string_literal_both_quote_types_round_trips():
+    # No single wrapper works when both ' and " are present -- must use
+    # concat(). Verify against a real XPath evaluation, not just the
+    # string shape, since the concat-splitting logic is easy to get
+    # subtly wrong at the boundaries (leading/trailing/consecutive ').
+    from lxml import etree
+
+    for name in ["both ' and \" here", "'leading", "trailing'", "a''b", "''''"]:
+        literal = _xpath_string_literal(name)
+        doc = etree.fromstring(
+            f'<w><d name="{name.replace(chr(34), "&quot;")}"/></w>'.encode()
+        )
+        assert doc.xpath(f".//d[@name={literal}]"), f"round-trip failed for {name!r}"

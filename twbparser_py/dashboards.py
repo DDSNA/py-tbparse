@@ -35,11 +35,33 @@ def _int_attr(node, name) -> Optional[int]:
             return None
 
 
+def _xpath_string_literal(s: str) -> str:
+    """Build an XPath 1.0 string literal for `s`, safe for names containing
+    a `'`, a `"`, or both.
+
+    XPath 1.0 has no in-literal escape character, so a value containing
+    both quote characters can't be wrapped in either on its own -- it has
+    to be assembled with `concat()`, splitting on `'` and substituting a
+    double-quoted `'` for each occurrence.
+    """
+    if "'" not in s:
+        return f"'{s}'"
+    if '"' not in s:
+        return f'"{s}"'
+    parts = s.split("'")
+    pieces = []
+    for i, part in enumerate(parts):
+        if part:
+            pieces.append(f"'{part}'")
+        if i < len(parts) - 1:
+            pieces.append("\"'\"")
+    return f"concat({','.join(pieces)})"
+
+
 def _dashboard_xpath(dashboard: Optional[str]) -> str:
     if dashboard is None:
         return ".//dashboard"
-    safe = dashboard.replace("'", "")
-    return f".//dashboard[@name='{safe}']"
+    return f".//dashboard[@name={_xpath_string_literal(dashboard)}]"
 
 
 def list_dashboards(xml_doc) -> pd.DataFrame:

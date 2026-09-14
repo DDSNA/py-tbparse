@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+import pandas as pd
+
 _TRAILING_HEX32 = re.compile(r"_[0-9A-Fa-f]{32}$")
 _LEADING_BRACKET_PREFIX = re.compile(r"^\[.*?\]\.")
 _BRACKETS = re.compile(r"[\[\]]")
@@ -47,6 +49,19 @@ def clean_field(x: Optional[str]) -> Optional[str]:
     if m:
         return m.group(1)
     return token
+
+
+def is_missing(x) -> bool:
+    """True for any "missing" scalar (`None`, float `NaN`, `NaT`, `pd.NA`,
+    ...) -- not a port of an R function, but a shared helper so callers
+    (`diff.py`, `validators.py`) don't each reimplement `pd.isna()`'s
+    edge cases (e.g. it raises on array-likes) slightly differently."""
+    if x is None:
+        return True
+    try:
+        return bool(pd.isna(x))
+    except (TypeError, ValueError):
+        return False
 
 
 def attr_safe_get(attrs: dict, name: str, default=None):

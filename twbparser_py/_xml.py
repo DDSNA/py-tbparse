@@ -93,10 +93,15 @@ def extract_twb_from_twbx(
     with zipfile.ZipFile(twbx_path) as zf:
         if extract_all:
             zf.extractall(extract_dir)
-        else:
-            zf.extract(twb_rel, extract_dir)
+        # extract() sanitizes '..'/absolute segments out of `name` before
+        # writing, and returns the *actual* destination path -- computing
+        # it ourselves via os.path.join(extract_dir, twb_rel) would
+        # silently diverge from where the file really landed for a member
+        # name like "../../evil.twb". Calling it again when extract_all
+        # already wrote this same member is redundant I/O but harmless
+        # (identical bytes), and keeps this one code path authoritative.
+        twb_path = zf.extract(twb_rel, extract_dir)
 
-    twb_path = os.path.join(extract_dir, twb_rel)
     return {
         "twb_path": twb_path,
         "exdir": extract_dir,
@@ -136,14 +141,16 @@ def twbx_extract_files(
     os.makedirs(exdir, exist_ok=True)
 
     with zipfile.ZipFile(twbx_path) as zf:
-        for name in sel["name"]:
-            zf.extract(name, exdir)
+        # extract() returns the sanitized destination path -- see the
+        # comment in extract_twb_from_twbx() for why os.path.join(exdir, n)
+        # would diverge from it for a member name containing '..'.
+        out_paths = [zf.extract(name, exdir) for name in sel["name"]]
 
     return pd.DataFrame(
         {
             "name": sel["name"].tolist(),
             "type": sel["type"].tolist(),
-            "out_path": [os.path.join(exdir, n) for n in sel["name"]],
+            "out_path": out_paths,
         }
     )
 

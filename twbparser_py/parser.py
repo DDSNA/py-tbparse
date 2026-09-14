@@ -12,15 +12,19 @@ import pandas as pd
 from lxml import etree
 
 from ._xml import extract_twb_from_twbx
-from .calculated_fields import extract_calculated_fields, extract_raw_fields
-from .dashboards import dashboard_sheets, list_dashboards
-from .datasources import extract_datasource_details
-from .fields import extract_columns_with_table_source, infer_implicit_relationships
+from .calculated_fields import _CALC_COLUMNS, _RAW_COLUMNS, extract_calculated_fields, extract_raw_fields
+from .dashboards import _DASHBOARD_COLUMNS, _SHEETS_COLUMNS, dashboard_sheets, list_dashboards
+from .datasources import (
+    _DATASOURCE_COLUMNS,
+    _PARAMETER_COLUMNS,
+    extract_datasource_details,
+)
+from .fields import _FIELDS_COLUMNS, _INFERRED_COLUMNS, extract_columns_with_table_source, infer_implicit_relationships
 from .graph import to_dot
-from .joins import extract_joins
-from .published import extract_published_refs
-from .relationships import extract_relations, extract_relationships
-from .sql import extract_custom_sql, extract_initial_sql
+from .joins import _JOIN_COLUMNS, extract_joins
+from .published import _PUBLISHED_COLUMNS, extract_published_refs
+from .relationships import _RELATION_COLUMNS, _RELATIONSHIP_COLUMNS, extract_relations, extract_relationships
+from .sql import _CUSTOM_SQL_COLUMNS, _INITIAL_SQL_COLUMNS, extract_custom_sql, extract_initial_sql
 from .validators import validate_relationships
 
 
@@ -65,16 +69,29 @@ class TwbParser:
         self.path = twb_path
         self.xml_doc = etree.parse(str(twb_path))
 
-        self.relations = _safe_call(extract_relations, pd.DataFrame(), self.xml_doc)
-        self.joins = _safe_call(extract_joins, pd.DataFrame(), self.xml_doc)
-        self.relationships = _safe_call(extract_relationships, pd.DataFrame(), self.xml_doc)
-        self.fields = _safe_call(extract_columns_with_table_source, pd.DataFrame(), self.xml_doc)
+        # Every fallback below uses the extractor's own correctly-columned
+        # empty DataFrame (per AGENTS.md's "empty-input contract") rather
+        # than a bare pd.DataFrame() -- a malformed-but-loadable workbook
+        # should degrade to "this table has no rows" for its callers, not
+        # "this table has no columns either."
+        self.relations = _safe_call(extract_relations, pd.DataFrame(columns=_RELATION_COLUMNS), self.xml_doc)
+        self.joins = _safe_call(extract_joins, pd.DataFrame(columns=_JOIN_COLUMNS), self.xml_doc)
+        self.relationships = _safe_call(
+            extract_relationships, pd.DataFrame(columns=_RELATIONSHIP_COLUMNS), self.xml_doc
+        )
+        self.fields = _safe_call(
+            extract_columns_with_table_source, pd.DataFrame(columns=_FIELDS_COLUMNS), self.xml_doc
+        )
         self.inferred_relationships = _safe_call(
-            infer_implicit_relationships, pd.DataFrame(), self.fields
+            infer_implicit_relationships, pd.DataFrame(columns=_INFERRED_COLUMNS), self.fields
         )
         self.datasource_details = _safe_call(
             extract_datasource_details,
-            {"data_sources": pd.DataFrame(), "parameters": pd.DataFrame(), "all_sources": pd.DataFrame()},
+            {
+                "data_sources": pd.DataFrame(columns=_DATASOURCE_COLUMNS),
+                "parameters": pd.DataFrame(columns=_PARAMETER_COLUMNS),
+                "all_sources": pd.DataFrame(columns=_DATASOURCE_COLUMNS),
+            },
             self.xml_doc,
         )
         # Cache with include_parameters=True so get_calculated_fields()'s
@@ -83,11 +100,20 @@ class TwbParser:
         # them permanently and make that flag a no-op (a bug present in the
         # upstream R package, not reproduced here).
         self.calculated_fields = _safe_call(
-            extract_calculated_fields, pd.DataFrame(), self.xml_doc, include_parameters=True
+            extract_calculated_fields,
+            pd.DataFrame(columns=_CALC_COLUMNS),
+            self.xml_doc,
+            include_parameters=True,
         )
-        self.custom_sql = _safe_call(extract_custom_sql, pd.DataFrame(), self.xml_doc)
-        self.initial_sql = _safe_call(extract_initial_sql, pd.DataFrame(), self.xml_doc)
-        self.published_refs = _safe_call(extract_published_refs, pd.DataFrame(), self.xml_doc)
+        self.custom_sql = _safe_call(
+            extract_custom_sql, pd.DataFrame(columns=_CUSTOM_SQL_COLUMNS), self.xml_doc
+        )
+        self.initial_sql = _safe_call(
+            extract_initial_sql, pd.DataFrame(columns=_INITIAL_SQL_COLUMNS), self.xml_doc
+        )
+        self.published_refs = _safe_call(
+            extract_published_refs, pd.DataFrame(columns=_PUBLISHED_COLUMNS), self.xml_doc
+        )
         self.last_validation: Optional[dict] = None
 
     # --- TWBX helpers ---
@@ -141,7 +167,7 @@ class TwbParser:
         return df
 
     def get_raw_fields(self) -> pd.DataFrame:
-        return _safe_call(extract_raw_fields, pd.DataFrame(), self.xml_doc)
+        return _safe_call(extract_raw_fields, pd.DataFrame(columns=_RAW_COLUMNS), self.xml_doc)
 
     def get_custom_sql(self) -> pd.DataFrame:
         return self.custom_sql
@@ -153,12 +179,12 @@ class TwbParser:
         return self.published_refs
 
     def get_dashboards(self) -> pd.DataFrame:
-        return _safe_call(list_dashboards, pd.DataFrame(columns=["name"]), self.xml_doc)
+        return _safe_call(list_dashboards, pd.DataFrame(columns=_DASHBOARD_COLUMNS), self.xml_doc)
 
     def get_dashboard_sheets(self, dashboard: Optional[str] = None) -> pd.DataFrame:
         return _safe_call(
             dashboard_sheets,
-            pd.DataFrame(columns=["dashboard", "sheet", "zone_id", "x", "y", "w", "h"]),
+            pd.DataFrame(columns=_SHEETS_COLUMNS),
             self.xml_doc,
             dashboard,
         )

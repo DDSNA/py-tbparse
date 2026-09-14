@@ -26,9 +26,9 @@ import pytest
 
 from twbparser_py import webgui
 
-sync_playwright = pytest.importorskip(
-    "playwright.sync_api", reason="playwright not installed"
-).sync_playwright
+_playwright_sync_api = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+sync_playwright = _playwright_sync_api.sync_playwright
+_PlaywrightError = _playwright_sync_api.Error
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _LOCAL_LIBS = _REPO_ROOT / ".browser-libs" / "root" / "usr" / "lib" / "x86_64-linux-gnu"
@@ -51,7 +51,15 @@ def browser():
     with sync_playwright() as pw:
         try:
             instance = pw.chromium.launch(env=_browser_env())
-        except Exception as e:  # browser binary or system libs missing
+        except _PlaywrightError as e:
+            # Playwright's own exception type for "the browser process
+            # didn't come up" (missing binary, missing system libs, etc).
+            # Deliberately NOT a bare `except Exception`: that would also
+            # swallow bugs in this fixture itself (a bad kwarg, a renamed
+            # API) as a silent, green "skipped" -- which is exactly the
+            # false-confidence failure mode this whole test file exists to
+            # catch for the GUI itself. Let anything else propagate as a
+            # real test error.
             pytest.skip(f"chromium could not launch: {str(e)[:200]}")
         yield instance
         instance.close()

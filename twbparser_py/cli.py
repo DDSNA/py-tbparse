@@ -142,14 +142,18 @@ def _run_batch(argv: list[str]) -> int:
     return 0
 
 
+def _is_reserved_subcommand(argv: list[str], name: str) -> bool:
+    """True if `argv` invokes the `name` subcommand -- but don't let that
+    shadow an actual workbook that happens to be named exactly "diff" or
+    "batch" (no extension) sitting in the current directory."""
+    return argv[:1] == [name] and not Path(name).exists()
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_argv = sys.argv[1:] if argv is None else list(argv)
-    # "diff"/"batch" are reserved subcommand keywords, but don't let that
-    # shadow an actual workbook that happens to be named exactly "diff" or
-    # "batch" (no extension) sitting in the current directory.
-    if raw_argv[:1] == ["diff"] and not Path("diff").exists():
+    if _is_reserved_subcommand(raw_argv, "diff"):
         return _run_diff(raw_argv[1:])
-    if raw_argv[:1] == ["batch"] and not Path("batch").exists():
+    if _is_reserved_subcommand(raw_argv, "batch"):
         return _run_batch(raw_argv[1:])
 
     args = build_arg_parser().parse_args(argv)
