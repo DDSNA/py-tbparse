@@ -4,33 +4,18 @@ A native Python port of the [`twbparser`](https://github.com/PrigasG/twbparser)
 R package: parses Tableau `.twb`/`.twbx` workbook files into `pandas`
 DataFrames. No R runtime required — pure `lxml` XML parsing.
 
-This is a v1 subset port covering the parser's core: workbook loading,
+This is a v1 subset covering the parser's core: workbook loading,
 datasources, parameters, fields, calculated fields, joins, relationships
 (legacy and 2020.2+), inferred relationships, dashboards, relationship
 validation, custom/initial SQL, and published-source detection.
 Formatting/tooltips/colors/axes/sorts, dashboard layout/actions,
-analytics helpers (calc complexity, field usage, replication brief),
-and the Shiny-inspector equivalent are not yet ported.
+analytics helpers (calc complexity, field usage, replication brief), and
+the Shiny-inspector equivalent are not yet ported.
 
-Beyond the R original, this port adds a few Python-native extras: a
+Beyond the R original, this port also adds a few Python-native extras: a
 Graphviz DOT export of the relationship graph, a workbook-to-workbook
 diff, folder/batch analysis across many workbooks, and Jupyter rich
 display (`_repr_html_`).
-
-### Why this was straightforward to build
-
-`.twb` is plain XML, and `.twbx` is just a zip wrapper around one. That's
-why parsing it natively in Python (no R, no reverse-engineering) was
-tractable as a weekend-scale project. Power BI's equivalent file format,
-`.pbix`, is a binary container built around the proprietary VertiPaq
-columnar storage engine — reading it programmatically needed a dedicated
-reverse-engineering effort ([PBIXRay](https://github.com/Hugoberry/pbixray),
-[pbi-tools](https://github.com/pbi-tools/pbi-tools)) that a project like
-this one never had to do. The two ecosystems aren't symmetric, though:
-Tableau's own official Python tooling for *server* automation
-([`tableauserverclient`](https://pypi.org/project/tableauserverclient/),
-`tabcmd`) is more mature and more open than anything Microsoft ships
-for Power BI's REST API.
 
 ## Install
 
@@ -127,6 +112,22 @@ playwright install chromium          # add --with-deps if you have root
 ./scripts/setup-browser-libs.sh      # no-root alternative to --with-deps
 pytest tests/test_gui_browser.py
 ```
+
+## Background
+
+`.twb` is plain XML, and `.twbx` is just a zip wrapper around one, which
+is why parsing it natively in Python — no R, no reverse-engineering —
+was tractable at this scale. Power BI's equivalent format, `.pbix`, is a
+binary container built around the proprietary VertiPaq storage engine,
+which is why reading it programmatically needed dedicated
+reverse-engineering projects like
+[PBIXRay](https://github.com/Hugoberry/pbixray) and
+[pbi-tools](https://github.com/pbi-tools/pbi-tools). The comparison
+isn't one-sided, though: Tableau's own official Python tooling for
+*server* automation
+([`tableauserverclient`](https://pypi.org/project/tableauserverclient/),
+`tabcmd`) is more mature and more open than anything Microsoft ships for
+Power BI's REST API.
 
 ## Credit
 
