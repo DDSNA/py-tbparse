@@ -67,8 +67,8 @@ Version is single-sourced from `pyproject.toml`'s `[project].version`;
 `twbparser_py.__version__` reads it back via `importlib.metadata` at
 runtime (see `__init__.py`), so don't hardcode a second copy.
 
-Before bumping the version for a release: update `CHANGELOG.md`, bump
-`version` in `pyproject.toml`, then rebuild and smoke-test the wheel in a
+Before bumping the version for a release: bump `version` in
+`pyproject.toml`, then rebuild and smoke-test the wheel in a
 throwaway venv (`pip install dist/*.whl`, run `twbparser --help` and
 `twbparser-gui --help`, run pytest against an extracted sdist) — this
 catches packaging bugs (missing files, wrong entry points) that an

@@ -7,3 +7,7 @@ build/
 dist/
 # unpacked Chromium system libraries (see scripts/setup-browser-libs.sh)
 .browser-libs/
+
+# scratch/session files only — never tracked
+/HANDOFF.md
+/CHANGELOG.md

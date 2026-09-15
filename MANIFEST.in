@@ -1,6 +1,5 @@
 include LICENSE
 include README.md
-include CHANGELOG.md
 include AGENTS.md
 recursive-include tests *.py
 include tests/fixtures/*.twb
