@@ -1,5 +1,6 @@
 import json
 import re
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -93,6 +94,11 @@ def test_load_missing_file(server):
     assert "error" in data
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="'<' and '>' are illegal in Windows filenames, so this trigger "
+    "path can't exist there in the first place",
+)
 def test_preload_path_cannot_break_out_of_script_tag(server, wenjie_path, tmp_path):
     # _STATE['path'] (whatever string was POSTed to /load) gets spliced
     # into the served page's <script> block via json.dumps(). json.dumps
