@@ -2,7 +2,7 @@ name: Release
 
 # Publishes to PyPI when a GitHub Release is published. Uses PyPI's
 # "trusted publishing" (OIDC) -- no API token stored as a secret. Set
-# this up once at https://pypi.org/manage/project/twbparser-py/settings/publishing/
+# this up once at https://pypi.org/manage/project/py-tbparse/settings/publishing/
 # (or on first publish, per PyPI's trusted-publisher onboarding flow)
 # pointing at this repo + the "release" environment + this workflow file.
 
