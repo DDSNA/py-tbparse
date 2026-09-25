@@ -3,8 +3,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "twbparser-py"
-version = "0.1.1.dev0"
+name = "py-tbparse"
+version = "0.1.1"
 description = "Native Python port of the twbparser R package: parse Tableau .twb/.twbx workbooks into pandas DataFrames."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -40,7 +40,7 @@ twbparser = "twbparser_py.cli:main"
 twbparser-gui = "twbparser_py.webgui:main"
 
 [tool.setuptools.packages.find]
-include = ["twbparser_py*"]
+include = ["twbparser_py*", "py-tbparse*"]
 
 [tool.setuptools.package-data]
 twbparser_py = ["py.typed"]
