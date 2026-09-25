@@ -78,3 +78,16 @@ jobs:
         with:
           name: dist
           path: dist/
+
+       # ---- SBOM ----
+      - name: Install CycloneDX
+        run: pip install cyclonedx-bom
+
+      - name: Generate SBOM
+        run: cyclonedx-py environment --output-format JSON --output-file sbom.cdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
