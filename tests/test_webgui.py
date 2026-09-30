@@ -90,6 +90,41 @@ def test_load_and_fetch_table(server, wenjie_path):
     assert "<table" in data["html"]
 
 
+def test_load_reports_name_and_row_counts(server, wenjie_path):
+    status, data = _post(server, "/load", {"path": wenjie_path})
+    assert status == 200
+    assert data["name"] == "test_for_wenjie.twb"
+    assert set(data["counts"]) == set(webgui.TABLE_NAMES)
+    assert data["counts"]["datasources"] == 2
+    assert data["counts"]["fields"] == 55
+
+
+def test_table_returns_json_rows_for_client_rendering(server, wenjie_path):
+    _post(server, "/load", {"path": wenjie_path})
+    status, data = _get(server, "/table?name=relationships")
+    assert status == 200
+    assert data["columns"][:3] == ["relationship_type", "left_table", "right_table"]
+    assert len(data["data"]) == data["rows"] == 1
+    row = dict(zip(data["columns"], data["data"][0]))
+    # Real JSON types (not stringified) so the page can sort numerically
+    # and render booleans as flags.
+    assert row["left_is_calc"] is False
+    assert row["left_table"] == "Sheet1"
+
+
+def test_table_json_uses_null_for_missing_values(server, wenjie_path):
+    _post(server, "/load", {"path": wenjie_path})
+    status, data = _get(server, "/table?name=fields")
+    caption = data["columns"].index("caption")
+    assert any(r[caption] is None for r in data["data"])
+
+
+def test_page_includes_app_version(server):
+    with urllib.request.urlopen(server + "/") as r:
+        body = r.read().decode()
+    assert "window.APP_VERSION = " in body
+
+
 def test_load_missing_file(server):
     status, data = _post(server, "/load", {"path": "nope.twb"})
     assert status == 400

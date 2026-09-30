@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import os
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +20,7 @@ from urllib.parse import parse_qs, urlparse, urlsplit
 
 import pandas as pd
 
+from . import __version__
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .parser import TwbParser
 
@@ -29,6 +31,25 @@ def _df_to_html(df: pd.DataFrame) -> str:
     if df is None or df.empty:
         return "<p class='empty'>(empty)</p>"
     return df.to_html(index=False, na_rep="", classes="tbl", border=0, escape=True)
+
+
+def _df_to_records(df: pd.DataFrame) -> dict:
+    """Columns plus JSON-safe row lists (NaN/None -> null) for the page to
+    render, sort and filter client-side."""
+    split = json.loads(df.to_json(orient="split", index=False, default_handler=str))
+    return {"columns": split["columns"], "data": split["data"]}
+
+
+def _table_counts(parser: TwbParser) -> dict:
+    """Row count per table, for the sidebar badges. A table whose extractor
+    raises gets None instead of failing the whole load."""
+    counts = {}
+    for name, fn in TABLE_SPECS.items():
+        try:
+            counts[name] = int(len(fn(parser)))
+        except Exception:
+            counts[name] = None
+    return counts
 
 
 def _json_for_script(obj) -> str:
@@ -91,59 +112,266 @@ _PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>twbparser</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 0;
-         padding: 16px; background: Canvas; color: CanvasText; }
-  h1 { font-size: 1.1rem; margin: 0 0 12px; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
-  input[type=text] { flex: 1; min-width: 220px; padding: 6px 8px; font-size: 0.9rem; }
-  select, button, label { font-size: 0.9rem; }
-  button { padding: 6px 12px; cursor: pointer; }
-  #status { font-size: 0.85rem; opacity: 0.75; margin-bottom: 10px; min-height: 1.2em; }
-  #status.err { color: #c0392b; opacity: 1; }
-  .tbl { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
-  .tbl th, .tbl td { border: 1px solid #8884; padding: 4px 8px; text-align: left;
-                      white-space: nowrap; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
-  .tbl th { position: sticky; top: 0; background: Canvas; }
-  #tableWrap { overflow: auto; max-height: 72vh; border: 1px solid #8884; }
-  .empty { opacity: 0.6; font-style: italic; }
-  #meta { font-size: 0.8rem; opacity: 0.7; margin: 6px 0; }
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --text: #1c222b;
+    --muted: #5d6877;
+    --border: #e2e5ea;
+    --accent: #2c6bd9;
+    --accent-text: #ffffff;
+    --accent-soft: #e7effc;
+    --hover: #f2f5fa;
+    --code-bg: #f1f3f6;
+    --danger: #c0392b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216;
+      --panel: #171b21;
+      --text: #e5e8ed;
+      --muted: #97a1b0;
+      --border: #2a3039;
+      --accent: #6b9dff;
+      --accent-text: #0f1216;
+      --accent-soft: #1c2940;
+      --hover: #1d232b;
+      --code-bg: #11151a;
+      --danger: #ff6b5b;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; }
+  body { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--text); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* top bar */
+  .top { position: sticky; top: 0; z-index: 10; background: var(--panel);
+         border-bottom: 1px solid var(--border); }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; padding: 10px 20px; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 15px; }
+  .brand svg { color: var(--accent); }
+  .brand .ver { font-weight: 400; font-size: 12px; color: var(--muted); }
+  .open { flex: 1; display: flex; gap: 8px; min-width: 260px; }
+  #status { padding: 0 20px 8px; margin-top: -2px; font-size: 12.5px; color: var(--muted);
+            min-height: 1.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #status.err { color: var(--danger); }
+
+  /* controls */
+  .field { height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 7px;
+           background: var(--bg); color: inherit; font: inherit; min-width: 0; }
+  .open .field { flex: 1; font-family: var(--mono); font-size: 13px; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px;
+         border: 1px solid var(--border); border-radius: 7px; background: var(--panel);
+         color: inherit; font: inherit; text-decoration: none; cursor: pointer; white-space: nowrap; }
+  .btn:hover { background: var(--hover); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text);
+                 font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn:disabled { opacity: .6; cursor: progress; }
+  .btn.small { height: 28px; padding: 0 10px; font-size: 12.5px; }
+  .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted);
+           cursor: pointer; white-space: nowrap; }
+  select.field { padding-right: 4px; }
+
+  /* start screen */
+  .hero { max-width: 580px; margin: 12vh auto 0; padding: 0 20px; text-align: center; }
+  .hero svg { color: var(--accent); }
+  .hero h1 { font-size: 22px; margin: 14px 0 8px; }
+  .hero p { color: var(--muted); margin: 6px 0; }
+  code, kbd { font-family: var(--mono); font-size: 12.5px; background: var(--code-bg);
+              border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+
+  /* workspace */
+  .workspace { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px;
+               padding: 16px 20px 20px; align-items: start; }
+  .side { position: sticky; top: 88px; max-height: calc(100vh - 108px); overflow: auto;
+          background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 8px; }
+  .wb { padding: 4px 8px 12px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+  .label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+           color: var(--muted); }
+  .wb .name { font-weight: 600; margin-top: 2px; overflow-wrap: anywhere; }
+  .nav-group { padding: 12px 8px 4px; }
+  .nav-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%;
+              padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: inherit;
+              font: inherit; text-align: left; cursor: pointer; }
+  .nav-item:hover { background: var(--hover); }
+  .nav-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .count.zero { opacity: .45; }
+  .nav-item[aria-current="page"] .count { color: inherit; }
+
+  .view { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; min-width: 0; }
+  .view-head { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center;
+               justify-content: space-between; padding: 14px 16px 12px; border-bottom: 1px solid var(--border); }
+  .view-head h2 { margin: 0; font-size: 17px; }
+  .desc { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+  #filter { width: 220px; }
+  .subbar { display: flex; justify-content: space-between; gap: 12px; padding: 6px 16px;
+            font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); min-height: 29px; }
+  .mobile-only { display: none; }
+
+  /* tables */
+  #tableWrap { overflow: auto; max-height: calc(100vh - 250px); }
+  .tbl { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
+  .tbl th { position: sticky; top: 0; z-index: 1; background: var(--panel); text-align: left;
+            font-weight: 600; padding: 8px 12px; border-bottom: 1px solid var(--border);
+            white-space: nowrap; cursor: pointer; user-select: none; }
+  .tbl th:hover { color: var(--accent); }
+  .tbl th .arrow { display: inline-block; width: 1em; margin-left: 2px; color: var(--accent); }
+  .tbl td { padding: 7px 12px; border-bottom: 1px solid var(--border); white-space: nowrap;
+            max-width: 380px; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+  .tbl tbody tr { cursor: pointer; }
+  .tbl tbody tr:hover { background: var(--hover); }
+  .tbl tbody tr.open td { white-space: pre-wrap; overflow-wrap: anywhere; max-width: none; }
+  .tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tbl td.code { font-family: var(--mono); font-size: 12px; }
+  .null { color: var(--muted); opacity: .55; }
+  .pill { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 11.5px;
+          background: var(--code-bg); color: var(--muted); }
+  .pill.yes { background: var(--accent-soft); color: var(--accent); }
+
+  /* overview tiles */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; padding: 16px; }
+  .stat { display: block; text-align: left; padding: 14px 14px 12px; border: 1px solid var(--border);
+          border-radius: 10px; background: var(--bg); color: inherit; font: inherit; cursor: pointer; }
+  .stat:hover { border-color: var(--accent); }
+  .stat .n { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .stat .l { color: var(--muted); font-size: 12.5px; }
+  .stat.zero .n { color: var(--muted); }
+
+  .dot { margin: 0; padding: 16px; font: 12.5px/1.55 var(--mono); white-space: pre; background: var(--code-bg); }
+  .empty-state { padding: 56px 16px; text-align: center; color: var(--muted); }
+  .empty-state strong { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
+
+  @media (max-width: 760px) {
+    .workspace { grid-template-columns: 1fr; padding: 12px; }
+    .side { display: none; }
+    .mobile-only { display: inline-flex; }
+    .bar, #status { padding-left: 12px; padding-right: 12px; }
+    #filter { width: 100%; }
+    .toolbar { width: 100%; }
+    #tableWrap { max-height: none; }
+  }
 </style>
 </head>
 <body>
-<h1>twbparser</h1>
+<header class="top">
+  <div class="bar">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
+      twbparser <span class="ver" id="version"></span>
+    </div>
+    <div class="open">
+      <input id="path" class="field" type="text" placeholder="/path/to/workbook.twb or .twbx"
+             aria-label="Workbook path" spellcheck="false" autocomplete="off">
+      <button id="loadBtn" class="btn primary" type="button">Load</button>
+    </div>
+  </div>
+  <div id="status" role="status" aria-live="polite"></div>
+</header>
 
-<div class="row">
-  <input id="path" type="text" placeholder="/path/to/workbook.twb or .twbx">
-  <button id="loadBtn">Load</button>
-</div>
-<div id="status"></div>
+<section id="empty" class="hero">
+  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>
+  <h1>Open a Tableau workbook</h1>
+  <p>Paste the path to a <code>.twb</code> or <code>.twbx</code> file above and press Load.</p>
+  <p>Parsing happens locally; the workbook never leaves this machine.</p>
+  <p>Tip: start with <code>twbparser-gui path/to/book.twbx</code> to open one directly.</p>
+</section>
 
-<div class="row" id="controls" style="display:none">
-  <label>Table:
-    <select id="tableSel"></select>
-  </label>
-  <label id="dashboardWrap" style="display:none">Dashboard:
-    <select id="dashboardSel"><option value="">(all)</option></select>
-  </label>
-  <label id="paramsWrap" style="display:none">
-    <input type="checkbox" id="includeParams"> include Parameters
-  </label>
-  <label id="inferredWrap" style="display:none">
-    <input type="checkbox" id="includeInferred"> include inferred (dashed)
-  </label>
-  <a id="exportLink" href="#" download>
-    <button type="button" id="exportBtn">Export CSV</button>
-  </a>
+<div id="controls" class="workspace" hidden>
+  <aside class="side" aria-label="Tables">
+    <div class="wb">
+      <div class="label">Workbook</div>
+      <div class="name" id="wbName"></div>
+    </div>
+    <nav id="nav"></nav>
+  </aside>
+
+  <main class="view">
+    <div class="view-head">
+      <div>
+        <h2 id="viewTitle"></h2>
+        <div class="desc" id="viewDesc"></div>
+      </div>
+      <div class="toolbar">
+        <label class="mobile-only" aria-label="Table">
+          <select id="tableSel" class="field"></select>
+        </label>
+        <input id="filter" class="field" type="search" placeholder="Filter rows  ( / )" aria-label="Filter rows">
+        <label id="dashboardWrap" class="check" hidden>Dashboard
+          <select id="dashboardSel" class="field"><option value="">(all)</option></select>
+        </label>
+        <label id="paramsWrap" class="check" hidden>
+          <input type="checkbox" id="includeParams"> Include parameters
+        </label>
+        <label id="inferredWrap" class="check" hidden>
+          <input type="checkbox" id="includeInferred"> Include inferred (dashed)
+        </label>
+        <button id="copyBtn" class="btn" type="button" hidden>Copy</button>
+        <a id="exportLink" class="btn" href="#" download><span id="exportBtn">Export CSV</span></a>
+      </div>
+    </div>
+    <div class="subbar">
+      <span id="meta"></span>
+      <span id="hint">Click a column to sort, a row to expand it.</span>
+    </div>
+    <div id="tableWrap"></div>
+  </main>
 </div>
-<div id="meta"></div>
-<div id="tableWrap"><p class="empty">Load a workbook to begin.</p></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
+
+// Sidebar grouping. Tables missing here (new ones added to _tables.py)
+// still show up, under "Other", so the registry stays the source of truth.
+const GROUPS = [
+  ['Workbook', ['overview', 'published-refs']],
+  ['Data', ['datasources', 'parameters', 'fields', 'raw-fields', 'calculated-fields']],
+  ['Data model', ['relationships', 'joins', 'relations', 'inferred-relationships', 'graph']],
+  ['Dashboards', ['dashboards', 'dashboard-sheets']],
+  ['SQL', ['custom-sql', 'initial-sql']],
+];
+
+const INFO = {
+  'overview': ['Overview', 'Counts of everything parsed from the workbook.'],
+  'datasources': ['Datasources', 'Connections and their primary tables.'],
+  'parameters': ['Parameters', 'Workbook parameters and their current values.'],
+  'fields': ['Fields', 'Every column across all datasources.'],
+  'raw-fields': ['Raw fields', 'Columns that come straight from the source.'],
+  'calculated-fields': ['Calculated fields', 'Calculations and their formulas.'],
+  'joins': ['Joins', 'Join clauses from the physical layer.'],
+  'relations': ['Relations', 'Physical tables and custom SQL relations.'],
+  'relationships': ['Relationships', 'Logical-layer relationships (Tableau 2020.2+).'],
+  'inferred-relationships': ['Inferred relationships', 'Likely links guessed from matching field names.'],
+  'dashboards': ['Dashboards', 'Dashboards defined in the workbook.'],
+  'dashboard-sheets': ['Dashboard sheets', 'Sheets placed on each dashboard, with positions.'],
+  'custom-sql': ['Custom SQL', 'Relations defined by custom SQL.'],
+  'initial-sql': ['Initial SQL', 'SQL run when a connection opens.'],
+  'published-refs': ['Published sources', 'References to published datasources.'],
+  'graph': ['Relationship graph', 'Joins and relationships as Graphviz DOT.'],
+};
+
+// Overview columns that have a table of their own to jump to.
+const OVERVIEW_LINKS = {
+  datasources: 'datasources', parameters: 'parameters', relationships: 'relationships',
+  calculated_fields: 'calculated-fields', raw_fields: 'raw-fields',
+  inferred_relationships: 'inferred-relationships', dashboards: 'dashboards',
+};
+
+const CODE_COLUMNS = new Set(['formula', 'custom_sql', 'initial_sql', 'connection_target']);
+
+const state = { table: 'overview', columns: [], data: [], sortCol: -1, sortDir: 0,
+                loaded: false, req: 0, dot: '' };
 
 function setStatus(msg, isErr) {
   statusEl.textContent = msg || '';
@@ -157,27 +385,91 @@ async function fetchJSON(url, opts) {
   return data;
 }
 
+function titleOf(name) { return (INFO[name] || [name])[0]; }
+
+function allTables() { return (window.TABLE_NAMES || []).concat(['graph']); }
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
 function populateTables() {
+  const names = allTables();
   const sel = $('tableSel');
   sel.innerHTML = '';
-  const names = (window.TABLE_NAMES || []).concat(['graph']);
   names.forEach((name) => {
     const opt = document.createElement('option');
-    opt.value = name; opt.textContent = name;
+    opt.value = name; opt.textContent = titleOf(name);
     sel.appendChild(opt);
+  });
+
+  const nav = $('nav');
+  nav.innerHTML = '';
+  const placed = new Set();
+  const groups = GROUPS.map(([title, items]) => {
+    const present = items.filter((n) => names.includes(n));
+    present.forEach((n) => placed.add(n));
+    return [title, present];
+  });
+  const other = names.filter((n) => !placed.has(n));
+  if (other.length) groups.push(['Other', other]);
+
+  groups.forEach(([title, items]) => {
+    if (!items.length) return;
+    nav.appendChild(el('div', 'label nav-group', title));
+    items.forEach((name) => {
+      const item = el('button', 'nav-item');
+      item.type = 'button';
+      item.dataset.table = name;
+      item.appendChild(el('span', '', titleOf(name)));
+      // The overview is always one row and the graph is not a table.
+      if (name !== 'overview' && name !== 'graph') {
+        const count = el('span', 'count');
+        count.dataset.countFor = name;
+        item.appendChild(count);
+      }
+      item.addEventListener('click', () => selectTable(name));
+      nav.appendChild(item);
+    });
+  });
+  if (window.APP_VERSION) $('version').textContent = 'v' + window.APP_VERSION;
+}
+
+function setCounts(counts) {
+  document.querySelectorAll('[data-count-for]').forEach((node) => {
+    const n = counts ? counts[node.dataset.countFor] : undefined;
+    node.textContent = (n === undefined || n === null) ? '' : String(n);
+    node.classList.toggle('zero', n === 0);
   });
 }
 
-function escapeHtml(s) {
-  const div = document.createElement('div');
-  div.textContent = s;
-  return div.innerHTML;
+function markCurrent() {
+  document.querySelectorAll('.nav-item').forEach((item) => {
+    if (item.dataset.table === state.table) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  });
+  $('tableSel').value = state.table;
+}
+
+function selectTable(name) {
+  if (!allTables().includes(name)) return;
+  const changed = name !== state.table;
+  state.table = name;
+  if (changed) { $('filter').value = ''; state.sortCol = -1; state.sortDir = 0; }
+  markCurrent();
+  if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+  showTable();
 }
 
 async function loadWorkbook() {
   const path = $('path').value.trim();
   if (!path) { setStatus('Enter a workbook path first.', true); return; }
   setStatus('Loading ' + path + ' ...');
+  const btn = $('loadBtn');
+  btn.disabled = true; btn.textContent = 'Loading';
   try {
     const data = await fetchJSON('/load', {
       method: 'POST',
@@ -185,7 +477,13 @@ async function loadWorkbook() {
       body: JSON.stringify({path}),
     });
     setStatus('Loaded: ' + data.path);
-    $('controls').style.display = 'flex';
+    state.loaded = true;
+    $('empty').hidden = true;
+    $('controls').hidden = false;
+    $('wbName').textContent = data.name || data.path;
+    $('wbName').title = data.path;
+    document.title = (data.name || 'workbook') + ' - twbparser';
+    setCounts(data.counts);
     const dashSel = $('dashboardSel');
     dashSel.innerHTML = '<option value="">(all)</option>';
     (data.dashboards || []).forEach((name) => {
@@ -193,25 +491,42 @@ async function loadWorkbook() {
       opt.value = name; opt.textContent = name;
       dashSel.appendChild(opt);
     });
+    const fromHash = decodeURIComponent(location.hash.slice(1));
+    if (allTables().includes(fromHash)) state.table = fromHash;
+    markCurrent();
     await showTable();
   } catch (e) {
     setStatus('Error: ' + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Load';
   }
 }
 
 async function showTable() {
-  const name = $('tableSel').value;
-  $('dashboardWrap').style.display = name === 'dashboard-sheets' ? '' : 'none';
-  $('paramsWrap').style.display = name === 'calculated-fields' ? '' : 'none';
-  $('inferredWrap').style.display = name === 'graph' ? '' : 'none';
-  $('exportBtn').textContent = name === 'graph' ? 'Export DOT' : 'Export CSV';
+  const name = state.table;
+  const isGraph = name === 'graph';
+  const isOverview = name === 'overview';
+  $('viewTitle').textContent = titleOf(name);
+  $('viewDesc').textContent = (INFO[name] || ['', ''])[1];
+  $('dashboardWrap').hidden = name !== 'dashboard-sheets';
+  $('paramsWrap').hidden = name !== 'calculated-fields';
+  $('inferredWrap').hidden = !isGraph;
+  $('copyBtn').hidden = !isGraph;
+  $('filter').hidden = isGraph || isOverview;
+  $('hint').hidden = isGraph || isOverview;
+  $('exportBtn').textContent = isGraph ? 'Export DOT' : 'Export CSV';
+  const req = ++state.req;
 
-  if (name === 'graph') {
+  if (isGraph) {
     const params = new URLSearchParams();
     if ($('includeInferred').checked) params.set('include_inferred', 'true');
     try {
       const data = await fetchJSON('/graph?' + params.toString());
-      $('tableWrap').innerHTML = '<pre>' + escapeHtml(data.dot) + '</pre>';
+      if (req !== state.req) return;
+      state.dot = data.dot;
+      const wrap = $('tableWrap');
+      wrap.innerHTML = '';
+      wrap.appendChild(el('pre', 'dot', data.dot));
       $('meta').textContent = data.dot.split('\n').length + ' line(s)';
       $('exportLink').href = '/graph?' + params.toString() + '&download=1';
     } catch (e) {
@@ -229,20 +544,162 @@ async function showTable() {
   }
   try {
     const data = await fetchJSON('/table?' + params.toString());
-    $('tableWrap').innerHTML = data.html;
-    $('meta').textContent = data.rows + ' row(s)';
+    if (req !== state.req) return;
+    state.columns = data.columns || [];
+    state.data = data.data || [];
     $('exportLink').href = '/export?' + params.toString();
+    if (isOverview) renderOverview(); else renderTable();
   } catch (e) {
     setStatus('Error: ' + e.message, true);
   }
 }
 
+function renderOverview() {
+  const wrap = $('tableWrap');
+  wrap.innerHTML = '';
+  $('meta').textContent = 'Summary';
+  const row = state.data[0] || [];
+  const cards = el('div', 'cards');
+  state.columns.forEach((col, i) => {
+    if (col === 'file') return;
+    const target = OVERVIEW_LINKS[col];
+    const value = row[i];
+    const card = el(target ? 'button' : 'div', 'stat');
+    if (target) {
+      card.type = 'button';
+      card.dataset.goto = target;
+      card.addEventListener('click', () => selectTable(target));
+    }
+    if (value === 0) card.classList.add('zero');
+    card.append(el('div', 'n', value === null ? '-' : String(value)),
+                el('div', 'l', col.split('_').join(' ')));
+    cards.appendChild(card);
+  });
+  wrap.appendChild(cards);
+}
+
+function compareValues(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  return String(a).localeCompare(String(b), undefined, {numeric: true, sensitivity: 'base'});
+}
+
+function visibleRows() {
+  const q = $('filter').value.trim().toLowerCase();
+  let rows = state.data;
+  if (q) {
+    rows = rows.filter((r) => r.some((v) => v !== null && String(v).toLowerCase().includes(q)));
+  }
+  if (state.sortCol >= 0) {
+    const i = state.sortCol;
+    const dir = state.sortDir;
+    rows = rows.slice().sort((a, b) => {
+      const x = a[i], y = b[i];
+      if (x === null || y === null) return (x === null) - (y === null);
+      return dir * compareValues(x, y);
+    });
+  }
+  return rows;
+}
+
+function toggleSort(i) {
+  if (state.sortCol !== i) { state.sortCol = i; state.sortDir = 1; }
+  else if (state.sortDir === 1) { state.sortDir = -1; }
+  else { state.sortCol = -1; state.sortDir = 0; }
+  renderTable();
+}
+
+function cellNode(col, value) {
+  const td = el('td');
+  if (value === null || value === '') {
+    td.appendChild(el('span', 'null', '-'));
+  } else if (typeof value === 'boolean') {
+    td.appendChild(el('span', value ? 'pill yes' : 'pill', value ? 'yes' : 'no'));
+  } else {
+    if (typeof value === 'number') td.className = 'num';
+    else if (CODE_COLUMNS.has(col)) td.className = 'code';
+    td.textContent = String(value);
+    td.title = String(value);
+  }
+  return td;
+}
+
+function emptyState(title, text) {
+  const box = el('div', 'empty-state');
+  box.append(el('strong', '', title), el('span', '', text));
+  return box;
+}
+
+function renderTable() {
+  const wrap = $('tableWrap');
+  wrap.innerHTML = '';
+  const total = state.data.length;
+  if (!total) {
+    $('meta').textContent = '0 row(s)';
+    wrap.appendChild(emptyState('Nothing here', 'This workbook has no rows in this table.'));
+    return;
+  }
+  const rows = visibleRows();
+  const filtered = $('filter').value.trim() !== '';
+  $('meta').textContent = filtered ? rows.length + ' of ' + total + ' row(s)' : total + ' row(s)';
+
+  const table = el('table', 'tbl');
+  const headRow = el('tr');
+  state.columns.forEach((col, i) => {
+    const th = el('th');
+    th.tabIndex = 0;
+    const sorted = state.sortCol === i;
+    th.setAttribute('aria-sort', sorted ? (state.sortDir === 1 ? 'ascending' : 'descending') : 'none');
+    th.append(el('span', '', col), el('span', 'arrow', sorted ? (state.sortDir === 1 ? '▲' : '▼') : ''));
+    th.addEventListener('click', () => toggleSort(i));
+    th.addEventListener('keydown', (e) => { if (e.key === 'Enter') toggleSort(i); });
+    headRow.appendChild(th);
+  });
+  table.appendChild(el('thead')).appendChild(headRow);
+
+  const body = el('tbody');
+  rows.forEach((r) => {
+    const tr = el('tr');
+    r.forEach((v, i) => tr.appendChild(cellNode(state.columns[i], v)));
+    tr.addEventListener('click', () => tr.classList.toggle('open'));
+    body.appendChild(tr);
+  });
+  table.appendChild(body);
+  wrap.appendChild(table);
+  if (!rows.length) wrap.appendChild(emptyState('No matches', 'No rows contain that text.'));
+}
+
+async function copyDot() {
+  try {
+    await navigator.clipboard.writeText(state.dot);
+    $('copyBtn').textContent = 'Copied';
+  } catch (e) {
+    $('copyBtn').textContent = 'Copy failed';
+  }
+  setTimeout(() => { $('copyBtn').textContent = 'Copy'; }, 1500);
+}
+
 $('loadBtn').addEventListener('click', loadWorkbook);
 $('path').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadWorkbook(); });
-$('tableSel').addEventListener('change', showTable);
+$('tableSel').addEventListener('change', () => selectTable($('tableSel').value));
 $('dashboardSel').addEventListener('change', showTable);
 $('includeParams').addEventListener('change', showTable);
 $('includeInferred').addEventListener('change', showTable);
+$('copyBtn').addEventListener('click', copyDot);
+$('filter').addEventListener('input', renderTable);
+$('filter').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { $('filter').value = ''; renderTable(); }
+});
+document.addEventListener('keydown', (e) => {
+  const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
+  if (e.key === '/' && !typing && state.loaded && !$('filter').hidden) {
+    e.preventDefault();
+    $('filter').focus();
+  }
+});
+window.addEventListener('hashchange', () => {
+  const name = decodeURIComponent(location.hash.slice(1));
+  if (state.loaded && name !== state.table) selectTable(name);
+});
 
 populateTables();
 if (window.PRELOAD_PATH) {
@@ -302,6 +759,7 @@ class Handler(BaseHTTPRequestHandler):
                 "populateTables();",
                 f"window.TABLE_NAMES = {_json_for_script(TABLE_NAMES)};\n"
                 f"window.PRELOAD_PATH = {_json_for_script(_STATE['path'])};\n"
+                f"window.APP_VERSION = {_json_for_script(__version__)};\n"
                 "populateTables();",
             )
             self._send(200, page)
@@ -319,7 +777,9 @@ class Handler(BaseHTTPRequestHandler):
             if df is None:
                 self._send_json({"error": f"unknown table '{name}'"}, 404)
                 return
-            self._send_json({"html": _df_to_html(df), "rows": int(len(df))})
+            self._send_json(
+                {"html": _df_to_html(df), "rows": int(len(df)), **_df_to_records(df)}
+            )
             return
 
         if parsed.path == "/graph":
@@ -415,6 +875,8 @@ class Handler(BaseHTTPRequestHandler):
             {
                 "ok": True,
                 "path": path,
+                "name": os.path.basename(path),
+                "counts": _table_counts(parser),
                 "dashboards": dashboards_df["name"].tolist()
                 if "name" in dashboards_df.columns
                 else [],
