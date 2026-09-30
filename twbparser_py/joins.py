@@ -65,6 +65,11 @@ def extract_joins(xml_doc) -> pd.DataFrame:
             kids = en.xpath("./expression")
             if len(kids) != 2:
                 continue
+            # Only leaf comparisons (operands are field references) are join
+            # conditions; logical wrappers like op="AND" nest expressions and
+            # are skipped here -- their leaf children are visited on their own.
+            if any(k.xpath("./expression") for k in kids):
+                continue
             # xpath predicate [@op] guarantees the attribute is present
             # (though possibly empty) -- preserve "" rather than forcing "="
             # (matches R, where xml_attr() already returned a non-NULL

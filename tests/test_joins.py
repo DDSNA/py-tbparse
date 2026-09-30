@@ -72,3 +72,33 @@ def test_extract_joins_preserves_empty_operator():
     joins = extract_joins(xml_doc)
     assert len(joins) == 1
     assert joins.iloc[0]["operator"] == ""
+
+
+def test_extract_joins_multi_key_and_wrapper_emits_no_junk_row():
+    # A two-key join wraps its '=' comparisons in an outer op="AND"
+    # expression. Only the leaf comparisons are join conditions; the AND
+    # wrapper must not become a row of its own (left_field='=', ...).
+    xml_doc = xml_from_string(
+        """
+        <workbook>
+          <relation type="join" join="inner">
+            <expression op="AND">
+              <expression op="=">
+                <expression op="[Orders].[CustomerID]"/>
+                <expression op="[Customers].[CustomerID]"/>
+              </expression>
+              <expression op="=">
+                <expression op="[Orders].[Region]"/>
+                <expression op="[Customers].[Region]"/>
+              </expression>
+            </expression>
+          </relation>
+        </workbook>
+        """
+    )
+    joins = extract_joins(xml_doc)
+    assert len(joins) == 2
+    assert "AND" not in set(joins["operator"])
+    assert list(joins["operator"]) == ["=", "="]
+    assert list(joins["left_field"]) == ["CustomerID", "Region"]
+    assert list(joins["right_field"]) == ["CustomerID", "Region"]
