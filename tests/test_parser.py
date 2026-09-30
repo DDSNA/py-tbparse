@@ -1,6 +1,9 @@
+import tempfile
+
 import pytest
 
 from twbparser_py import TwbParser
+from twbparser_py._xml import load_workbook_xml
 
 
 def test_parser_loads_twb(wenjie_path):
@@ -16,9 +19,18 @@ def test_parser_loads_twb(wenjie_path):
 def test_parser_loads_twbx(zip_twbx_path):
     p = TwbParser(zip_twbx_path)
     assert p.twbx_path is not None
-    assert p.twbx_dir is not None
     assert not p.get_twbx_manifest().empty
     assert len(p.get_raw_fields()) > 0
+    assert p.get_overview().iloc[0]["file"].endswith(".twb")
+
+
+def test_parser_twbx_leaves_no_temp_files(zip_twbx_path, tmp_path, monkeypatch):
+    # Loading a .twbx used to extract into a fresh timestamped temp dir that
+    # was never cleaned up, so batch scans / repeated GUI loads filled /tmp.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    TwbParser(zip_twbx_path)
+    load_workbook_xml(zip_twbx_path)
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_parser_missing_file_raises():
