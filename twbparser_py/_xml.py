@@ -7,6 +7,7 @@ Ports of `twbx_list`, `extract_twb_from_twbx`, `twbx_extract_files`, and the
 from __future__ import annotations
 
 import datetime as _dt
+import io
 import os
 import tempfile
 import zipfile
@@ -61,6 +62,38 @@ def twbx_list(twbx_path: str) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["name", "size_bytes", "modified", "type"])
 
 
+def _largest_twb_member(manifest: pd.DataFrame) -> str:
+    twb_rows = manifest[manifest["type"] == "workbook"].sort_values(
+        "size_bytes", ascending=False
+    )
+    if twb_rows.empty:
+        raise ValueError("No .twb file found inside .twbx")
+    return twb_rows.iloc[0]["name"]
+
+
+def read_twb_from_twbx(twbx_path: str) -> dict:
+    """Parse the largest `.twb` member of a `.twbx` straight from the zip.
+
+    Unlike `extract_twb_from_twbx()`, nothing is written to disk, so
+    repeated loads don't accumulate temp directories. Returns a dict with
+    `twb_name` (the member name), `xml_doc`, `twbx_path`, and `manifest`.
+    """
+    if not twbx_path or not os.path.exists(twbx_path):
+        raise FileNotFoundError(f"File not found: {twbx_path}")
+
+    manifest = twbx_list(twbx_path)
+    twb_rel = _largest_twb_member(manifest)
+    with zipfile.ZipFile(twbx_path) as zf:
+        data = zf.read(twb_rel)
+
+    return {
+        "twb_name": twb_rel,
+        "xml_doc": etree.parse(io.BytesIO(data)),
+        "twbx_path": os.path.abspath(twbx_path),
+        "manifest": manifest,
+    }
+
+
 def extract_twb_from_twbx(
     twbx_path: str,
     extract_dir: Optional[str] = None,
@@ -76,13 +109,7 @@ def extract_twb_from_twbx(
         raise FileNotFoundError(f"File not found: {twbx_path}")
 
     manifest = twbx_list(twbx_path)
-    twb_rows = manifest[manifest["type"] == "workbook"].sort_values(
-        "size_bytes", ascending=False
-    )
-    if twb_rows.empty:
-        raise ValueError("No .twb file found inside .twbx")
-
-    twb_rel = twb_rows.iloc[0]["name"]
+    twb_rel = _largest_twb_member(manifest)
 
     if extract_dir is None:
         stamp = _dt.datetime.now().strftime("%Y%m%d%H%M%S")
@@ -159,8 +186,7 @@ def load_workbook_xml(path: str) -> etree._ElementTree:
     """Load a .twb/.twbx path into a parsed lxml ElementTree."""
     ext = Path(path).suffix.lower().lstrip(".")
     if ext == "twbx":
-        info = extract_twb_from_twbx(path, extract_all=False)
-        twb_path = info["twb_path"]
+        return read_twb_from_twbx(path)["xml_doc"]
     elif ext == "twb":
         twb_path = path
     else:

@@ -10,11 +10,12 @@ http://127.0.0.1:<port>/ in your default browser.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlsplit
 
 import pandas as pd
 
@@ -42,6 +43,48 @@ def _json_for_script(obj) -> str:
     targets, without changing the decoded value.
     """
     return json.dumps(obj).replace("/", "\\/")
+
+
+_LOOPBACK_NAMES = {"localhost", "127.0.0.1", "::1"}
+_WILDCARD_ADDRS = {"", "0.0.0.0", "::"}
+
+
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def _host_allowed(host_header, server_address) -> bool:
+    """Whether a request's `Host` header names this server.
+
+    Defends against DNS rebinding: a page on attacker.example that
+    re-resolves its own name to 127.0.0.1 becomes same-origin with this
+    server in the browser's eyes, so it could read /table or /export --
+    but its requests still carry `Host: attacker.example:<port>`.
+
+    Allowed: loopback names or the bound address, with the bound port.
+    When bound to a wildcard (0.0.0.0 / ::) the reachable address isn't
+    knowable, so any IP-literal host is accepted instead -- an IP literal
+    can't be the product of rebinding, only a DNS name can.
+    """
+    if not host_header:
+        return False
+    try:
+        parts = urlsplit("//" + host_header.strip())
+        hostname, port = parts.hostname, parts.port or 80
+    except ValueError:
+        return False
+    if not hostname:
+        return False
+    bound_host, bound_port = server_address[0], server_address[1]
+    if port != bound_port:
+        return False
+    if hostname in _LOOPBACK_NAMES or hostname == str(bound_host).lower():
+        return True
+    return bound_host in _WILDCARD_ADDRS and _is_ip_literal(hostname)
 
 
 _PAGE = r"""<!doctype html>
@@ -242,7 +285,15 @@ class Handler(BaseHTTPRequestHandler):
         )
         return df, name
 
+    def _reject_foreign_host(self) -> bool:
+        if _host_allowed(self.headers.get("Host"), self.server.server_address):
+            return False
+        self._send(403, "forbidden: unrecognized Host header", "text/plain")
+        return True
+
     def do_GET(self):  # noqa: N802 (stdlib method name)
+        if self._reject_foreign_host():
+            return
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
 
@@ -316,8 +367,23 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, "not found", "text/plain")
 
     def do_POST(self):  # noqa: N802
+        if self._reject_foreign_host():
+            return
         if self.path != "/load":
             self._send(404, "not found", "text/plain")
+            return
+
+        # A cross-site form/fetch can only POST without a CORS preflight
+        # using a "simple" content type (text/plain, form encodings);
+        # requiring application/json forces a preflight, which this
+        # server never answers. The Origin check is belt and braces.
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            self._send_json({"error": "Content-Type must be application/json"}, 415)
+            return
+        origin = self.headers.get("Origin")
+        if origin is not None and origin.lower() != "http://" + self.headers["Host"].strip().lower():
+            self._send_json({"error": "cross-origin request rejected"}, 403)
             return
 
         length = int(self.headers.get("Content-Length", 0) or 0)

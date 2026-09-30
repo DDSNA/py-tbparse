@@ -38,7 +38,7 @@ def scan_folder(
 
     paths: list[str] = []
     for pattern in patterns:
-        paths.extend(glob.glob(os.path.join(directory, pattern)))
+        paths.extend(glob.glob(os.path.join(glob.escape(directory), pattern)))
     paths = sorted(set(paths))
 
     if not paths:

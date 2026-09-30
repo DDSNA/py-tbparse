@@ -60,3 +60,35 @@ def test_extract_relations_preserves_empty_custom_sql():
     )
     relations = extract_relations(xml_doc)
     assert relations.iloc[0]["custom_sql"] == ""
+
+
+def test_extract_relationships_multi_key_and_emits_one_row_per_clause():
+    xml_doc = xml_from_string(
+        """
+        <workbook>
+          <relationships>
+            <relationship>
+              <first-end-point object-id="A"/>
+              <second-end-point object-id="B"/>
+              <expression op="AND">
+                <expression op="=">
+                  <expression op="[a (Orders)]"/>
+                  <expression op="[a (People)]"/>
+                </expression>
+                <expression op="&lt;=">
+                  <expression op="[b (Orders)]"/>
+                  <expression op="[b (People)]"/>
+                </expression>
+              </expression>
+            </relationship>
+          </relationships>
+        </workbook>
+        """
+    )
+    rels = extract_relationships(xml_doc)
+    assert list(zip(rels["left_field"], rels["operator"], rels["right_field"])) == [
+        ("a (Orders)", "=", "a (People)"),
+        ("b (Orders)", "<=", "b (People)"),
+    ]
+    assert (rels["left_table"] == "A").all()
+    assert (rels["right_table"] == "B").all()

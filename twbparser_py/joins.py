@@ -30,6 +30,27 @@ def _field_from_expr(node) -> str | None:
     return clean_field(token)
 
 
+def _table_from_expr(node) -> str | None:
+    """Table half of a qualified op like `[Orders].[CustomerID]`.
+
+    Prefers an explicit `table` attribute (R's only source, which modern
+    Tableau never emits); otherwise takes the bracketed token before the
+    field token. Unqualified ops (a single token) yield None.
+    """
+    if node is None:
+        return None
+    explicit = node.get("table")
+    if explicit:
+        return clean_table(explicit)
+    op = node.get("op")
+    if not op:
+        return None
+    matches = _BRACKET_RE.findall(op)
+    if len(matches) < 2:
+        return None
+    return clean_table(matches[-2])
+
+
 def extract_joins(xml_doc) -> pd.DataFrame:
     """Port of `extract_joins()`."""
     join_nodes = xml_doc.xpath(".//relation[@type='join']")
@@ -65,6 +86,11 @@ def extract_joins(xml_doc) -> pd.DataFrame:
             kids = en.xpath("./expression")
             if len(kids) != 2:
                 continue
+            # Only leaf comparisons (operands are field references) are join
+            # conditions; logical wrappers like op="AND" nest expressions and
+            # are skipped here -- their leaf children are visited on their own.
+            if any(k.xpath("./expression") for k in kids):
+                continue
             # xpath predicate [@op] guarantees the attribute is present
             # (though possibly empty) -- preserve "" rather than forcing "="
             # (matches R, where xml_attr() already returned a non-NULL
@@ -75,8 +101,8 @@ def extract_joins(xml_doc) -> pd.DataFrame:
             if not lf or not rf:
                 continue
 
-            lt = clean_table(kids[0].get("table"))
-            rt = clean_table(kids[1].get("table"))
+            lt = _table_from_expr(kids[0])
+            rt = _table_from_expr(kids[1])
 
             rows.append(
                 {

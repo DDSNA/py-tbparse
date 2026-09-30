@@ -11,7 +11,7 @@ from typing import Optional
 import pandas as pd
 from lxml import etree
 
-from ._xml import extract_twb_from_twbx
+from ._xml import read_twb_from_twbx
 from .calculated_fields import _CALC_COLUMNS, _RAW_COLUMNS, extract_calculated_fields, extract_raw_fields
 from .dashboards import _DASHBOARD_COLUMNS, _SHEETS_COLUMNS, dashboard_sheets, list_dashboards
 from .datasources import (
@@ -55,19 +55,22 @@ class TwbParser:
         self.twbx_manifest: pd.DataFrame
 
         if ext == "twbx":
-            info = extract_twb_from_twbx(path, extract_all=False)
-            twb_path = info["twb_path"]
-            self.twbx_dir = info["exdir"]
+            # Parsed in memory rather than via extract_twb_from_twbx(), which
+            # would leave a temp directory behind on every load. twbx_dir
+            # stays None (nothing is extracted); self.path points at the
+            # member inside the archive so get_overview()'s "file" is
+            # unchanged -- it is not a path that exists on disk.
+            info = read_twb_from_twbx(path)
             self.twbx_path = info["twbx_path"]
             self.twbx_manifest = info["manifest"]
+            self.path = os.path.join(self.twbx_path, info["twb_name"])
+            self.xml_doc = info["xml_doc"]
         elif ext == "twb":
-            twb_path = path
             self.twbx_manifest = pd.DataFrame(columns=["name", "size_bytes", "modified", "type"])
+            self.path = path
+            self.xml_doc = etree.parse(str(path))
         else:
             raise ValueError(f"Unsupported file type: {ext}")
-
-        self.path = twb_path
-        self.xml_doc = etree.parse(str(twb_path))
 
         # Every fallback below uses the extractor's own correctly-columned
         # empty DataFrame (per AGENTS.md's "empty-input contract") rather
