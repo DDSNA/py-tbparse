@@ -16,6 +16,9 @@ from ._clean import attr_safe_get, clean_table
 _BRACKET_RE = re.compile(r"\[[^\]]+\]")
 _FUNC_START_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(")
 _FUNC_CALL_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\([^)]*\)")
+# Tableau disambiguates duplicate column names as "Field (Table)", which
+# also matches _FUNC_START_RE. R has the same false positive; excluded here.
+_DISAMBIGUATED_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s+\([^()\[\]'\",]*\)$")
 
 _RELATION_COLUMNS = ["name", "table", "connection", "type", "join", "custom_sql"]
 _RELATIONSHIP_COLUMNS = [
@@ -46,6 +49,10 @@ def extract_relations(xml_doc) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows, columns=_RELATION_COLUMNS).drop_duplicates()
+
+
+def _is_calc(x: Optional[str]) -> bool:
+    return bool(x and _FUNC_START_RE.match(x) and not _DISAMBIGUATED_NAME_RE.match(x))
 
 
 def _rel_field_expr(node) -> Optional[str]:
@@ -83,7 +90,7 @@ def _rel_field_expr(node) -> Optional[str]:
 
     if br:
         clean = [b.strip("[]") for b in br]
-        idx_fun = [c for c in clean if _FUNC_START_RE.match(c)]
+        idx_fun = [c for c in clean if _is_calc(c)]
         if idx_fun:
             return idx_fun[-1]
         return clean[-1]
@@ -161,8 +168,8 @@ def extract_relationships(xml_doc) -> pd.DataFrame:
                 "left_field": left_field,
                 "operator": op,
                 "right_field": right_field,
-                "left_is_calc": bool(left_field and _FUNC_START_RE.match(left_field)),
-                "right_is_calc": bool(right_field and _FUNC_START_RE.match(right_field)),
+                "left_is_calc": _is_calc(left_field),
+                "right_is_calc": _is_calc(right_field),
             }
         )
 
