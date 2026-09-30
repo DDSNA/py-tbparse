@@ -39,9 +39,13 @@ def extract_joins(xml_doc) -> pd.DataFrame:
     rows = []
     for join_node in join_nodes:
         join_type = attr_safe_get(dict(join_node.attrib), "join")
+        # Only this join's own conditions: skip descendants that belong to a
+        # nested <relation> (their nearest relation ancestor isn't join_node),
+        # otherwise a nested join's condition is also emitted under this type.
+        depth = join_node.xpath("count(ancestor-or-self::relation)")
 
         # 1) Preferred: clause/column style
-        for cl in join_node.xpath(".//clause"):
+        for cl in join_node.xpath(".//clause[count(ancestor::relation) = $d]", d=depth):
             op = attr_safe_get(dict(cl.attrib), "op", "=")
             cols = cl.xpath(".//column")
             if len(cols) == 2:
@@ -61,7 +65,7 @@ def extract_joins(xml_doc) -> pd.DataFrame:
                 )
 
         # 2) Fallback: expression-based join conditions (binary expressions)
-        for en in join_node.xpath(".//expression[@op]"):
+        for en in join_node.xpath(".//expression[@op][count(ancestor::relation) = $d]", d=depth):
             kids = en.xpath("./expression")
             if len(kids) != 2:
                 continue
