@@ -1,4 +1,5 @@
 import pytest
+from conftest import REAL_PARAMS_XML
 
 from twbparser_py import TwbParser
 
@@ -79,3 +80,15 @@ def test_include_parameters_actually_restores_parameters_rows(tmp_path):
 
     overview = p.get_overview()
     assert overview.iloc[0]["calculated_fields"] == 1
+
+
+def test_include_parameters_with_real_param_domain_type_columns(tmp_path):
+    # Real Parameters-datasource columns carry @param-domain-type; the flag
+    # must surface them through TwbParser, not just synthetic ones without it.
+    twb = tmp_path / "real_params.twb"
+    twb.write_text(REAL_PARAMS_XML)
+    p = TwbParser(str(twb))
+
+    assert list(p.get_calculated_fields()["datasource"]) == ["Orders"]
+    with_params = p.get_calculated_fields(include_parameters=True)
+    assert (with_params["datasource"] == "Parameters").sum() == 2
