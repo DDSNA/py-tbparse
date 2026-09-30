@@ -49,6 +49,6 @@ __all__ = [
 try:
     from importlib.metadata import PackageNotFoundError, version
 
-    __version__ = version("twbparser-py")
+    __version__ = version("py-tbparse")
 except PackageNotFoundError:  # pragma: no cover - not installed, e.g. running from source
     __version__ = "0.0.0+unknown"
