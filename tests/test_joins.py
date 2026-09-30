@@ -1,4 +1,4 @@
-from twbparser_py import extract_joins
+from twbparser_py import extract_joins, to_dot
 from conftest import xml_from_string
 
 
@@ -45,6 +45,34 @@ def test_extract_joins_expression_fallback():
     assert row["join_type"] == "left"
     assert row["left_field"] == "CustomerID"
     assert row["right_field"] == "CustomerID"
+
+
+def test_extract_joins_expression_tables_from_qualified_op():
+    # Modern Tableau puts the table inside the op string ("[Orders].[a]"),
+    # never in a `table` attribute -- without parsing it out, left/right
+    # table were None and to_dot() silently dropped the edge.
+    xml_doc = xml_from_string(
+        """
+        <workbook>
+          <relation type="join" join="inner">
+            <expression op="=">
+              <expression op="[Orders].[Region]"/>
+              <expression op="[People].[Region]"/>
+            </expression>
+          </relation>
+        </workbook>
+        """
+    )
+    joins = extract_joins(xml_doc)
+    assert len(joins) == 1
+    row = joins.iloc[0]
+    assert row["left_table"] == "Orders"
+    assert row["left_field"] == "Region"
+    assert row["right_table"] == "People"
+    assert row["right_field"] == "Region"
+
+    dot = to_dot(joins, joins.iloc[0:0])
+    assert '"Orders" -> "People" [label="Region = Region"];' in dot
 
 
 def test_extract_joins_empty():
