@@ -1,7 +1,7 @@
 import pandas as pd
 
-from twbparser_py import TwbParser
-from twbparser_py.validators import _base_token, validate_relationships
+from py_tbparse import TwbParser
+from py_tbparse.validators import _base_token, validate_relationships
 
 
 class _FakeParser:

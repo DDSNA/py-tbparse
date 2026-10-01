@@ -1,6 +1,6 @@
 import pandas as pd
 
-from twbparser_py import TwbParser, to_dot
+from py_tbparse import TwbParser, to_dot
 
 
 def test_to_dot_basic_structure():

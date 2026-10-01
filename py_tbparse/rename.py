@@ -306,6 +306,100 @@ def suggest_field_renames(
     return out
 
 
+def load_rename_mapping(source: Union[str, os.PathLike, pd.DataFrame]) -> pd.DataFrame:
+    """Read an edited rename mapping (a CSV path or a frame) back in.
+
+    The mapping is what `py-tbparse rename -f csv` prints, with the
+    `suggested` column edited by hand. Only `datasource`, `name` and
+    `suggested` are needed; a blank `suggested` means "leave this field
+    alone". Your edits are taken as given, so a `conflict` row you filled in
+    is applied. Two rows may not give the same name within one datasource.
+    Returns a frame that `build_renamed_workbook` / `apply_field_renames`
+    accept.
+    """
+    if isinstance(source, pd.DataFrame):
+        df = source.copy()
+    else:
+        df = pd.read_csv(source, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    df.columns = [str(c).strip() for c in df.columns]
+    missing = [c for c in ("datasource", "name", "suggested") if c not in df.columns]
+    if missing:
+        raise ValueError(f"mapping is missing column(s): {', '.join(missing)}")
+    for col in ("current", "reason"):
+        if col not in df.columns:
+            df[col] = ""
+    rows = []
+    for rec in df.to_dict("records"):
+        ds, name = rec["datasource"], rec["name"]
+        suggested = "" if is_missing(rec["suggested"]) else str(rec["suggested"]).strip()
+        if is_missing(ds) or is_missing(name) or not str(name).strip():
+            continue
+        current = "" if is_missing(rec["current"]) else str(rec["current"])
+        changed = bool(suggested) and suggested != current
+        if not suggested:
+            suggested = current
+        rows.append({
+            "datasource": ds, "name": name, "current": current, "suggested": suggested,
+            "reason": "from mapping" if changed else "unchanged", "score": None, "changed": changed,
+        })
+    out = pd.DataFrame(rows, columns=RENAME_COLUMNS)
+    taken: dict = {}
+    for r in out[out["changed"]].to_dict("records"):
+        slot = (r["datasource"], r["suggested"].lower())
+        if slot in taken and taken[slot] != r["name"]:
+            raise ValueError(
+                f"{r['suggested']!r} is the new name of both {taken[slot]} and {r['name']} in {r['datasource']}"
+            )
+        taken[slot] = r["name"]
+    return out
+
+
+SCHEMA_COLUMNS = ["side", "datasource", "name", "closest"]
+
+
+def compare_field_schemas(
+    fields: Union[pd.DataFrame, TwbParser],
+    reference: Union[pd.DataFrame, TwbParser, str, Iterable[str]],
+    datasource: Union[str, Iterable[str], None] = None,
+    **kwargs,
+) -> pd.DataFrame:
+    """Which fields have no counterpart across a datasource switch.
+
+    These are the ones that stay broken after Replace Data Source, because
+    the new source has nothing to take the place of the old field (or the
+    other way round). Fields are compared after `suggest_field_renames`, so
+    `ORDER_ID` in the new source matches `Order ID` in the old.
+
+    Returns `side, datasource, name, closest`: `side` is `old only` (a
+    reference field nothing in the new source matches; `datasource` blank)
+    or `new only` (a new field nothing in the reference matches). `closest`
+    is the most similar name on the other side, as a hint for a typo that
+    the cutoff was too strict for. Extra keyword arguments (`style`,
+    `fuzzy_cutoff`, ...) go to `suggest_field_renames`.
+    """
+    ref_names = _reference_names(reference)
+    sugg = suggest_field_renames(fields, reference=ref_names, datasource=datasource, **kwargs)
+    ref_keys = {_match_key(n): n for n in ref_names}
+    new_keys = {_match_key(s) for s in sugg["suggested"]}
+    rows = []
+    for r in sugg.to_dict("records"):
+        if _match_key(r["suggested"]) not in ref_keys:
+            rows.append({"side": "new only", "datasource": r["datasource"], "name": r["current"],
+                         "closest": _closest(r["suggested"], ref_names)})
+    new_names = list(sugg["suggested"])
+    for n in ref_names:
+        if _match_key(n) not in new_keys:
+            rows.append({"side": "old only", "datasource": "", "name": n,
+                         "closest": _closest(n, new_names)})
+    return pd.DataFrame(rows, columns=SCHEMA_COLUMNS)
+
+
+def _closest(name: str, candidates: list[str]) -> str:
+    keys = {_match_key(c): c for c in candidates}
+    hit = difflib.get_close_matches(_match_key(name), list(keys), n=1, cutoff=0.5)
+    return keys[hit[0]] if hit else ""
+
+
 def applicable_renames(renames: pd.DataFrame) -> pd.DataFrame:
     if renames is None or renames.empty:
         return pd.DataFrame(columns=RENAME_COLUMNS)

@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from twbparser_py import webgui
+from py_tbparse import webgui
 
 
 def _page_script(base) -> str:
@@ -64,7 +64,7 @@ def test_index_serves_html(server):
     with urllib.request.urlopen(server + "/") as r:
         assert r.status == 200
         body = r.read().decode()
-    assert "<title>twbparser</title>" in body
+    assert "<title>py-tbparse</title>" in body
 
 
 def test_tables_endpoint(server):

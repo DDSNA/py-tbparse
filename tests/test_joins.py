@@ -1,4 +1,4 @@
-from twbparser_py import extract_joins, to_dot
+from py_tbparse import extract_joins, to_dot
 from conftest import xml_from_string
 
 

@@ -1,5 +1,5 @@
-from twbparser_py import dashboard_sheets, list_dashboards
-from twbparser_py.dashboards import _int_attr, _xpath_string_literal
+from py_tbparse import dashboard_sheets, list_dashboards
+from py_tbparse.dashboards import _int_attr, _xpath_string_literal
 from conftest import xml_from_string
 
 _XML = """

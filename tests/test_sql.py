@@ -1,4 +1,4 @@
-from twbparser_py import extract_custom_sql, extract_initial_sql
+from py_tbparse import extract_custom_sql, extract_initial_sql
 from conftest import xml_from_string
 
 

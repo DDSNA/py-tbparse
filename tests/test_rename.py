@@ -3,8 +3,8 @@ import json
 import pandas as pd
 import pytest
 
-from twbparser_py import TwbParser, normalize_name, suggest_field_renames
-from twbparser_py.cli import main
+from py_tbparse import TwbParser, normalize_name, suggest_field_renames
+from py_tbparse.cli import main
 
 
 def _fields(names, ds="ds1", **extra):
@@ -244,7 +244,7 @@ def test_cli_write_workbook(wenjie_path, tmp_path, capsys):
 def test_apply_field_renames_never_overwrites(wenjie_path, tmp_path):
     import shutil
 
-    from twbparser_py import apply_field_renames
+    from py_tbparse import apply_field_renames
 
     book = tmp_path / "book.twb"
     shutil.copy(wenjie_path, book)
@@ -341,7 +341,7 @@ def test_numeric_physical_field_becomes_a_measure(wenjie_path, tmp_path):
 
 
 def test_build_report_counts_what_was_applied(wenjie_path):
-    from twbparser_py.rename import build_renamed_workbook
+    from py_tbparse.rename import build_renamed_workbook
 
     p = TwbParser(wenjie_path)
     renames = p.get_field_renames()
@@ -376,7 +376,7 @@ def test_gui_reference_parser_is_cached_until_the_file_changes(wenjie_path, tmp_
     import os
     import shutil
 
-    from twbparser_py import webgui
+    from py_tbparse import webgui
 
     ref = tmp_path / "ref.twb"
     shutil.copy(wenjie_path, ref)

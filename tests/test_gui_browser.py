@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from twbparser_py import webgui
+from py_tbparse import webgui
 
 _playwright_sync_api = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 sync_playwright = _playwright_sync_api.sync_playwright
