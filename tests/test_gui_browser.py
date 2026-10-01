@@ -180,9 +180,18 @@ def test_sidebar_shows_row_counts_after_load(page, wenjie_path):
 def test_overview_tile_opens_its_table(page, wenjie_path):
     _load(page, wenjie_path)
     _wait_meta(page, "Summary")
-    page.click('.stat[data-goto="raw-fields"]')
-    _wait_meta(page, "54 row(s)")
-    assert page.get_attribute('.nav-item[data-table="raw-fields"]', "aria-current") == "page"
+    page.click('.stat[data-goto="datasources"]')
+    _wait_meta(page, "2 row(s)")
+    assert page.get_attribute('.nav-item[data-table="datasources"]', "aria-current") == "page"
+
+
+def test_overview_tile_counts_match_the_table_they_open(page, wenjie_path):
+    _load(page, wenjie_path)
+    _wait_meta(page, "Summary")
+    for card in page.query_selector_all("#tableWrap .stat[data-goto]"):
+        target = card.get_attribute("data-goto")
+        n = card.query_selector(".n").text_content()
+        assert page.text_content(f'[data-count-for="{target}"]') == n, target
 
 
 def test_switching_table_updates_the_view(page, wenjie_path):

@@ -61,3 +61,17 @@ def test_athena_region_extracts_when_pattern_matches():
     )
     conns = extract_named_connections(xml_doc)
     assert conns.iloc[0]["region"] == "us-east-1"
+
+
+def test_parameters_fallback_keeps_columns(wenjie_xml, monkeypatch):
+    # A failing parameter extraction must still honour the empty-input
+    # contract: an empty frame with the real columns, not a bare one.
+    from twbparser_py import datasources
+
+    def boom(_xml):
+        raise RuntimeError("malformed")
+
+    monkeypatch.setattr(datasources, "extract_parameters", boom)
+    params = extract_datasource_details(wenjie_xml)["parameters"]
+    assert params.empty
+    assert list(params.columns) == datasources._PARAMETER_COLUMNS

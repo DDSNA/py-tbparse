@@ -364,7 +364,8 @@ const INFO = {
 // Overview columns that have a table of their own to jump to.
 const OVERVIEW_LINKS = {
   datasources: 'datasources', parameters: 'parameters', relationships: 'relationships',
-  calculated_fields: 'calculated-fields', raw_fields: 'raw-fields',
+  // raw_fields counts every field (as upstream R does), so it opens Fields.
+  calculated_fields: 'calculated-fields', raw_fields: 'fields',
   inferred_relationships: 'inferred-relationships', dashboards: 'dashboards',
 };
 

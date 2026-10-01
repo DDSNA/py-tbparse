@@ -252,6 +252,6 @@ def extract_datasource_details(xml_doc) -> dict:
     try:
         params = extract_parameters(xml_doc)
     except Exception:
-        params = pd.DataFrame()
+        params = pd.DataFrame(columns=_PARAMETER_COLUMNS)
 
     return {"data_sources": final, "parameters": params, "all_sources": final}
