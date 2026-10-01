@@ -38,6 +38,13 @@ def _calculated_fields(p: TwbParser, include_parameters: bool = False, **_kw) ->
     return p.get_calculated_fields(include_parameters=include_parameters)
 
 
+def _field_renames(p: TwbParser, style: str = "title", reference=None, only_changed: bool = False,
+                  datasource=None, **_kw) -> pd.DataFrame:
+    return p.get_field_renames(
+        reference=reference, style=style, only_changed=only_changed, datasource=datasource
+    )
+
+
 def _joins(p: TwbParser, **_kw) -> pd.DataFrame:
     return p.get_joins()
 
@@ -83,6 +90,7 @@ TABLE_SPECS: dict[str, Callable[..., pd.DataFrame]] = {
     "fields": _fields,
     "raw-fields": _raw_fields,
     "calculated-fields": _calculated_fields,
+    "field-renames": _field_renames,
     "joins": _joins,
     "relations": _relations,
     "relationships": _relationships,

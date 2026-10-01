@@ -15,6 +15,7 @@ from .joins import extract_joins
 from .parser import TwbParser
 from .published import extract_published_refs
 from .relationships import extract_relations, extract_relationships
+from .rename import apply_field_renames, normalize_name, suggest_field_renames
 from .sql import extract_custom_sql, extract_initial_sql
 from .validators import validate_relationships
 from ._xml import extract_twb_from_twbx, twbx_extract_files, twbx_list
@@ -44,11 +45,14 @@ __all__ = [
     "diff_tables",
     "diff_workbooks",
     "scan_folder",
+    "apply_field_renames",
+    "normalize_name",
+    "suggest_field_renames",
 ]
 
 try:
     from importlib.metadata import PackageNotFoundError, version
 
-    __version__ = version("twbparser-py")
+    __version__ = version("py-tbparse")
 except PackageNotFoundError:  # pragma: no cover - not installed, e.g. running from source
     __version__ = "0.0.0+unknown"

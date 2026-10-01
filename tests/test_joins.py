@@ -1,4 +1,4 @@
-from twbparser_py import extract_joins
+from twbparser_py import extract_joins, to_dot
 from conftest import xml_from_string
 
 
@@ -47,6 +47,34 @@ def test_extract_joins_expression_fallback():
     assert row["right_field"] == "CustomerID"
 
 
+def test_extract_joins_expression_tables_from_qualified_op():
+    # Modern Tableau puts the table inside the op string ("[Orders].[a]"),
+    # never in a `table` attribute -- without parsing it out, left/right
+    # table were None and to_dot() silently dropped the edge.
+    xml_doc = xml_from_string(
+        """
+        <workbook>
+          <relation type="join" join="inner">
+            <expression op="=">
+              <expression op="[Orders].[Region]"/>
+              <expression op="[People].[Region]"/>
+            </expression>
+          </relation>
+        </workbook>
+        """
+    )
+    joins = extract_joins(xml_doc)
+    assert len(joins) == 1
+    row = joins.iloc[0]
+    assert row["left_table"] == "Orders"
+    assert row["left_field"] == "Region"
+    assert row["right_table"] == "People"
+    assert row["right_field"] == "Region"
+
+    dot = to_dot(joins, joins.iloc[0:0])
+    assert '"Orders" -> "People" [label="Region = Region"];' in dot
+
+
 def test_extract_joins_empty():
     xml_doc = xml_from_string("<workbook></workbook>")
     joins = extract_joins(xml_doc)
@@ -72,3 +100,92 @@ def test_extract_joins_preserves_empty_operator():
     joins = extract_joins(xml_doc)
     assert len(joins) == 1
     assert joins.iloc[0]["operator"] == ""
+
+
+def test_extract_joins_multi_key_and_wrapper_emits_no_junk_row():
+    # A two-key join wraps its '=' comparisons in an outer op="AND"
+    # expression. Only the leaf comparisons are join conditions; the AND
+    # wrapper must not become a row of its own (left_field='=', ...).
+    xml_doc = xml_from_string(
+        """
+        <workbook>
+          <relation type="join" join="inner">
+            <expression op="AND">
+              <expression op="=">
+                <expression op="[Orders].[CustomerID]"/>
+                <expression op="[Customers].[CustomerID]"/>
+              </expression>
+              <expression op="=">
+                <expression op="[Orders].[Region]"/>
+                <expression op="[Customers].[Region]"/>
+              </expression>
+            </expression>
+          </relation>
+        </workbook>
+        """
+    )
+    joins = extract_joins(xml_doc)
+    assert len(joins) == 2
+    assert "AND" not in set(joins["operator"])
+    assert list(joins["operator"]) == ["=", "="]
+    assert list(joins["left_field"]) == ["CustomerID", "Region"]
+    assert list(joins["right_field"]) == ["CustomerID", "Region"]
+
+
+def test_extract_joins_nested_join_not_double_counted():
+    # inner(Orders, left(People, Returns)): the nested join's condition
+    # belongs only to the inner <relation>, not also to the outer one.
+    xml_doc = xml_from_string(
+        """
+        <workbook>
+          <relation type="join" join="inner">
+            <clause>
+              <column table="[Orders]" name="[Region]"/>
+              <column table="[People]" name="[Region]"/>
+            </clause>
+            <relation name="Orders" table="[Orders]" type="table"/>
+            <relation type="join" join="left">
+              <clause>
+                <column table="[People]" name="[r]"/>
+                <column table="[Returns]" name="[r]"/>
+              </clause>
+              <relation name="People" table="[People]" type="table"/>
+              <relation name="Returns" table="[Returns]" type="table"/>
+            </relation>
+          </relation>
+        </workbook>
+        """
+    )
+    joins = extract_joins(xml_doc)
+    assert len(joins) == 2
+    assert list(joins["join_type"]) == ["inner", "left"]
+    assert list(joins["left_field"]) == ["Region", "r"]
+
+
+def test_extract_joins_nested_expression_join_not_double_counted():
+    xml_doc = xml_from_string(
+        """
+        <workbook>
+          <relation type="join" join="inner">
+            <clause type="join">
+              <expression op="=">
+                <expression op="[Orders].[Region]"/>
+                <expression op="[People].[Region]"/>
+              </expression>
+            </clause>
+            <relation type="join" join="left">
+              <clause type="join">
+                <expression op="=">
+                  <expression op="[People].[r]"/>
+                  <expression op="[Returns].[r]"/>
+                </expression>
+              </clause>
+            </relation>
+          </relation>
+        </workbook>
+        """
+    )
+    joins = extract_joins(xml_doc)
+    assert len(joins) == 2
+    assert list(joins["join_type"]) == ["inner", "left"]
+    assert list(joins["left_field"]) == ["Region", "r"]

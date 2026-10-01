@@ -11,7 +11,7 @@ from typing import Optional
 import pandas as pd
 from lxml import etree
 
-from ._xml import extract_twb_from_twbx
+from ._xml import read_twb_from_twbx
 from .calculated_fields import _CALC_COLUMNS, _RAW_COLUMNS, extract_calculated_fields, extract_raw_fields
 from .dashboards import _DASHBOARD_COLUMNS, _SHEETS_COLUMNS, dashboard_sheets, list_dashboards
 from .datasources import (
@@ -55,19 +55,23 @@ class TwbParser:
         self.twbx_manifest: pd.DataFrame
 
         if ext == "twbx":
-            info = extract_twb_from_twbx(path, extract_all=False)
-            twb_path = info["twb_path"]
-            self.twbx_dir = info["exdir"]
+            # Parsed in memory rather than via extract_twb_from_twbx(), which
+            # would leave a temp directory behind on every load. twbx_dir
+            # stays None (nothing is extracted); self.path points at the
+            # member inside the archive so get_overview()'s "file" is
+            # unchanged -- it is not a path that exists on disk.
+            info = read_twb_from_twbx(path)
             self.twbx_path = info["twbx_path"]
             self.twbx_manifest = info["manifest"]
+            self.twb_name = info["twb_name"]
+            self.path = os.path.join(self.twbx_path, info["twb_name"])
+            self.xml_doc = info["xml_doc"]
         elif ext == "twb":
-            twb_path = path
             self.twbx_manifest = pd.DataFrame(columns=["name", "size_bytes", "modified", "type"])
+            self.path = path
+            self.xml_doc = etree.parse(str(path))
         else:
             raise ValueError(f"Unsupported file type: {ext}")
-
-        self.path = twb_path
-        self.xml_doc = etree.parse(str(twb_path))
 
         # Every fallback below uses the extractor's own correctly-columned
         # empty DataFrame (per AGENTS.md's "empty-input contract") rather
@@ -197,6 +201,19 @@ class TwbParser:
             self.get_relationships(),
             self.get_inferred_relationships() if include_inferred else None,
         )
+
+    def get_field_renames(self, reference=None, **kwargs) -> pd.DataFrame:
+        """Suggested clean field names; see `rename.suggest_field_renames`."""
+        from .rename import suggest_field_renames
+
+        return suggest_field_renames(self, reference=reference, **kwargs)
+
+    def write_renamed_workbook(self, output_path=None, renames=None, overwrite=False, **kwargs) -> str:
+        """Save a copy of the workbook with clean field names; returns its
+        path. See `rename.apply_field_renames`."""
+        from .rename import apply_field_renames
+
+        return apply_field_renames(self, renames, output_path, overwrite, **kwargs)
 
     def _repr_html_(self) -> str:
         """Rich display for Jupyter/IPython: renders `get_overview()`."""

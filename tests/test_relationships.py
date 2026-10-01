@@ -60,3 +60,97 @@ def test_extract_relations_preserves_empty_custom_sql():
     )
     relations = extract_relations(xml_doc)
     assert relations.iloc[0]["custom_sql"] == ""
+
+
+def test_extract_relationships_multi_key_and_emits_one_row_per_clause():
+    xml_doc = xml_from_string(
+        """
+        <workbook>
+          <relationships>
+            <relationship>
+              <first-end-point object-id="A"/>
+              <second-end-point object-id="B"/>
+              <expression op="AND">
+                <expression op="=">
+                  <expression op="[a (Orders)]"/>
+                  <expression op="[a (People)]"/>
+                </expression>
+                <expression op="&lt;=">
+                  <expression op="[b (Orders)]"/>
+                  <expression op="[b (People)]"/>
+                </expression>
+              </expression>
+            </relationship>
+          </relationships>
+        </workbook>
+        """
+    )
+    rels = extract_relationships(xml_doc)
+    assert list(zip(rels["left_field"], rels["operator"], rels["right_field"])) == [
+        ("a (Orders)", "=", "a (People)"),
+        ("b (Orders)", "<=", "b (People)"),
+    ]
+    assert (rels["left_table"] == "A").all()
+    assert (rels["right_table"] == "B").all()
+
+
+def _single_relationship(lhs_op, rhs_op):
+    xml_doc = xml_from_string(
+        f"""
+        <workbook>
+          <relationships>
+            <relationship>
+              <first-end-point object-id="A"/>
+              <second-end-point object-id="B"/>
+              <expression op="=">
+                <expression op="{lhs_op}"/>
+                <expression op="{rhs_op}"/>
+              </expression>
+            </relationship>
+          </relationships>
+        </workbook>
+        """
+    )
+    rels = extract_relationships(xml_doc)
+    assert len(rels) == 1
+    return rels.iloc[0]
+
+
+def test_extract_relationships_disambiguated_name_is_not_calc():
+    # Tableau disambiguates duplicate column names as "Field (Table)"; that
+    # word + " (...)" shape must not be mistaken for a function call.
+    row = _single_relationship("[Region (People)]", "[Region]")
+    assert row["left_field"] == "Region (People)"
+    assert row["right_field"] == "Region"
+    assert not row["left_is_calc"]
+    assert not row["right_is_calc"]
+
+
+def test_extract_relationships_real_calcs_are_calc():
+    for formula in (
+        "DATEPART('year', [Order Date])",
+        "LOWER([x])",
+        "IFNULL([a],[b])",
+        "UPPER ([Region (People)])",
+    ):
+        row = _single_relationship(f"[{formula}]", "[Region]")
+        assert row["left_is_calc"], formula
+        assert not row["right_is_calc"], formula
+
+
+def test_rel_field_expr_prefers_calc_over_disambiguated_name():
+    from lxml import etree
+    from twbparser_py.relationships import _rel_field_expr
+
+    node = etree.fromstring(
+        '<expression op="[LOWER(x)]" value="[Region (People)]"/>'
+    )
+    assert _rel_field_expr(node) == "LOWER(x)"
+
+
+def test_rel_field_expr_keeps_nested_bracket_calc_whole():
+    from lxml import etree
+    from twbparser_py.relationships import _rel_field_expr
+
+    node = etree.fromstring('<expression op="[LOWER([Region])]"/>')
+    assert _rel_field_expr(node) == "LOWER([Region])"
