@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from twbparser_py import TwbParser, apply_field_renames, suggest_field_renames
-from twbparser_py._tables import TABLE_SPECS
+from py_tbparse import TwbParser, apply_field_renames, suggest_field_renames
+from py_tbparse._tables import TABLE_SPECS
 
 PUBLIC = sorted((Path(__file__).parent / "fixtures" / "public").glob("*.tw*"))
 

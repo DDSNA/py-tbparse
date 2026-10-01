@@ -2,7 +2,7 @@
 
 ## What this is
 
-`twbparser_py` is a native Python port of the R package
+`py_tbparse` is a native Python port of the R package
 [`twbparser`](https://github.com/PrigasG/twbparser) (mirrored at
 `DDSNA/twbparser`): it parses Tableau `.twb`/`.twbx` workbook files into
 `pandas` DataFrames. Pure `lxml` XML parsing — no R runtime, no `rpy2`.
@@ -37,7 +37,7 @@ python3 -m venv .venv
 ```bash
 .venv/bin/python -m pytest -q          # run the full test suite
 .venv/bin/python -m pytest -q tests/test_joins.py   # single file
-.venv/bin/python -m py_compile twbparser_py/*.py     # syntax check
+.venv/bin/python -m py_compile py_tbparse/*.py     # syntax check
 ```
 
 Browser (GUI) tests need a one-time setup; without it they skip and the
@@ -58,19 +58,19 @@ via `from __future__ import annotations`).
 
 ```bash
 .venv/bin/pip install -e ".[dev]"     # build + twine
-rm -rf dist build twbparser_py.egg-info
+rm -rf dist build py_tbparse.egg-info
 .venv/bin/python -m build              # produces dist/*.whl and dist/*.tar.gz
 .venv/bin/twine check dist/*           # validates metadata/README rendering
 ```
 
 Version is single-sourced from `pyproject.toml`'s `[project].version`;
-`twbparser_py.__version__` reads it back via `importlib.metadata` at
+`py_tbparse.__version__` reads it back via `importlib.metadata` at
 runtime (see `__init__.py`), so don't hardcode a second copy.
 
 Before bumping the version for a release: bump `version` in
 `pyproject.toml`, then rebuild and smoke-test the wheel in a
-throwaway venv (`pip install dist/*.whl`, run `twbparser --help` and
-`twbparser-gui --help`, run pytest against an extracted sdist) — this
+throwaway venv (`pip install dist/*.whl`, run `py-tbparse --help` and
+`py-tbparse-gui --help`, run pytest against an extracted sdist) — this
 catches packaging bugs (missing files, wrong entry points) that an
 editable install won't.
 
@@ -88,7 +88,7 @@ Publishers" settings page before the first release, and needs a
 
 ## Architecture
 
-Each `twbparser_py/*.py` module is a direct port of one R source file in
+Each `py_tbparse/*.py` module is a direct port of one R source file in
 the upstream package, function-for-function:
 
 | Python module | Ported from (R) | Notes |
@@ -120,8 +120,8 @@ beyond the R package's scope:
 | Python module | What it is |
 |---|---|
 | `_tables.py` | Name → `TwbParser`-accessor registry shared by `cli.py`, `webgui.py`, `diff.py`, and `batch.py`. Adding a new extractor to `TwbParser`? Add it here too so it's automatically available everywhere else. |
-| `cli.py` | `twbparser` command-line entry point, plus the `diff`/`batch`/`rename` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
-| `webgui.py` | `twbparser-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
+| `cli.py` | `py-tbparse` command-line entry point, plus the `diff`/`batch`/`rename` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
+| `webgui.py` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
 | `graph.py` | `to_dot()`: Graphviz DOT export of joins/relationships (+ optional inferred, as dashed edges). Replaces the R package's igraph/ggraph-based `plot_dependency_graph`/`plot_relationship_graph` with a dependency-free text format any Graphviz-compatible tool can render. |
 | `diff.py` | `diff_tables()`/`diff_workbooks()`: row-level added/removed diff between two workbooks' same-named table, via `_tables.TABLE_SPECS`. No "changed" classification without a natural key — a changed row shows as one removed + one added row. |
 | `rename.py` | `suggest_field_renames()` (clean-name suggestions, optionally matched against a "before" reference), `load_rename_mapping()` (read an edited CSV back), `compare_field_schemas()` (fields with no counterpart across a datasource switch) and `apply_field_renames()`/`build_renamed_workbook()` (write a copy with captions set; never overwrites). Also the `field-renames` table in `_tables.py`. |

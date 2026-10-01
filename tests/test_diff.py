@@ -1,6 +1,6 @@
 import pandas as pd
 
-from twbparser_py import TwbParser, diff_tables, diff_workbooks
+from py_tbparse import TwbParser, diff_tables, diff_workbooks
 
 
 def test_diff_tables_identical_frames_are_empty():

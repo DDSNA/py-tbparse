@@ -1,8 +1,8 @@
-"""Command-line interface: `twbparser WORKBOOK [TABLE] [options]`.
+"""Command-line interface: `py-tbparse WORKBOOK [TABLE] [options]`.
 
 Three reserved subcommands, dispatched on the first argument before the
-normal single-workbook parser runs: `twbparser diff A.twb B.twb [TABLE]`,
-`twbparser batch DIR [TABLE]` and `twbparser rename WORKBOOK [-r OLD.twb]`.
+normal single-workbook parser runs: `py-tbparse diff A.twb B.twb [TABLE]`,
+`py-tbparse batch DIR [TABLE]` and `py-tbparse rename WORKBOOK [-r OLD.twb]`.
 """
 
 from __future__ import annotations
@@ -49,9 +49,9 @@ def _write(text: str, output: str | None) -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="twbparser",
+        prog="py-tbparse",
         description="Parse a Tableau .twb/.twbx workbook and print one of its tables. "
-        "See also: 'twbparser diff A.twb B.twb [TABLE]' and 'twbparser batch DIR [TABLE]'.",
+        "See also: 'py-tbparse diff A.twb B.twb [TABLE]' and 'py-tbparse batch DIR [TABLE]'.",
     )
     ap.add_argument("workbook", help="path to a .twb or .twbx file")
     ap.add_argument(
@@ -84,7 +84,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def build_diff_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="twbparser diff",
+        prog="py-tbparse diff",
         description="Diff one table between two workbooks (row-level added/removed).",
     )
     ap.add_argument("workbook_a", help="the 'before' .twb/.twbx file")
@@ -118,7 +118,7 @@ def _run_diff(argv: list[str]) -> int:
 
 def build_batch_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="twbparser batch",
+        prog="py-tbparse batch",
         description="Run one table across every .twb/.twbx file in a directory.",
     )
     ap.add_argument("directory", help="folder to scan for .twb/.twbx files")
@@ -151,7 +151,7 @@ def _run_batch(argv: list[str]) -> int:
 
 def build_rename_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="twbparser rename",
+        prog="py-tbparse rename",
         description="Suggest clean field names, e.g. after switching to a new datasource. "
         "Read-only: prints a mapping, never edits the workbook.",
     )

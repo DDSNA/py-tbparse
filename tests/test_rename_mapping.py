@@ -3,8 +3,8 @@ import shutil
 import pandas as pd
 import pytest
 
-from twbparser_py import TwbParser, compare_field_schemas, load_rename_mapping
-from twbparser_py.cli import main
+from py_tbparse import TwbParser, compare_field_schemas, load_rename_mapping
+from py_tbparse.cli import main
 
 
 def _fields(names, ds="ds1"):

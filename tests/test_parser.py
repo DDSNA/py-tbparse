@@ -3,8 +3,8 @@ import tempfile
 import pytest
 from conftest import REAL_PARAMS_XML
 
-from twbparser_py import TwbParser
-from twbparser_py._xml import load_workbook_xml
+from py_tbparse import TwbParser
+from py_tbparse._xml import load_workbook_xml
 
 
 def test_parser_loads_twb(wenjie_path):

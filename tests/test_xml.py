@@ -1,8 +1,8 @@
 import os
 import zipfile
 
-from twbparser_py import extract_twb_from_twbx, twbx_list
-from twbparser_py._xml import twbx_extract_files
+from py_tbparse import extract_twb_from_twbx, twbx_list
+from py_tbparse._xml import twbx_extract_files
 
 
 def test_twbx_list_lists_members(zip_twbx_path):

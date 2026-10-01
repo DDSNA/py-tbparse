@@ -4,7 +4,7 @@ import re
 from importlib.metadata import version
 from pathlib import Path
 
-import twbparser_py
+import py_tbparse
 
 _PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
@@ -21,5 +21,5 @@ def _project_name() -> str:
 def test_version_matches_installed_distribution():
     # __version__ must look up the distribution named in pyproject.toml, or
     # it silently falls back to "0.0.0+unknown" after a project rename.
-    assert twbparser_py.__version__ == version(_project_name())
-    assert twbparser_py.__version__ != "0.0.0+unknown"
+    assert py_tbparse.__version__ == version(_project_name())
+    assert py_tbparse.__version__ != "0.0.0+unknown"

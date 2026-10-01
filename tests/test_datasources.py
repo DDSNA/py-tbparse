@@ -1,4 +1,4 @@
-from twbparser_py import extract_datasource_details, extract_named_connections
+from py_tbparse import extract_datasource_details, extract_named_connections
 from conftest import xml_from_string
 
 
@@ -66,7 +66,7 @@ def test_athena_region_extracts_when_pattern_matches():
 def test_parameters_fallback_keeps_columns(wenjie_xml, monkeypatch):
     # A failing parameter extraction must still honour the empty-input
     # contract: an empty frame with the real columns, not a bare one.
-    from twbparser_py import datasources
+    from py_tbparse import datasources
 
     def boom(_xml):
         raise RuntimeError("malformed")

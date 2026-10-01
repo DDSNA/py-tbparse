@@ -1,4 +1,4 @@
-from twbparser_py._clean import bracket_tokens, clean_field, clean_table, strip_brackets
+from py_tbparse._clean import bracket_tokens, clean_field, clean_table, strip_brackets
 
 
 def test_bracket_tokens_qualified_name():

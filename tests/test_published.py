@@ -1,4 +1,4 @@
-from twbparser_py import extract_published_refs
+from py_tbparse import extract_published_refs
 from conftest import xml_from_string
 
 

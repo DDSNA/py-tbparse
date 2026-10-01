@@ -1,9 +1,9 @@
-"""A small local-browser GUI for twbparser_py.
+"""A small local-browser GUI for py_tbparse.
 
 Built entirely on the standard library (`http.server` + vanilla JS) so it
 adds no new dependencies and needs no display server / GUI toolkit —
 just a browser, which makes it usable headless-server-side too (you can
-curl its JSON endpoints). Run `twbparser-gui [workbook]` and it opens
+curl its JSON endpoints). Run `py-tbparse-gui [workbook]` and it opens
 http://127.0.0.1:<port>/ in your default browser.
 """
 
@@ -170,7 +170,7 @@ _PAGE = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>twbparser</title>
+<title>py-tbparse</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -327,7 +327,7 @@ _PAGE = r"""<!doctype html>
   <div class="bar">
     <div class="brand">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
-      twbparser <span class="ver" id="version"></span>
+      py-tbparse <span class="ver" id="version"></span>
     </div>
     <div class="open">
       <input id="path" class="field" type="text" placeholder="/path/to/workbook.twb or .twbx"
@@ -343,7 +343,7 @@ _PAGE = r"""<!doctype html>
   <h1>Open a Tableau workbook</h1>
   <p>Paste the path to a <code>.twb</code> or <code>.twbx</code> file above and press Load.</p>
   <p>Parsing happens locally; the workbook never leaves this machine.</p>
-  <p>Tip: start with <code>twbparser-gui path/to/book.twbx</code> to open one directly.</p>
+  <p>Tip: start with <code>py-tbparse-gui path/to/book.twbx</code> to open one directly.</p>
 </section>
 
 <div id="controls" class="workspace" hidden>
@@ -557,7 +557,7 @@ async function loadWorkbook() {
     $('controls').hidden = false;
     $('wbName').textContent = data.name || data.path;
     $('wbName').title = data.path;
-    document.title = (data.name || 'workbook') + ' - twbparser';
+    document.title = (data.name || 'workbook') + ' - py-tbparse';
     setCounts(data.counts);
     const dsSel = $('renameDs');
     dsSel.innerHTML = '<option value="">(all datasources)</option>';
@@ -832,7 +832,7 @@ if (window.PRELOAD_PATH) {
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "twbparser-gui/0.1"
+    server_version = "py-tbparse-gui/0.1"
 
     def log_message(self, fmt, *args):  # quiet the default stderr access log
         pass
@@ -1071,7 +1071,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="twbparser-gui", description="Local browser GUI for twbparser_py."
+        prog="py-tbparse-gui", description="Local browser GUI for py_tbparse."
     )
     ap.add_argument("workbook", nargs="?", help="optional .twb/.twbx path to preload")
     ap.add_argument("--port", type=int, default=0, help="port to bind (default: pick a free one)")
@@ -1093,7 +1093,7 @@ def main(argv=None) -> int:
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     host, port = server.server_address
     url = f"http://{host}:{port}/"
-    print(f"twbparser GUI running at {url} (Ctrl+C to stop)")
+    print(f"py-tbparse GUI running at {url} (Ctrl+C to stop)")
 
     if not args.no_browser:
         threading.Timer(0.3, lambda: webbrowser.open(url)).start()

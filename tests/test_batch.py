@@ -1,6 +1,6 @@
 import warnings
 
-from twbparser_py import scan_folder
+from py_tbparse import scan_folder
 
 
 def test_scan_folder_finds_both_fixtures():

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from twbparser_py import extract_columns_with_table_source, infer_implicit_relationships
+from py_tbparse import extract_columns_with_table_source, infer_implicit_relationships
 
 
 def test_extract_columns_with_table_source(wenjie_xml):

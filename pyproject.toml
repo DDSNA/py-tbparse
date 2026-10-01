@@ -41,14 +41,14 @@ browser = ["playwright>=1.40"]
 dev = ["build>=1.0", "twine>=5.0"]
 
 [project.scripts]
-twbparser = "twbparser_py.cli:main"
-twbparser-gui = "twbparser_py.webgui:main"
+py-tbparse = "py_tbparse.cli:main"
+py-tbparse-gui = "py_tbparse.webgui:main"
 
 [tool.setuptools.packages.find]
-include = ["twbparser_py*"]
+include = ["py_tbparse*"]
 
 [tool.setuptools.package-data]
-twbparser_py = ["py.typed"]
+py_tbparse = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

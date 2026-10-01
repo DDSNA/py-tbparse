@@ -1,6 +1,6 @@
 from conftest import REAL_PARAMS_XML, xml_from_string
 
-from twbparser_py import extract_calculated_fields, extract_raw_fields
+from py_tbparse import extract_calculated_fields, extract_raw_fields
 
 
 def test_extract_calculated_fields(wenjie_xml):

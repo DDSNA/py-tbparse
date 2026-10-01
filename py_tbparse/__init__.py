@@ -1,4 +1,4 @@
-"""twbparser_py: a native Python port of the twbparser R package.
+"""py_tbparse: a native Python port of the twbparser R package.
 
 Parses Tableau .twb/.twbx workbook files into pandas DataFrames. Ported
 from https://github.com/PrigasG/twbparser (MIT licensed).

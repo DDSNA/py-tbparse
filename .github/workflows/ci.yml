@@ -29,8 +29,8 @@ jobs:
 
       - name: CLI smoke test
         run: |
-          twbparser tests/fixtures/test_for_wenjie.twb tables
-          twbparser tests/fixtures/test_for_wenjie.twb overview
+          py-tbparse tests/fixtures/test_for_wenjie.twb tables
+          py-tbparse tests/fixtures/test_for_wenjie.twb overview
 
   gui:
     # Drives the browser GUI in a real headless Chromium. The endpoint-level

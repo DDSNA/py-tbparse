@@ -309,7 +309,7 @@ def suggest_field_renames(
 def load_rename_mapping(source: Union[str, os.PathLike, pd.DataFrame]) -> pd.DataFrame:
     """Read an edited rename mapping (a CSV path or a frame) back in.
 
-    The mapping is what `twbparser rename -f csv` prints, with the
+    The mapping is what `py-tbparse rename -f csv` prints, with the
     `suggested` column edited by hand. Only `datasource`, `name` and
     `suggested` are needed; a blank `suggested` means "leave this field
     alone". Your edits are taken as given, so a `conflict` row you filled in

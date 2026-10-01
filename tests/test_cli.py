@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from twbparser_py import cli
+from py_tbparse import cli
 
 
 def test_tables_lists_all(capsys):

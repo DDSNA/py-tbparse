@@ -14,12 +14,12 @@ cd py-tbparse
 pip install -e .
 ```
 
-The project got renamed but the module and commands didn't, so: import `twbparser_py`, run `twbparser` or `twbparser-gui`.
+One name throughout: `pip install py-tbparse`, `import py_tbparse`, run `py-tbparse` or `py-tbparse-gui`. (Releases up to 0.2.0 imported `twbparser_py` and ran `twbparser` / `twbparser-gui`; those names are gone.)
 
 ## Using it from Python
 
 ```python
-from twbparser_py import TwbParser
+from py_tbparse import TwbParser
 
 p = TwbParser("workbook.twb")    # or a .twbx
 p.get_overview()                 # counts of everything
@@ -32,7 +32,7 @@ Every getter returns a DataFrame. The rest are `get_datasources`, `get_parameter
 Two helpers work across workbooks:
 
 ```python
-from twbparser_py import diff_workbooks, scan_folder
+from py_tbparse import diff_workbooks, scan_folder
 
 diff_workbooks(TwbParser("v1.twb"), TwbParser("v2.twb"), table="datasources")
 scan_folder("./workbooks", table="datasources")   # one table, every workbook in the folder
@@ -43,7 +43,7 @@ scan_folder("./workbooks", table="datasources")   # one table, every workbook in
 Pointing a workbook at a new datasource that only partly matches the old schema tends to leave ugly names: `ORDER_ID`, `orderId`, `Order ID (Orders1)`, `Order ID1`. `suggest_field_renames` proposes a clean name for each field. It only reports; it never edits the workbook.
 
 ```python
-from twbparser_py import TwbParser, suggest_field_renames
+from py_tbparse import TwbParser, suggest_field_renames
 
 new = TwbParser("after_switch.twb")
 old = TwbParser("before_switch.twb")           # optional: the schema you want to match
@@ -62,13 +62,13 @@ With a `reference` (a workbook, a fields table or a plain list of names), fields
 **Edit the suggestions yourself.** Export them, change the `suggested` column in a spreadsheet (blank means leave the field alone), then apply your version to a copy of the workbook:
 
 ```bash
-twbparser rename new.twb -r old.twb -f csv -o mapping.csv
-twbparser rename new.twb --apply mapping.csv      # writes new_renamed.twb; add --write-workbook PATH to choose the file
+py-tbparse rename new.twb -r old.twb -f csv -o mapping.csv
+py-tbparse rename new.twb --apply mapping.csv      # writes new_renamed.twb; add --write-workbook PATH to choose the file
 ```
 
 Your edits are applied as written, including rows the tool had marked `conflict`; two rows giving the same name in one datasource are rejected. From Python this is `apply_field_renames(p, renames=load_rename_mapping("mapping.csv"))`.
 
-**What will stay broken.** `twbparser rename new.twb -r old.twb --missing` (or `compare_field_schemas(new, old)`) lists the fields with no counterpart after the switch: `old only` fields that nothing in the new source matches, and `new only` fields nothing in the old workbook matches, each with the closest name on the other side as a hint. Sheets using an `old only` field stay red after Replace Data Source until you map or recreate it.
+**What will stay broken.** `py-tbparse rename new.twb -r old.twb --missing` (or `compare_field_schemas(new, old)`) lists the fields with no counterpart after the switch: `old only` fields that nothing in the new source matches, and `new only` fields nothing in the old workbook matches, each with the closest name on the other side as a hint. Sheets using an `old only` field stay red after Replace Data Source until you map or recreate it.
 
 To save the result, `p.write_renamed_workbook()` (or `apply_field_renames(p, ...)`) writes `<name>_renamed.twb` / `.twbx` next to the original. It sets each field's caption, which is how Tableau renames a field; the internal names that formulas and sheets use are not touched, and a `.twbx` keeps all its other contents. A field that only exists as a physical column (typical right after a datasource switch) gets a new minimal `<column>` element carrying the caption; that shape follows what Tableau writes but I have not opened such files in Tableau itself. It never modifies the original and refuses to overwrite an existing file unless you pass `overwrite=True`.
 
@@ -79,7 +79,7 @@ To save the result, `p.write_renamed_workbook()` (or `apply_field_renames(p, ...
 A `.twbx` is read directly from the zip and nothing gets written to disk. That means `p.twbx_dir` is `None`, and `p.path` is a made-up `<file>.twbx/<name>.twb` that you can't open. If you want the files out, extract them yourself:
 
 ```python
-from twbparser_py import extract_twb_from_twbx, twbx_extract_files
+from py_tbparse import extract_twb_from_twbx, twbx_extract_files
 
 extract_twb_from_twbx("workbook.twbx", extract_dir="out/")
 twbx_extract_files("workbook.twbx", exdir="out/")    # everything in the package
@@ -88,17 +88,17 @@ twbx_extract_files("workbook.twbx", exdir="out/")    # everything in the package
 ## Command line
 
 ```bash
-twbparser workbook.twb                        # overview
-twbparser workbook.twb tables                 # list the tables
-twbparser workbook.twb calculated-fields
-twbparser workbook.twb fields --format csv -o fields.csv
-twbparser workbook.twbx dashboard-sheets --dashboard "Sales Overview"
-twbparser workbook.twb validate               # exit code 2 if it finds a problem
-twbparser workbook.twb graph > model.dot      # --include-inferred adds the guessed links
-twbparser diff old.twb new.twb datasources
-twbparser batch ./workbooks datasources
-twbparser rename new.twb --reference old.twb --only-changed   # suggested clean field names
-twbparser rename new.twb -r old.twb --datasource federated.abc123 --write-workbook   # and save new_renamed.twb
+py-tbparse workbook.twb                        # overview
+py-tbparse workbook.twb tables                 # list the tables
+py-tbparse workbook.twb calculated-fields
+py-tbparse workbook.twb fields --format csv -o fields.csv
+py-tbparse workbook.twbx dashboard-sheets --dashboard "Sales Overview"
+py-tbparse workbook.twb validate               # exit code 2 if it finds a problem
+py-tbparse workbook.twb graph > model.dot      # --include-inferred adds the guessed links
+py-tbparse diff old.twb new.twb datasources
+py-tbparse batch ./workbooks datasources
+py-tbparse rename new.twb --reference old.twb --only-changed   # suggested clean field names
+py-tbparse rename new.twb -r old.twb --datasource federated.abc123 --write-workbook   # and save new_renamed.twb
 ```
 
 Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calculated-fields`, `joins`, `relations`, `relationships`, `inferred-relationships`, `dashboards`, `dashboard-sheets`, `custom-sql`, `initial-sql`, `published-refs`.
@@ -108,9 +108,9 @@ Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calcul
 ## GUI
 
 ```bash
-twbparser-gui workbook.twb               # opens your browser with it loaded
-twbparser-gui                            # starts empty, paste a path and hit Load
-twbparser-gui --no-browser --port 8765   # server only, for a machine with no display
+py-tbparse-gui workbook.twb               # opens your browser with it loaded
+py-tbparse-gui                            # starts empty, paste a path and hit Load
+py-tbparse-gui --no-browser --port 8765   # server only, for a machine with no display
 ```
 
 It uses only the standard library, so there's nothing more to install.
