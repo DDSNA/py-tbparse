@@ -23,7 +23,7 @@ import pandas as pd
 from . import __version__
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .parser import TwbParser
-from .rename import applicable_renames, build_renamed_workbook, default_renamed_path, suggest_field_renames
+from .rename import build_renamed_workbook, default_renamed_path, suggest_field_renames
 
 _STATE: dict = {"parser": None, "path": None}
 
@@ -964,7 +964,9 @@ class Handler(BaseHTTPRequestHandler):
         parser = _STATE["parser"]
         renames = suggest_field_renames(parser, **opts)
         filename = os.path.basename(default_renamed_path(parser))
-        return build_renamed_workbook(parser, renames), filename, len(applicable_renames(renames))
+        report: dict = {}
+        data = build_renamed_workbook(parser, renames, report)
+        return data, filename, report["applied"]
 
     def _create_workbook(self, payload: dict) -> None:
         """Save `<name>_renamed.<ext>` beside the loaded workbook (never over

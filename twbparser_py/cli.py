@@ -175,17 +175,28 @@ def _run_rename(argv: list[str]) -> int:
     args = build_rename_arg_parser().parse_args(argv)
     try:
         wb = TwbParser(args.workbook)
-        ref = TwbParser(args.reference) if args.reference else None
     except (FileNotFoundError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+    try:
+        ref = TwbParser(args.reference) if args.reference else None
+    except Exception as e:  # unreadable / malformed reference workbook
+        print(f"error: cannot read reference workbook: {e}", file=sys.stderr)
+        return 1
 
     kwargs = dict(reference=ref, style=args.style, fuzzy_cutoff=args.cutoff, datasource=args.datasource)
-    df = suggest_field_renames(wb, only_changed=args.only_changed, **kwargs)
+    try:
+        everything = suggest_field_renames(wb, **kwargs)
+    except ValueError as e:  # e.g. --cutoff outside 0..1
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    df = everything[everything["changed"]].reset_index(drop=True) if args.only_changed else everything
     _write(_df_text(df, args.format), args.output)
     if args.write_workbook is not None:
         try:
-            out = apply_field_renames(wb, output_path=args.write_workbook or None, **kwargs)
+            out = apply_field_renames(
+                wb, renames=everything, output_path=args.write_workbook or None
+            )
         except (FileExistsError, ValueError, OSError) as e:
             print(f"error: {e}", file=sys.stderr)
             return 1

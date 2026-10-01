@@ -11,6 +11,7 @@ workbook is modified.
 
 from __future__ import annotations
 
+import copy
 import difflib
 import io
 import os
@@ -31,20 +32,28 @@ DEFAULT_ACRONYMS = frozenset({"id", "url", "sku", "sql", "uk", "us", "usa", "ssn
 
 RENAME_COLUMNS = ["datasource", "name", "current", "suggested", "reason", "score", "changed"]
 
-_COPY_SUFFIX = re.compile(r"\s*\(copy\)(\s*\d*)?$", re.IGNORECASE)
-# Tableau's de-duplication suffixes: "Order ID (Orders1)" and "Order ID1".
-_PAREN_DIGIT_SUFFIX = re.compile(r"\s*\([^()]*\d\)$")
+_COPY_SUFFIX = re.compile(r"\s*\(copy(?:\s*\d+)?\)(\s*\d*)?$", re.IGNORECASE)
+# Tableau's de-duplication suffix on a joined table's field: "Order ID (Orders1)".
+# The text must start with a non-digit so "Sales (2020)" is not mistaken for one.
+_PAREN_DEDUP_SUFFIX = re.compile(r"\s*\(\D[^()]*\d\)$")
 _TRAILING_DIGIT = re.compile(r"(?<=\D)\d$")
-_SEPARATORS = re.compile(r"[_\-.\s]+")
+_IDENTIFIER_SEPARATORS = re.compile(r"[_\-.\s]+")
+_PHRASE_SEPARATORS = re.compile(r"[_\s]+")
 _CAMEL_LOWER_UPPER = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _CAMEL_ACRONYM = re.compile(r"(?<=[A-Z])(?=[A-Z][a-z])")
 _NON_ALNUM = re.compile(r"[^0-9a-z]+")
 
 
 def _words(name: str) -> list[str]:
+    """Split a name into words. An identifier (no spaces: `orderId`,
+    `ORDER_ID`) is split on `_ - .` and camelCase; a phrase that already has
+    spaces (`iPhone Units`, `Country/Region`) only on spaces and `_`, so its
+    own casing is not misread as camelCase."""
+    if re.search(r"\s", name):
+        return [w for w in _PHRASE_SEPARATORS.split(name) if w]
     name = _CAMEL_LOWER_UPPER.sub(" ", name)
     name = _CAMEL_ACRONYM.sub(" ", name)
-    return [w for w in _SEPARATORS.split(name) if w]
+    return [w for w in _IDENTIFIER_SEPARATORS.split(name) if w]
 
 
 def _capitalize(word: str) -> str:
@@ -63,11 +72,17 @@ def normalize_name(
 ) -> Optional[str]:
     """Tidy one field name.
 
-    Splits on `_`, `-`, `.` and camelCase, drops a `(copy)` suffix, and
-    re-cases the words per `style`: `title` (`Order ID`), `snake`
-    (`order_id`), `lower` (`order id`) or `keep` (words re-joined with
-    spaces, case untouched). Digits are never split off (`CENSUS2020`
-    stays one word). Returns `None` for missing or empty input.
+    Splits on `_`, `-`, `.` and camelCase (or, for a name that already has
+    spaces, on spaces and `_` only), drops a `(copy)` suffix, and re-cases
+    the words per `style`: `title` (`Order ID`), `snake` (`order_id`),
+    `lower` (`order id`) or `keep` (words re-joined with spaces, case
+    untouched). Digits are never split off (`CENSUS2020` stays one word).
+
+    `title` leaves words that already look deliberate alone, so clean names
+    survive: `YTD Sales`, `iPhone Units`, `Country/Region` and `1st Order`
+    are unchanged. Only an all-caps name (`MUN_LABEL`, which has no lowercase
+    anywhere) or an all-lowercase word is re-cased. Returns `None` for
+    missing or empty input.
     """
     if is_missing(name):
         return None
@@ -84,19 +99,33 @@ def normalize_name(
     if style == "lower":
         return " ".join(w.lower() for w in words)
     known = {a.lower() for a in acronyms}
-    return " ".join(w.upper() if w.lower() in known else _capitalize(w) for w in words)
+    shouting = not any(ch.islower() for ch in s)
+
+    def title(w: str) -> str:
+        if w.lower() in known:
+            return w.upper()
+        if shouting or (w.islower() and w[:1].isalpha()):
+            return _capitalize(w)
+        return w
+
+    return " ".join(title(w) for w in words)
 
 
 def _strip_dedup_suffix(name: str) -> str:
+    """Remove a possible duplicate marker: `(copy)`, `(Table1)`, trailing
+    digit. Only a candidate -- callers must confirm the plain name exists
+    elsewhere, because `Address Line 2` and `Q1` are legitimate names."""
     s = _COPY_SUFFIX.sub("", name.strip())
-    s = _PAREN_DIGIT_SUFFIX.sub("", s)
+    s = _PAREN_DEDUP_SUFFIX.sub("", s)
     return _TRAILING_DIGIT.sub("", s)
 
 
-def _match_key(name: str) -> str:
-    """Spelling-insensitive key: `Order ID (Orders1)`, `ORDER_ID`, `orderId`
-    and `order id` all become `orderid`."""
-    return _NON_ALNUM.sub("", " ".join(_words(_strip_dedup_suffix(name))).lower())
+def _match_key(name: str, strip_dedup: bool = False) -> str:
+    """Spelling-insensitive key: `ORDER_ID`, `orderId` and `order id` all
+    become `orderid`. With `strip_dedup`, `Order ID (Orders1)` does too."""
+    if strip_dedup:
+        name = _strip_dedup_suffix(name)
+    return _NON_ALNUM.sub("", " ".join(_words(name)).lower())
 
 
 def _display_name(row) -> Optional[str]:
@@ -108,15 +137,28 @@ def _display_name(row) -> Optional[str]:
 
 
 def _tableau_level(recs: list[dict]) -> list[dict]:
-    """A datasource lists each field twice: the physical column
-    (`MUN_LABEL`) and the Tableau column (`[MUN_LABEL]`, often with a
-    caption). Only the latter is what users see and can rename, so drop the
-    former wherever the datasource has any bracketed names."""
-    def is_bracketed(r):
-        return str(r.get("name") or "").startswith("[")
+    """One record per field, keyed by its Tableau (bracketed) name.
 
-    bracketed = {r.get("datasource") for r in recs if is_bracketed(r)}
-    return [r for r in recs if r.get("datasource") not in bracketed or is_bracketed(r)]
+    A datasource lists a field as a Tableau column (`[MUN_LABEL]`, often with
+    a caption) and/or as a bare physical column (`MUN_LABEL`). The physical
+    one is dropped when its Tableau column exists; otherwise (a field with
+    no custom metadata, typical right after a datasource switch) it is kept
+    and given the bracketed name Tableau would use, so it can be renamed too.
+    """
+    def internal(r):
+        n = str(r.get("name") or "")
+        return n if n.startswith("[") else f"[{n}]"
+
+    bracketed = {(r.get("datasource"), r["name"]) for r in recs if str(r.get("name") or "").startswith("[")}
+    out = []
+    for r in recs:
+        name = str(r.get("name") or "")
+        if not name:
+            continue
+        if not name.startswith("[") and (r.get("datasource"), internal(r)) in bracketed:
+            continue
+        out.append({**r, "name": internal(r)})
+    return out
 
 
 def _reference_names(reference) -> list[str]:
@@ -166,18 +208,24 @@ def suggest_field_renames(
     the newly added one when the workbook still holds the old source too.
 
     Returns `datasource, name, current, suggested, reason, score, changed`.
-    `name` is Tableau's internal name, which is what a rename tool needs to
-    find the column. Where a datasource has bracketed (Tableau-level) column
-    names, the bare physical-column entries are ignored. `score` is the match ratio for reference matches.
+    `name` is Tableau's internal (bracketed) name, which is what a rename
+    tool needs to find the column; a field that only exists as a physical
+    column gets the bracketed name Tableau would give it. `score` is the
+    match ratio for reference matches.
+
+    Matching is conservative about numbers: `Address Line 2` is never turned
+    into `Address Line 1`, and a trailing `1` or `(Table1)` is only treated
+    as a duplicate marker when the plain name also exists.
     """
     if isinstance(fields, TwbParser):
         fields = fields.get_fields()
     if fields is None or fields.empty:
         return pd.DataFrame(columns=RENAME_COLUMNS)
 
-    ref_names = _reference_names(reference)
+    if not 0 <= fuzzy_cutoff <= 1:
+        raise ValueError(f"fuzzy_cutoff must be between 0 and 1, got {fuzzy_cutoff}")
     ref_by_key: dict[str, str] = {}
-    for n in ref_names:
+    for n in _reference_names(reference):
         ref_by_key.setdefault(_match_key(n), n)
     ref_keys = list(ref_by_key)
 
@@ -204,11 +252,18 @@ def suggest_field_renames(
     for r in rows:
         current = r["current"]
         key = _match_key(current)
+        stripped = _match_key(current, strip_dedup=True)
         suggested, reason, score = None, "", None
         if key in ref_by_key:
             suggested, reason, score = ref_by_key[key], "matches reference", 1.0
+        elif stripped != key and stripped in ref_by_key:
+            suggested, reason, score = ref_by_key[stripped], "matches reference", 1.0
         elif key and ref_keys:
-            close = difflib.get_close_matches(key, ref_keys, n=1, cutoff=fuzzy_cutoff)
+            digits = re.findall(r"\d+", key)
+            close = [
+                k for k in difflib.get_close_matches(key, ref_keys, n=5, cutoff=fuzzy_cutoff)
+                if re.findall(r"\d+", k) == digits  # `Address Line 3` is not `Address Line 1`
+            ]
             if close:
                 suggested = ref_by_key[close[0]]
                 reason = "close to reference"
@@ -251,28 +306,72 @@ def applicable_renames(renames: pd.DataFrame) -> pd.DataFrame:
     return renames[keep]
 
 
-def build_renamed_workbook(parser: TwbParser, renames: pd.DataFrame) -> bytes:
+def _new_column(ds_el, name: str, caption: str):
+    """Add a Tableau column for a field that so far only exists as a physical
+    column, so it can carry a caption. Mirrors what Tableau writes for a
+    renamed plain field (datatype from the physical column; numbers become
+    quantitative measures, everything else a nominal dimension)."""
+    datatype = ds_el.xpath(".//column[@name=$bare]/@datatype", bare=name[1:-1]) or ["string"]
+    numeric = datatype[0] in ("integer", "real")
+    col = etree.Element(
+        "column",
+        caption=caption,
+        datatype=datatype[0],
+        name=name,
+        role="measure" if numeric else "dimension",
+        type="quantitative" if numeric else "nominal",
+    )
+    anchor = None
+    for tag in ("column", "aliases", "connection"):
+        found = ds_el.findall(tag)
+        if found:
+            anchor = found[-1]
+            break
+    if anchor is None:
+        ds_el.append(col)
+    else:
+        anchor.addnext(col)
+    return col
+
+
+def build_renamed_workbook(parser: TwbParser, renames: pd.DataFrame, report: Optional[dict] = None) -> bytes:
     """Bytes of a copy of `parser`'s workbook with `renames` applied.
 
     Each changed row of `renames` (as returned by `suggest_field_renames`;
-    conflicts are skipped) sets the `caption` of the matching column in its
-    datasource, which is how Tableau itself renames a field. Formulas and
-    sheets refer to the internal `name`, so nothing breaks. Captions that
-    worksheets cache in `datasource-dependencies` are updated too. A `.twb`
-    gives `.twb` bytes; a `.twbx` gives a `.twbx` with every other member
-    copied across untouched.
+    conflicts are skipped) sets the `caption` of the matching Tableau column
+    in its datasource, which is how Tableau itself renames a field. Formulas
+    and sheets refer to the internal `name`, so nothing breaks. A field that
+    only exists as a physical column gets a new minimal `<column>` element.
+    Captions that worksheets cache in `datasource-dependencies` are updated
+    too. A `.twb` gives `.twb` bytes; a `.twbx` gives a `.twbx` with every
+    other member copied across untouched.
+
+    If `report` is a dict it receives `applied` (fields renamed) and
+    `skipped` (rows whose datasource or column was not found).
     """
-    doc = etree.ElementTree(etree.fromstring(etree.tostring(parser.xml_doc)))
+    doc = copy.deepcopy(parser.xml_doc)
+    applied = skipped = 0
     for r in applicable_renames(renames).to_dict("records"):
         ds, name, caption = r["datasource"], r["name"], r["suggested"]
-        if is_missing(name):
+        if is_missing(name) or is_missing(ds):
+            skipped += 1
             continue
-        path = (
-            "/workbook/datasources/datasource[@name=$ds]//column[@name=$n]"
-            " | //datasource-dependencies[@datasource=$ds]/column[@name=$n and @caption]"
-        )
-        for col in doc.xpath(path, ds=ds if not is_missing(ds) else "", n=name):
+        ds_els = doc.xpath("/workbook/datasources/datasource[@name=$ds]", ds=ds)
+        if not ds_els:
+            skipped += 1
+            continue
+        cols = ds_els[0].xpath("./column[@name=$n]", n=name)
+        if not cols:
+            cols = [_new_column(ds_els[0], name, caption)]
+        for col in cols:
             col.set("caption", caption)
+        for col in doc.xpath(
+            "//datasource-dependencies[@datasource=$ds]/column[@name=$n and @caption]", ds=ds, n=name
+        ):
+            col.set("caption", caption)
+        applied += 1
+    if report is not None:
+        report.update(applied=applied, skipped=skipped)
     twb = etree.tostring(doc, xml_declaration=True, encoding="utf-8")
 
     if not parser.twbx_path:

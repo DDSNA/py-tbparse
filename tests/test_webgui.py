@@ -411,7 +411,7 @@ def test_field_renames_table_and_workbook_buttons(server, wenjie_path, tmp_path)
 
     status, table = _get(server, "/table?name=field-renames&only_changed=true&style=title")
     assert status == 200
-    assert [r[table["columns"].index("suggested")] for r in table["data"]] == ["No Data"]
+    assert [r[table["columns"].index("suggested")] for r in table["data"]] == ["Mun", "Counts", "No Data"]
 
     status, err = _get(server, "/table?name=field-renames&reference=/nope.twb")
     assert status == 400
@@ -423,7 +423,7 @@ def test_field_renames_table_and_workbook_buttons(server, wenjie_path, tmp_path)
     assert not (tmp_path / "book_renamed.twb").exists()  # download writes nothing
 
     status, made = _post(server, "/create-workbook", {"style": "title"})
-    assert status == 200 and made["renamed"] == 1
+    assert status == 200 and made["renamed"] == 3
     assert (tmp_path / "book_renamed.twb").exists()
     status, again = _post(server, "/create-workbook", {})
     assert status == 409

@@ -143,7 +143,7 @@ def test_cli_missing_file(capsys):
     assert "error" in capsys.readouterr().err
 
 
-def test_physical_columns_ignored_when_bracketed_exist():
+def test_physical_column_with_tableau_column_is_not_listed_twice():
     df = pd.DataFrame(
         [
             {"datasource": "d", "name": "MUN_LABEL", "caption": None, "field_clean": "MUN_LABEL", "is_parameter": False},
@@ -175,8 +175,12 @@ def test_write_renamed_twb(wenjie_path, tmp_path):
     assert out == str(tmp_path / "book_renamed.twb")
     after = TwbParser(out)
     assert _caption_of(after, calc) == ["No Data"]
-    # Internal names (what formulas and sheets use) are untouched.
-    assert set(after.get_fields()["name"]) == set(before.get_fields()["name"])
+    # Existing internal names (what formulas and sheets use) are untouched;
+    # the only additions are Tableau columns for physical-only fields.
+    gained = set(after.get_fields()["name"]) - set(before.get_fields()["name"])
+    assert {"[MUN]", "[counts]"} <= gained
+    assert all(n.startswith("[") for n in gained)
+    assert set(before.get_fields()["name"]) <= set(after.get_fields()["name"])
     assert len(after.get_calculated_fields()) == len(before.get_calculated_fields())
     assert src.read_bytes() == open(wenjie_path, "rb").read()
 
@@ -252,3 +256,108 @@ def test_apply_field_renames_never_overwrites(wenjie_path, tmp_path):
     assert out.read_bytes() == b"keep me"
     assert apply_field_renames(p, overwrite=True) == str(out)
     assert out.read_bytes() != b"keep me"
+
+
+# --- regressions from review ---
+
+@pytest.mark.parametrize(
+    "raw",
+    ["Country/Region", "Customer NPS", "YTD Sales", "iPhone Units", "McDonald Count",
+     "1st Order", "Order ID", "Sales (2020)"],
+)
+def test_clean_names_are_left_alone(raw):
+    assert normalize_name(raw) == raw
+    assert not suggest_field_renames(_fields([raw])).iloc[0]["changed"]
+
+
+def test_copy_suffix_variants():
+    assert normalize_name("Sales (copy 2)") == "Sales"
+    assert normalize_name("Sales (copy) 2") == "Sales"
+
+
+def test_numbered_names_do_not_collapse_into_each_other():
+    ref = ["Address Line 1", "Address Line 2"]
+    out = suggest_field_renames(_fields(["ADDRESS_LINE_2", "ADDRESS_LINE_1"]), reference=ref)
+    assert dict(zip(out["current"], out["suggested"])) == {
+        "ADDRESS_LINE_2": "Address Line 2",
+        "ADDRESS_LINE_1": "Address Line 1",
+    }
+    # No reference: neither is a duplicate of the other.
+    plain = suggest_field_renames(_fields(["Address Line 1", "Address Line 2", "Q1", "Q2"]))
+    assert not plain["changed"].any()
+    assert "conflict" not in set(plain["reason"])
+    years = suggest_field_renames(_fields(["Sales (2020)", "Sales (2021)"]))
+    assert not years["changed"].any()
+
+
+def test_fuzzy_match_never_crosses_a_different_number():
+    out = suggest_field_renames(_fields(["Address Line 3"]), reference=["Address Line 1"])
+    assert out.iloc[0]["reason"] != "close to reference"
+    assert out.iloc[0]["suggested"] == "Address Line 3"
+
+
+def test_reference_strips_dedup_suffix_only_when_plain_name_is_in_reference():
+    out = suggest_field_renames(_fields(["Sales1", "Other2"]), reference=["Sales", "Other 2"])
+    got = dict(zip(out["current"], out["suggested"]))
+    assert got["Sales1"] == "Sales"
+    assert got["Other2"] == "Other 2"
+
+
+def test_cutoff_must_be_between_0_and_1():
+    for bad in (-0.1, 1.5):
+        with pytest.raises(ValueError):
+            suggest_field_renames(_fields(["A"]), fuzzy_cutoff=bad)
+
+
+def test_physical_only_fields_are_suggested_and_get_a_column(wenjie_path, tmp_path):
+    import shutil
+
+    src = tmp_path / "book.twb"
+    shutil.copy(wenjie_path, src)
+    p = TwbParser(str(src))
+    out = p.get_field_renames().set_index("name")
+    assert out.loc["[MUN]", "suggested"] == "Mun"       # was skipped before
+    assert out.loc["[SSN]", "suggested"] == "SSN"
+
+    new = TwbParser(p.write_renamed_workbook())
+    f = new.get_fields().set_index("name")
+    assert f.loc["[MUN]", "caption"] == "Mun"
+    assert f.loc["[MUN]", "datatype"] == "string"
+    assert f.loc["[MUN]", "role"] == "dimension"
+    # Physical columns themselves never get a caption.
+    phys = new.xml_doc.xpath("//relation//column[@name='MUN']")
+    assert phys and all(c.get("caption") is None for c in phys)
+
+
+def test_numeric_physical_field_becomes_a_measure(wenjie_path, tmp_path):
+    import shutil
+
+    src = tmp_path / "book.twb"
+    shutil.copy(wenjie_path, src)
+    p = TwbParser(str(src))
+    new = TwbParser(p.write_renamed_workbook())
+    f = new.get_fields().set_index("name")
+    assert f.loc["[POP2020]", "role"] == "measure"
+
+
+def test_build_report_counts_what_was_applied(wenjie_path):
+    from twbparser_py.rename import build_renamed_workbook
+
+    p = TwbParser(wenjie_path)
+    renames = p.get_field_renames()
+    bogus = renames.iloc[[0]].copy()
+    bogus["datasource"] = "no-such-datasource"
+    bogus["suggested"], bogus["changed"] = "Zzz", True
+    report = {}
+    build_renamed_workbook(p, pd.concat([renames, bogus]), report)
+    assert report["skipped"] == 1
+    assert report["applied"] == int(renames["changed"].sum())
+
+
+def test_cli_bad_cutoff_and_bad_reference(wenjie_path, tmp_path, capsys):
+    assert main(["rename", wenjie_path, "--cutoff", "2"]) == 1
+    assert "fuzzy_cutoff" in capsys.readouterr().err
+    junk = tmp_path / "junk.twb"
+    junk.write_text("<not-a-workbook")
+    assert main(["rename", wenjie_path, "-r", str(junk)]) == 1
+    assert "reference" in capsys.readouterr().err
