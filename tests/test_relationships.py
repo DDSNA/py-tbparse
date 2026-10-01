@@ -146,3 +146,11 @@ def test_rel_field_expr_prefers_calc_over_disambiguated_name():
         '<expression op="[LOWER(x)]" value="[Region (People)]"/>'
     )
     assert _rel_field_expr(node) == "LOWER(x)"
+
+
+def test_rel_field_expr_keeps_nested_bracket_calc_whole():
+    from lxml import etree
+    from twbparser_py.relationships import _rel_field_expr
+
+    node = etree.fromstring('<expression op="[LOWER([Region])]"/>')
+    assert _rel_field_expr(node) == "LOWER([Region])"

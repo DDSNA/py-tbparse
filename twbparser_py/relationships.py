@@ -11,9 +11,8 @@ from typing import Optional
 
 import pandas as pd
 
-from ._clean import attr_safe_get, clean_table
+from ._clean import attr_safe_get, bracket_tokens, clean_table
 
-_BRACKET_RE = re.compile(r"\[[^\]]+\]")
 _FUNC_START_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(")
 _FUNC_CALL_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\([^)]*\)")
 # Tableau disambiguates duplicate column names as "Field (Table)", which
@@ -86,7 +85,7 @@ def _rel_field_expr(node) -> Optional[str]:
 
     br: list[str] = []
     for v in vals:
-        br.extend(_BRACKET_RE.findall(v))
+        br.extend(bracket_tokens(v))
 
     if br:
         clean = [b.strip("[]") for b in br]

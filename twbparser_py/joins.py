@@ -5,13 +5,9 @@ Port of R/joins.R (`extract_joins`).
 
 from __future__ import annotations
 
-import re
-
 import pandas as pd
 
-from ._clean import attr_safe_get, clean_field, clean_table
-
-_BRACKET_RE = re.compile(r"\[[^\]]+\]")
+from ._clean import attr_safe_get, bracket_tokens, clean_field, clean_table
 
 _JOIN_COLUMNS = ["join_type", "left_table", "left_field", "operator", "right_table", "right_field"]
 
@@ -25,7 +21,7 @@ def _field_from_expr(node) -> str | None:
     if not cand:
         return None
     raw = max(cand, key=len)
-    matches = _BRACKET_RE.findall(raw)
+    matches = bracket_tokens(raw)
     token = matches[-1] if matches else raw
     return clean_field(token)
 
@@ -45,7 +41,7 @@ def _table_from_expr(node) -> str | None:
     op = node.get("op")
     if not op:
         return None
-    matches = _BRACKET_RE.findall(op)
+    matches = bracket_tokens(op)
     if len(matches) < 2:
         return None
     return clean_table(matches[-2])

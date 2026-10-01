@@ -32,6 +32,8 @@ _PlaywrightError = _playwright_sync_api.Error
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _LOCAL_LIBS = _REPO_ROOT / ".browser-libs" / "root" / "usr" / "lib" / "x86_64-linux-gnu"
+_LOCAL_XKB = _REPO_ROOT / ".browser-libs" / "root" / "usr" / "share" / "X11" / "xkb"
+_LOCAL_FONTS_CONF = _REPO_ROOT / ".browser-libs" / "fonts.conf"
 
 
 def _browser_env() -> dict:
@@ -43,6 +45,12 @@ def _browser_env() -> dict:
     if _LOCAL_LIBS.is_dir():
         existing = env.get("LD_LIBRARY_PATH", "")
         env["LD_LIBRARY_PATH"] = f"{_LOCAL_LIBS}:{existing}" if existing else str(_LOCAL_LIBS)
+    # Keyboard layouts and fonts unpacked by the same script, if the host
+    # has none of its own (otherwise key input is dropped / text can't render).
+    if _LOCAL_XKB.is_dir():
+        env.setdefault("XKB_CONFIG_ROOT", str(_LOCAL_XKB))
+    if _LOCAL_FONTS_CONF.is_file():
+        env.setdefault("FONTCONFIG_FILE", str(_LOCAL_FONTS_CONF))
     return env
 
 
