@@ -521,6 +521,8 @@ async function showTable() {
   if (isGraph) {
     const params = new URLSearchParams();
     if ($('includeInferred').checked) params.set('include_inferred', 'true');
+    // Set before the request so the link never points at the previous view.
+    $('exportLink').href = '/graph?' + params.toString() + '&download=1';
     try {
       const data = await fetchJSON('/graph?' + params.toString());
       if (req !== state.req) return;
@@ -529,7 +531,6 @@ async function showTable() {
       wrap.innerHTML = '';
       wrap.appendChild(el('pre', 'dot', data.dot));
       $('meta').textContent = data.dot.split('\n').length + ' line(s)';
-      $('exportLink').href = '/graph?' + params.toString() + '&download=1';
     } catch (e) {
       setStatus('Error: ' + e.message, true);
     }
@@ -543,12 +544,12 @@ async function showTable() {
   if (name === 'calculated-fields' && $('includeParams').checked) {
     params.set('include_parameters', 'true');
   }
+  $('exportLink').href = '/export?' + params.toString();
   try {
     const data = await fetchJSON('/table?' + params.toString());
     if (req !== state.req) return;
     state.columns = data.columns || [];
     state.data = data.data || [];
-    $('exportLink').href = '/export?' + params.toString();
     if (isOverview) renderOverview(); else renderTable();
   } catch (e) {
     setStatus('Error: ' + e.message, true);

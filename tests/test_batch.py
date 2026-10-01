@@ -41,8 +41,10 @@ def test_scan_folder_datasources_table():
 
 def test_scan_folder_directory_with_glob_metacharacters(tmp_path):
     import shutil
+    import sys
 
-    folder = tmp_path / "[2024] Q1 *"
+    # `*` can't appear in a Windows path; `[` and `]` still exercise the fix.
+    folder = tmp_path / ("[2024] Q1" if sys.platform == "win32" else "[2024] Q1 *")
     folder.mkdir()
     shutil.copy("tests/fixtures/test_for_wenjie.twb", folder)
     df = scan_folder(str(folder), table="overview")

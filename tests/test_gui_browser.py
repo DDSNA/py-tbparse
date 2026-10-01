@@ -18,6 +18,7 @@ browser download:
 from __future__ import annotations
 
 import os
+import re
 import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -348,6 +349,25 @@ def test_graph_view_relabels_export_button(page, wenjie_path):
     assert page.is_visible("#copyBtn")
     assert not page.is_visible("#filter")
     assert "download=1" in page.get_attribute("#exportLink", "href")
+
+
+def test_export_link_updates_before_the_data_arrives(page, wenjie_path):
+    # Hold the graph request open: the link must already point at the graph
+    # download, not linger on the previous view until the response lands.
+    _load(page, wenjie_path)
+    held = []
+    page.route(re.compile(r"/graph\?"), lambda route: held.append(route))
+    _open(page, "graph")
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held, "graph request was never made"
+    assert "download=1" in page.get_attribute("#exportLink", "href")
+    held[0].continue_()
+    page.wait_for_function(
+        "() => document.querySelector('#tableWrap pre') !== null", timeout=10_000
+    )
 
 
 def test_export_link_points_at_the_current_table(page, wenjie_path):
