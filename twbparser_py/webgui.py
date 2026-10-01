@@ -23,7 +23,7 @@ import pandas as pd
 from . import __version__
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .parser import TwbParser
-from .rename import build_renamed_workbook, default_renamed_path, suggest_field_renames
+from .rename import _drop_parameters, build_renamed_workbook, default_renamed_path, suggest_field_renames
 
 _STATE: dict = {"parser": None, "path": None}
 
@@ -57,8 +57,23 @@ def _datasource_names(parser: TwbParser) -> list:
     df = parser.get_fields()
     if df.empty:
         return []
-    names = df.loc[~df["is_parameter"].fillna(False).astype(bool), "datasource"].dropna()
+    names = _drop_parameters(df)["datasource"].dropna()
     return sorted(set(names))
+
+
+_REFERENCE_CACHE: dict = {}
+
+
+def _reference_parser(path: str) -> TwbParser:
+    """The reference workbook, re-parsed only when its file changes -- the
+    page re-requests the table on every control change."""
+    st = os.stat(path)  # FileNotFoundError propagates to the caller's 400
+    key = (os.path.abspath(path), st.st_mtime_ns, st.st_size)
+    hit = _REFERENCE_CACHE.get(key)
+    if hit is None:
+        _REFERENCE_CACHE.clear()  # keep one: a reference workbook can be large
+        hit = _REFERENCE_CACHE[key] = TwbParser(path)
+    return hit
 
 
 def _rename_options(src: dict) -> dict:
@@ -74,7 +89,7 @@ def _rename_options(src: dict) -> dict:
     ref_path = str(one("reference") or "").strip()
     if ref_path:
         try:
-            opts["reference"] = TwbParser(ref_path)
+            opts["reference"] = _reference_parser(ref_path)
         except (FileNotFoundError, ValueError):
             raise
         except Exception as e:  # malformed XML, bad zip, permissions, etc.

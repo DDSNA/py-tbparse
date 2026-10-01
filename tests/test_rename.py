@@ -361,3 +361,26 @@ def test_cli_bad_cutoff_and_bad_reference(wenjie_path, tmp_path, capsys):
     junk.write_text("<not-a-workbook")
     assert main(["rename", wenjie_path, "-r", str(junk)]) == 1
     assert "reference" in capsys.readouterr().err
+
+
+def test_reference_as_a_workbook_path(wenjie_path):
+    # A str used to be iterated character by character.
+    out = suggest_field_renames(_fields(["ORDER_ID", "ACRES"]), reference=wenjie_path)
+    assert out.set_index("current").loc["ACRES", "suggested"] == "Acres"
+    assert out.set_index("current").loc["ORDER_ID", "reason"] == "normalized"
+    with pytest.raises(FileNotFoundError):
+        suggest_field_renames(_fields(["A"]), reference="/no/such.twb")
+
+
+def test_gui_reference_parser_is_cached_until_the_file_changes(wenjie_path, tmp_path):
+    import os
+    import shutil
+
+    from twbparser_py import webgui
+
+    ref = tmp_path / "ref.twb"
+    shutil.copy(wenjie_path, ref)
+    first = webgui._reference_parser(str(ref))
+    assert webgui._reference_parser(str(ref)) is first
+    os.utime(ref, ns=(1, 1))
+    assert webgui._reference_parser(str(ref)) is not first

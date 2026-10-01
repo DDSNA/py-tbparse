@@ -161,14 +161,23 @@ def _tableau_level(recs: list[dict]) -> list[dict]:
     return out
 
 
+def _drop_parameters(df: pd.DataFrame) -> pd.DataFrame:
+    if "is_parameter" in df.columns:
+        return df[~df["is_parameter"].fillna(False).astype(bool)]
+    return df
+
+
 def _reference_names(reference) -> list[str]:
     if reference is None:
         return []
+    if isinstance(reference, (str, os.PathLike)):
+        # A path to the "before" workbook. (Iterating a str would yield single
+        # characters as names.)
+        reference = TwbParser(str(reference))
     if isinstance(reference, TwbParser):
         reference = reference.get_fields()
     if isinstance(reference, pd.DataFrame):
-        if "is_parameter" in reference.columns:
-            reference = reference[~reference["is_parameter"].fillna(False).astype(bool)]
+        reference = _drop_parameters(reference)
         names = [_display_name(r) for r in _tableau_level(reference.to_dict("records"))]
     else:
         names = [str(n) for n in reference]
@@ -181,7 +190,7 @@ def _reference_names(reference) -> list[str]:
 
 def suggest_field_renames(
     fields: Union[pd.DataFrame, TwbParser],
-    reference: Union[pd.DataFrame, TwbParser, Iterable[str], None] = None,
+    reference: Union[pd.DataFrame, TwbParser, str, Iterable[str], None] = None,
     style: str = "title",
     fuzzy_cutoff: float = 0.85,
     acronyms: Iterable[str] = DEFAULT_ACRONYMS,
@@ -191,8 +200,8 @@ def suggest_field_renames(
     """Propose a clean name for every (non-parameter) field.
 
     `fields` is a `TwbParser` or its `get_fields()` frame. `reference`, if
-    given, is the "before" schema: another `TwbParser`, a fields frame, or a
-    plain list of names. A field whose spelling-insensitive key matches a
+    given, is the "before" schema: another `TwbParser`, a path to its workbook,
+    a fields frame, or a plain list of names. A field whose spelling-insensitive key matches a
     reference name takes the reference's exact name (`reason` "matches
     reference"); failing that, the closest reference name above
     `fuzzy_cutoff` (0..1, difflib ratio) is used ("close to reference").
@@ -229,9 +238,7 @@ def suggest_field_renames(
         ref_by_key.setdefault(_match_key(n), n)
     ref_keys = list(ref_by_key)
 
-    df = fields
-    if "is_parameter" in df.columns:
-        df = df[~df["is_parameter"].fillna(False).astype(bool)]
+    df = _drop_parameters(fields)
 
     recs = _tableau_level(df.to_dict("records"))
     if datasource is not None:
