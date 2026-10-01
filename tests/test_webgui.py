@@ -398,3 +398,37 @@ def test_wildcard_bind_still_rejects_domain_hosts(wildcard_server):
     port = urlsplit(wildcard_server).port
     status, _ = _raw(wildcard_server, "GET", "/tables", {"Host": f"attacker.example:{port}"})
     assert status == 403
+
+
+def test_field_renames_table_and_workbook_buttons(server, wenjie_path, tmp_path):
+    import shutil
+
+    book = tmp_path / "book.twb"
+    shutil.copy(wenjie_path, book)
+    status, data = _post(server, "/load", {"path": str(book)})
+    assert status == 200 and data["datasources"]
+    assert "field-renames" in data["counts"]
+
+    status, table = _get(server, "/table?name=field-renames&only_changed=true&style=title")
+    assert status == 200
+    assert [r[table["columns"].index("suggested")] for r in table["data"]] == ["No Data"]
+
+    status, err = _get(server, "/table?name=field-renames&reference=/nope.twb")
+    assert status == 400
+
+    with urllib.request.urlopen(server + "/download-workbook?style=title") as r:
+        assert r.status == 200
+        assert "book_renamed.twb" in r.headers["Content-Disposition"]
+        assert b"No Data" in r.read()
+    assert not (tmp_path / "book_renamed.twb").exists()  # download writes nothing
+
+    status, made = _post(server, "/create-workbook", {"style": "title"})
+    assert status == 200 and made["renamed"] == 1
+    assert (tmp_path / "book_renamed.twb").exists()
+    status, again = _post(server, "/create-workbook", {})
+    assert status == 409
+
+
+def test_create_workbook_needs_a_workbook(server):
+    status, _ = _post(server, "/create-workbook", {})
+    assert status == 400

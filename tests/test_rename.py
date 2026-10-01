@@ -153,3 +153,85 @@ def test_physical_columns_ignored_when_bracketed_exist():
     out = suggest_field_renames(df)
     assert list(out["current"]) == ["Mun Label"]
     assert not out["changed"].any()
+
+
+# --- writing the fixed workbook ---
+
+def _caption_of(parser, internal_name):
+    f = parser.get_fields()
+    return f.loc[f["name"] == internal_name, "caption"].tolist()
+
+
+def test_write_renamed_twb(wenjie_path, tmp_path):
+    import shutil
+
+    src = tmp_path / "book.twb"
+    shutil.copy(wenjie_path, src)
+    before = TwbParser(str(src))
+    calc = "[Calculation_2139209847776120832]"
+    assert _caption_of(before, calc) == ["no data"]
+
+    out = before.write_renamed_workbook()
+    assert out == str(tmp_path / "book_renamed.twb")
+    after = TwbParser(out)
+    assert _caption_of(after, calc) == ["No Data"]
+    # Internal names (what formulas and sheets use) are untouched.
+    assert set(after.get_fields()["name"]) == set(before.get_fields()["name"])
+    assert len(after.get_calculated_fields()) == len(before.get_calculated_fields())
+    assert src.read_bytes() == open(wenjie_path, "rb").read()
+
+
+def test_write_renamed_refuses_overwrite_and_bad_extension(wenjie_path, tmp_path):
+    import shutil
+
+    src = tmp_path / "book.twb"
+    shutil.copy(wenjie_path, src)
+    p = TwbParser(str(src))
+    with pytest.raises(FileExistsError):
+        p.write_renamed_workbook(str(src), overwrite=True)  # never the source
+    with pytest.raises(ValueError):
+        p.write_renamed_workbook(str(tmp_path / "x.txt"))
+    out = p.write_renamed_workbook()
+    with pytest.raises(FileExistsError):
+        p.write_renamed_workbook()
+    assert p.write_renamed_workbook(out, overwrite=True) == out
+
+
+def test_write_renamed_twbx_keeps_other_members(zip_twbx_path, tmp_path):
+    import shutil
+    import zipfile
+
+    src = tmp_path / "pack.twbx"
+    shutil.copy(zip_twbx_path, src)
+    p = TwbParser(str(src))
+    fields = p.get_fields()
+    target = fields[fields["name"].str.startswith("[")].iloc[0]
+    renames = pd.DataFrame(
+        [{"datasource": target["datasource"], "name": target["name"], "current": "x",
+          "suggested": "Brand New Name", "reason": "normalized", "score": None, "changed": True}]
+    )
+    out = p.write_renamed_workbook(renames=renames)
+    assert out.endswith("pack_renamed.twbx")
+    assert "Brand New Name" in TwbParser(out).get_fields()["caption"].tolist()
+    with zipfile.ZipFile(src) as a, zipfile.ZipFile(out) as b:
+        assert a.namelist() == b.namelist()
+        for n in a.namelist():
+            if n != p.twb_name:
+                assert a.read(n) == b.read(n)
+
+
+def test_datasource_filter():
+    df = pd.concat([_fields(["ORDER_ID"], ds="old"), _fields(["ORDER_ID"], ds="new")])
+    out = suggest_field_renames(df, datasource="new")
+    assert list(out["datasource"]) == ["new"]
+
+
+def test_cli_write_workbook(wenjie_path, tmp_path, capsys):
+    import shutil
+
+    src = tmp_path / "book.twb"
+    shutil.copy(wenjie_path, src)
+    assert main(["rename", str(src), "--only-changed", "--write-workbook"]) == 0
+    assert (tmp_path / "book_renamed.twb").exists()
+    assert "wrote" in capsys.readouterr().err
+    assert main(["rename", str(src), "--write-workbook"]) == 1  # would overwrite

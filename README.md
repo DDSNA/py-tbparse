@@ -59,6 +59,10 @@ With a `reference` (a workbook, a fields table or a plain list of names), fields
 
 `p.get_field_renames()` does the same from a parser.
 
+To save the result, `p.write_renamed_workbook()` (or `apply_field_renames(p, ...)`) writes `<name>_renamed.twb` / `.twbx` next to the original. It sets each field's caption, which is how Tableau renames a field; the internal names that formulas and sheets use are not touched, and a `.twbx` keeps all its other contents. It never modifies the original and refuses to overwrite an existing file unless you pass `overwrite=True`.
+
+**When to run it.** Add the new datasource to a *copy* of the workbook first, then run this with the old workbook as `reference` and `datasource=` set to the new source, so only its fields are renamed. Open the fixed copy and use Replace Data Source; fields with matching names should re-link on their own. It also works after references have already broken, but it only fixes names: sheets that point at missing fields stay broken until you replace the source again. (Check this on a copy first; I have not tested the re-linking in Tableau itself.)
+
 ### `.twbx` files
 
 A `.twbx` is read directly from the zip and nothing gets written to disk. That means `p.twbx_dir` is `None`, and `p.path` is a made-up `<file>.twbx/<name>.twb` that you can't open. If you want the files out, extract them yourself:
@@ -83,11 +87,12 @@ twbparser workbook.twb graph > model.dot      # --include-inferred adds the gues
 twbparser diff old.twb new.twb datasources
 twbparser batch ./workbooks datasources
 twbparser rename new.twb --reference old.twb --only-changed   # suggested clean field names
+twbparser rename new.twb -r old.twb --datasource federated.abc123 --write-workbook   # and save new_renamed.twb
 ```
 
 Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calculated-fields`, `joins`, `relations`, `relationships`, `inferred-relationships`, `dashboards`, `dashboard-sheets`, `custom-sql`, `initial-sql`, `published-refs`.
 
-`--format` takes `table` (default), `csv` or `json`. `graph` always prints Graphviz text. `rename` takes `--reference`, `--style`, `--cutoff`, `--only-changed`, `--format` and `--output`. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
+`--format` takes `table` (default), `csv` or `json`. `graph` always prints Graphviz text. `rename` takes `--reference`, `--datasource`, `--write-workbook [PATH]`, `--style`, `--cutoff`, `--only-changed`, `--format` and `--output`. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
 
 ## GUI
 
@@ -99,7 +104,7 @@ twbparser-gui --no-browser --port 8765   # server only, for a machine with no di
 
 It uses only the standard library, so there's nothing more to install.
 
-The sidebar lists every table with its row count. Click a column header to sort, type in the filter box to narrow rows (`/` jumps to it), click a row to see a long formula or SQL statement in full. The tiles on the overview open their tables. The graph view lets you copy or download the DOT text. Everything else exports as CSV. It has a dark theme and works in a narrow window.
+The sidebar lists every table with its row count. Click a column header to sort, type in the filter box to narrow rows (`/` jumps to it), click a row to see a long formula or SQL statement in full. The tiles on the overview open their tables. The graph view lets you copy or download the DOT text. The Field renames view has the buttons for the feature above: pick a style, datasource and optional reference workbook, then **Create fixed workbook** saves `<name>_renamed` beside the original (and says so if that file already exists) or **Download fixed workbook** sends it to your browser without saving anything. Everything else exports as CSV. It has a dark theme and works in a narrow window.
 
 It's meant to run on your own machine for one person. It refuses requests that come from other websites, but there's no login, so don't put it on a shared network.
 

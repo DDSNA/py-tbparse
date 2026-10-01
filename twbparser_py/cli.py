@@ -18,7 +18,7 @@ from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
 from .parser import TwbParser
-from .rename import STYLES, suggest_field_renames
+from .rename import STYLES, apply_field_renames, suggest_field_renames
 
 
 def _df_text(df: pd.DataFrame, fmt: str) -> str:
@@ -160,6 +160,12 @@ def build_rename_arg_parser() -> argparse.ArgumentParser:
         help="0..1 similarity needed to match a reference name approximately (default: 0.85)",
     )
     ap.add_argument("--only-changed", action="store_true", help="hide fields that need no rename")
+    ap.add_argument("--datasource", help="only this datasource (its internal name), e.g. the newly added one")
+    ap.add_argument(
+        "--write-workbook", nargs="?", const="", metavar="PATH",
+        help="also save a copy of the workbook with the renames applied "
+        "(default PATH: <name>_renamed.<ext> beside the original; never overwrites)",
+    )
     ap.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
     ap.add_argument("--output", "-o", help="write to this file instead of stdout")
     return ap
@@ -174,10 +180,16 @@ def _run_rename(argv: list[str]) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
-    df = suggest_field_renames(
-        wb, reference=ref, style=args.style, fuzzy_cutoff=args.cutoff, only_changed=args.only_changed
-    )
+    kwargs = dict(reference=ref, style=args.style, fuzzy_cutoff=args.cutoff, datasource=args.datasource)
+    df = suggest_field_renames(wb, only_changed=args.only_changed, **kwargs)
     _write(_df_text(df, args.format), args.output)
+    if args.write_workbook is not None:
+        try:
+            out = apply_field_renames(wb, output_path=args.write_workbook or None, **kwargs)
+        except (FileExistsError, ValueError, OSError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        print(f"wrote {out}", file=sys.stderr)
     return 0
 
 

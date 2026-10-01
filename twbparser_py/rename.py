@@ -12,10 +12,15 @@ workbook is modified.
 from __future__ import annotations
 
 import difflib
+import io
+import os
 import re
+import zipfile
+from pathlib import Path
 from typing import Iterable, Optional, Union
 
 import pandas as pd
+from lxml import etree
 
 from ._clean import is_missing
 from .parser import TwbParser
@@ -139,6 +144,7 @@ def suggest_field_renames(
     fuzzy_cutoff: float = 0.85,
     acronyms: Iterable[str] = DEFAULT_ACRONYMS,
     only_changed: bool = False,
+    datasource: Union[str, Iterable[str], None] = None,
 ) -> pd.DataFrame:
     """Propose a clean name for every (non-parameter) field.
 
@@ -155,6 +161,9 @@ def suggest_field_renames(
     Two fields in one datasource never get the same suggestion: the field
     that is already named that keeps it, otherwise the first wins, and the
     rest stay as they are with `reason` "conflict".
+
+    `datasource` limits the work to one datasource name (or several), e.g.
+    the newly added one when the workbook still holds the old source too.
 
     Returns `datasource, name, current, suggested, reason, score, changed`.
     `name` is Tableau's internal name, which is what a rename tool needs to
@@ -177,6 +186,9 @@ def suggest_field_renames(
         df = df[~df["is_parameter"].fillna(False).astype(bool)]
 
     recs = _tableau_level(df.to_dict("records"))
+    if datasource is not None:
+        wanted = {datasource} if isinstance(datasource, str) else set(datasource)
+        recs = [r for r in recs if r.get("datasource") in wanted]
 
     rows = []
     for rec in recs:
@@ -230,3 +242,76 @@ def suggest_field_renames(
     if only_changed:
         out = out[out["changed"]].reset_index(drop=True)
     return out
+
+
+def applicable_renames(renames: pd.DataFrame) -> pd.DataFrame:
+    if renames is None or renames.empty:
+        return pd.DataFrame(columns=RENAME_COLUMNS)
+    keep = renames["changed"].astype(bool) & (renames["reason"] != "conflict")
+    return renames[keep]
+
+
+def build_renamed_workbook(parser: TwbParser, renames: pd.DataFrame) -> bytes:
+    """Bytes of a copy of `parser`'s workbook with `renames` applied.
+
+    Each changed row of `renames` (as returned by `suggest_field_renames`;
+    conflicts are skipped) sets the `caption` of the matching column in its
+    datasource, which is how Tableau itself renames a field. Formulas and
+    sheets refer to the internal `name`, so nothing breaks. Captions that
+    worksheets cache in `datasource-dependencies` are updated too. A `.twb`
+    gives `.twb` bytes; a `.twbx` gives a `.twbx` with every other member
+    copied across untouched.
+    """
+    doc = etree.ElementTree(etree.fromstring(etree.tostring(parser.xml_doc)))
+    for r in applicable_renames(renames).to_dict("records"):
+        ds, name, caption = r["datasource"], r["name"], r["suggested"]
+        if is_missing(name):
+            continue
+        path = (
+            "/workbook/datasources/datasource[@name=$ds]//column[@name=$n]"
+            " | //datasource-dependencies[@datasource=$ds]/column[@name=$n and @caption]"
+        )
+        for col in doc.xpath(path, ds=ds if not is_missing(ds) else "", n=name):
+            col.set("caption", caption)
+    twb = etree.tostring(doc, xml_declaration=True, encoding="utf-8")
+
+    if not parser.twbx_path:
+        return twb
+    out = io.BytesIO()
+    with zipfile.ZipFile(parser.twbx_path) as src, zipfile.ZipFile(out, "w") as dst:
+        for info in src.infolist():
+            data = twb if info.filename == parser.twb_name else src.read(info.filename)
+            dst.writestr(info, data, compress_type=info.compress_type)
+    return out.getvalue()
+
+
+def default_renamed_path(parser: TwbParser) -> str:
+    """`<original>_renamed.<ext>` next to the source workbook."""
+    src = Path(parser.twbx_path or parser.path)
+    return str(src.with_name(f"{src.stem}_renamed{src.suffix}"))
+
+
+def apply_field_renames(
+    parser: TwbParser,
+    renames: Optional[pd.DataFrame] = None,
+    output_path: Optional[str] = None,
+    overwrite: bool = False,
+    **kwargs,
+) -> str:
+    """Write a new workbook with the suggested renames applied; return its path.
+
+    `renames` defaults to `suggest_field_renames(parser, **kwargs)`
+    (`reference`, `style`, ...). The original is never modified: the output
+    defaults to `<name>_renamed.<ext>` beside it, must keep the source's
+    extension, and an existing file is only replaced with `overwrite=True`.
+    """
+    if renames is None:
+        renames = suggest_field_renames(parser, **kwargs)
+    source = Path(parser.twbx_path or parser.path)
+    out = Path(output_path) if output_path else Path(default_renamed_path(parser))
+    if out.suffix.lower() != source.suffix.lower():
+        raise ValueError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
+    if out.exists() and (out.resolve() == source.resolve() or not overwrite):
+        raise FileExistsError(f"refusing to overwrite existing file: {out}")
+    out.write_bytes(build_renamed_workbook(parser, renames))
+    return str(out)
