@@ -9,6 +9,12 @@ It began as a port of PrigasG's R package [twbparser](https://github.com/PrigasG
 ## Install
 
 ```bash
+pip install py-tbparse
+```
+
+Or from a checkout:
+
+```bash
 git clone https://github.com/DDSNA/py-tbparse.git
 cd py-tbparse
 pip install -e .
@@ -117,6 +123,8 @@ It uses only the standard library, so there's nothing more to install.
 
 The sidebar lists every table with its row count. Click a column header to sort, type in the filter box to narrow rows (`/` jumps to it), click a row to see a long formula or SQL statement in full. The tiles on the overview open their tables. The graph view lets you copy or download the DOT text. The Field renames view has the buttons for the feature above: pick a style, datasource and optional reference workbook, then **Create fixed workbook** saves `<name>_renamed` beside the original (and says so if that file already exists) or **Download fixed workbook** sends it to your browser without saving anything. Everything else exports as CSV. It has a dark theme and works in a narrow window.
 
+![py-tbparse GUI, Field renames view with suggested clean names](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/gui-field-renames.png)
+
 It's meant to run on your own machine for one person. It refuses requests that come from other websites, but there's no login, so don't put it on a shared network.
 
 ## Tests
@@ -126,7 +134,7 @@ pip install -e ".[test]"
 pytest
 ```
 
-The sample workbooks in `tests/fixtures/` come from the R package.
+The sample workbooks in `tests/fixtures/` come from the R package. `tests/fixtures/public/` holds real workbooks from Tableau's own [document-api-python](https://github.com/tableau/document-api-python) (MIT), used by the smoke tests.
 
 The GUI tests run the page in headless Chromium through Playwright and fail on any JavaScript error. They skip if the browser isn't installed. To run them:
 
