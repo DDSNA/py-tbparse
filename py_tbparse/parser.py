@@ -208,6 +208,14 @@ class TwbParser:
 
         return suggest_field_renames(self, reference=reference, **kwargs)
 
+    def get_renames(self, reference=None, **kwargs) -> pd.DataFrame:
+        """Suggested clean names for everything in the report (fields,
+        parameters, worksheets, dashboards, datasources, folders,
+        hierarchies); see `rename.suggest_renames`."""
+        from .rename import suggest_renames
+
+        return suggest_renames(self, reference=reference, **kwargs)
+
     def write_renamed_workbook(self, output_path=None, renames=None, overwrite=False, **kwargs) -> str:
         """Save a copy of the workbook with clean field names; returns its
         path. See `rename.apply_field_renames`."""

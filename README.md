@@ -65,6 +65,24 @@ With a `reference` (a workbook, a fields table or a plain list of names), fields
 
 `p.get_field_renames()` does the same from a parser.
 
+**Rename everything in the report, not just fields.** Pass `kinds` (or `--all` / `--kinds` on the command line) and worksheets, dashboards, datasources, parameters, folders and hierarchies are covered too:
+
+```python
+from py_tbparse import TwbParser, suggest_renames, apply_field_renames
+
+p = TwbParser("report.twb")
+suggest_renames(p, only_changed=True)                    # kind, datasource, name, current, suggested, ...
+suggest_renames(p, kinds=["worksheet", "dashboard"])     # just the sheets
+apply_field_renames(p, kinds="all")                      # writes report_renamed.twb
+```
+
+```bash
+py-tbparse rename report.twb --all --only-changed
+py-tbparse rename report.twb --kinds worksheet,dashboard --write-workbook
+```
+
+Each kind is renamed the way Tableau does it: fields, parameters and datasources get a caption (their internal names stay, so formulas and sheets keep working); a worksheet or dashboard is renamed in every place its name is written (the sheet, its window and thumbnail, the zones of dashboards that show it, actions, story points); a folder or hierarchy gets its new name. Worksheets and dashboards share one namespace, as they do in Tableau, so two of them never end up with the same name. A `reference` workbook lends its spelling to objects of the same kind. Datasources that Tableau named itself (`federated.0grg...`) and nobody captioned are left out. The `kind` column also appears in the CSV, so **Edit the suggestions yourself** works for sheets too. The `report-renames` table lists all of it, and the GUI's Field renames view has an "Everything in the report" switch. As with fields, none of this has been opened in Tableau itself.
+
 **Edit the suggestions yourself.** Export them, change the `suggested` column in a spreadsheet (blank means leave the field alone), then apply your version to a copy of the workbook:
 
 ```bash
@@ -105,11 +123,12 @@ py-tbparse diff old.twb new.twb datasources
 py-tbparse batch ./workbooks datasources
 py-tbparse rename new.twb --reference old.twb --only-changed   # suggested clean field names
 py-tbparse rename new.twb -r old.twb --datasource federated.abc123 --write-workbook   # and save new_renamed.twb
+py-tbparse rename report.twb --all --write-workbook       # sheets, dashboards, datasources, ... too
 ```
 
 Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calculated-fields`, `joins`, `relations`, `relationships`, `inferred-relationships`, `dashboards`, `dashboard-sheets`, `custom-sql`, `initial-sql`, `published-refs`.
 
-`--format` takes `table` (default), `csv` or `json`. `graph` always prints Graphviz text. `rename` takes `--reference`, `--datasource`, `--write-workbook [PATH]`, `--style`, `--cutoff`, `--only-changed`, `--apply MAPPING.csv`, `--missing`, `--format` and `--output`. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
+`--format` takes `table` (default), `csv` or `json`. `graph` always prints Graphviz text. `rename` takes `--reference`, `--datasource`, `--write-workbook [PATH]`, `--style`, `--cutoff`, `--only-changed`, `--all`, `--kinds`, `--apply MAPPING.csv`, `--missing`, `--format` and `--output`. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
 
 ## GUI
 

@@ -22,8 +22,10 @@ from .rename import (
     STYLES,
     apply_field_renames,
     compare_field_schemas,
+    KINDS,
     load_rename_mapping,
     suggest_field_renames,
+    suggest_renames,
 )
 
 
@@ -165,6 +167,11 @@ def build_rename_arg_parser() -> argparse.ArgumentParser:
         "--cutoff", type=float, default=0.85,
         help="0..1 similarity needed to match a reference name approximately (default: 0.85)",
     )
+    ap.add_argument(
+        "--kinds", metavar="KIND[,KIND...]",
+        help="rename more than fields: any of " + ", ".join(KINDS) + ", or 'all' (default: field)",
+    )
+    ap.add_argument("--all", action="store_true", help="shorthand for --kinds all")
     ap.add_argument("--only-changed", action="store_true", help="hide fields that need no rename")
     ap.add_argument("--datasource", help="only this datasource (its internal name), e.g. the newly added one")
     ap.add_argument(
@@ -227,8 +234,13 @@ def _run_rename(argv: list[str]) -> int:
         return 0
 
     kwargs = dict(reference=ref, style=args.style, fuzzy_cutoff=args.cutoff, datasource=args.datasource)
+    kinds = None
+    if args.all or args.kinds:
+        kinds = KINDS if args.all or args.kinds.strip() == "all" else tuple(
+            k.strip() for k in args.kinds.split(",") if k.strip()
+        )
     try:
-        everything = suggest_field_renames(wb, **kwargs)
+        everything = suggest_renames(wb, kinds=kinds, **kwargs) if kinds else suggest_field_renames(wb, **kwargs)
     except ValueError as e:  # e.g. --cutoff outside 0..1
         print(f"error: {e}", file=sys.stderr)
         return 1

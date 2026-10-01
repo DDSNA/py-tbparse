@@ -21,6 +21,7 @@ from .rename import (
     load_rename_mapping,
     normalize_name,
     suggest_field_renames,
+    suggest_renames,
 )
 from .sql import extract_custom_sql, extract_initial_sql
 from .validators import validate_relationships
@@ -56,6 +57,7 @@ __all__ = [
     "load_rename_mapping",
     "normalize_name",
     "suggest_field_renames",
+    "suggest_renames",
 ]
 
 try:

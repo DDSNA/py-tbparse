@@ -476,3 +476,28 @@ def test_post_body_must_be_a_json_object(server):
     for path in ("/load", "/create-workbook"):
         status, err = _post(server, path, [1])
         assert status == 400 and "object" in err["error"]
+
+
+def test_everything_in_the_report_via_the_endpoints(server, tmp_path):
+    from test_rename_all import WORKBOOK
+
+    book = tmp_path / "report.twb"
+    book.write_text(WORKBOOK, encoding="utf-8")
+    assert _post(server, "/load", {"path": str(book)})[0] == 200
+
+    status, table = _get(server, "/table?name=field-renames&only_changed=true")
+    assert status == 200 and "kind" not in table["columns"]  # fields only by default
+
+    status, table = _get(server, "/table?name=field-renames&only_changed=true&kinds=all")
+    assert status == 200 and table["columns"][0] == "kind"
+    kinds = {r[0] for r in table["data"]}
+    assert {"worksheet", "dashboard", "datasource", "folder", "hierarchy", "parameter", "field"} <= kinds
+
+    # only "all" is accepted from the web; anything else means fields only
+    status, table = _get(server, "/table?name=field-renames&kinds=worksheet")
+    assert status == 200 and "kind" not in table["columns"]
+
+    status, made = _post(server, "/create-workbook", {"kinds": "all"})
+    assert status == 200 and made["renamed"] > 3
+    text = (tmp_path / "report_renamed.twb").read_text(encoding="utf-8")
+    assert "My Dashboard" in text and "my dashboard" not in text
