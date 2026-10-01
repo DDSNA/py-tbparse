@@ -51,6 +51,18 @@ diff_workbooks(TwbParser("v1.twb"), TwbParser("v2.twb"), table="datasources")
 scan_folder("./workbooks", table="datasources")  # one row per workbook x datasource
 ```
 
+A `.twbx` is read straight from the zip in memory; nothing is extracted to
+disk. So for a `.twbx`, `p.twbx_dir` is `None` and `p.path` is a virtual
+`<file>.twbx/<member>.twb` path, not a file you can open. To get the
+workbook or its packaged files on disk, extract them explicitly:
+
+```python
+from twbparser_py import extract_twb_from_twbx, twbx_extract_files
+
+extract_twb_from_twbx("workbook.twbx", extract_dir="out/")
+twbx_extract_files("workbook.twbx", exdir="out/")  # all packaged files
+```
+
 ### CLI
 
 ```bash
