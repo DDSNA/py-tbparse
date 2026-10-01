@@ -436,18 +436,30 @@ def test_create_workbook_needs_a_workbook(server):
 
 def test_download_workbook_with_non_latin1_name(server, wenjie_path, tmp_path):
     # http.server encodes headers as latin-1; a raw CJK filename used to abort
-    # the response mid-headers.
+    # the response mid-headers. (No quotes in the on-disk name: `"` is not a
+    # legal Windows filename character -- that case is covered below.)
     import shutil
     from urllib.parse import quote
 
-    book = tmp_path / 'Ventes "été" 売上.twb'
+    book = tmp_path / "Ventes été 売上.twb"
     shutil.copy(wenjie_path, book)
     assert _post(server, "/load", {"path": str(book)})[0] == 200
     with urllib.request.urlopen(server + "/download-workbook?style=title") as r:
         assert r.status == 200
         disp = r.headers["Content-Disposition"]
-    assert "filename*=UTF-8''" + quote('Ventes "été" 売上_renamed.twb', safe="") in disp
+    assert "filename*=UTF-8''" + quote("Ventes été 売上_renamed.twb", safe="") in disp
+    disp.encode("latin-1")  # what http.server will do with it
+
+
+def test_attachment_header_survives_quotes_and_backslashes():
+    from urllib.parse import quote
+
+    name = 'Ventes "été" \\ 売上.twb'
+    disp = webgui._attachment(name)
     assert disp.count('"') == 2  # the name's own quotes don't end the fallback early
+    assert "\\" not in disp.split("; filename*")[0]
+    assert "filename*=UTF-8''" + quote(name, safe="") in disp
+    disp.encode("latin-1")
 
 
 def test_malformed_reference_workbook_is_a_400(server, wenjie_path, tmp_path):
