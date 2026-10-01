@@ -16,7 +16,7 @@ import os
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse, urlsplit
+from urllib.parse import parse_qs, quote, urlparse, urlsplit
 
 import pandas as pd
 
@@ -73,11 +73,25 @@ def _rename_options(src: dict) -> dict:
     opts = {"style": style}
     ref_path = str(one("reference") or "").strip()
     if ref_path:
-        opts["reference"] = TwbParser(ref_path)
+        try:
+            opts["reference"] = TwbParser(ref_path)
+        except (FileNotFoundError, ValueError):
+            raise
+        except Exception as e:  # malformed XML, bad zip, permissions, etc.
+            raise ValueError(f"failed to parse reference workbook: {e}") from e
     ds = one("datasource")
     if ds:
         opts["datasource"] = ds
     return opts
+
+
+def _attachment(filename: str) -> str:
+    """`Content-Disposition` value for a download. http.server encodes
+    headers as latin-1 (a CJK workbook name would abort the response) and a
+    `"` would end the quoted filename, so send an ASCII fallback plus the
+    RFC 6266 `filename*` UTF-8 form."""
+    fallback = "".join(c if 32 <= ord(c) < 127 and c not in '"\\' else "_" for c in filename)
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
 def _json_for_script(obj) -> str:
@@ -939,7 +953,7 @@ class Handler(BaseHTTPRequestHandler):
                 200,
                 data,
                 "application/octet-stream",
-                {"Content-Disposition": f'attachment; filename="{filename}"'},
+                {"Content-Disposition": _attachment(filename)},
             )
             return
 
@@ -998,6 +1012,9 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(raw or b"{}")
         except json.JSONDecodeError:
             self._send_json({"error": "malformed JSON body"}, 400)
+            return
+        if not isinstance(payload, dict):
+            self._send_json({"error": "JSON body must be an object"}, 400)
             return
 
         if self.path == "/create-workbook":

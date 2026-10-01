@@ -235,3 +235,20 @@ def test_cli_write_workbook(wenjie_path, tmp_path, capsys):
     assert (tmp_path / "book_renamed.twb").exists()
     assert "wrote" in capsys.readouterr().err
     assert main(["rename", str(src), "--write-workbook"]) == 1  # would overwrite
+
+
+def test_apply_field_renames_never_overwrites(wenjie_path, tmp_path):
+    import shutil
+
+    from twbparser_py import apply_field_renames
+
+    book = tmp_path / "book.twb"
+    shutil.copy(wenjie_path, book)
+    p = TwbParser(str(book))
+    out = tmp_path / "book_renamed.twb"
+    out.write_bytes(b"keep me")
+    with pytest.raises(FileExistsError):
+        apply_field_renames(p)
+    assert out.read_bytes() == b"keep me"
+    assert apply_field_renames(p, overwrite=True) == str(out)
+    assert out.read_bytes() != b"keep me"

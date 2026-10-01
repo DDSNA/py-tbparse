@@ -313,5 +313,8 @@ def apply_field_renames(
         raise ValueError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
     if out.exists() and (out.resolve() == source.resolve() or not overwrite):
         raise FileExistsError(f"refusing to overwrite existing file: {out}")
-    out.write_bytes(build_renamed_workbook(parser, renames))
+    data = build_renamed_workbook(parser, renames)
+    # "xb" refuses a file created since the exists() check, like the GUI does.
+    with open(out, "wb" if overwrite else "xb") as fh:
+        fh.write(data)
     return str(out)
