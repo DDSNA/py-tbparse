@@ -1,8 +1,8 @@
 """Command-line interface: `twbparser WORKBOOK [TABLE] [options]`.
 
-Two reserved subcommands, dispatched on the first argument before the
-normal single-workbook parser runs: `twbparser diff A.twb B.twb [TABLE]`
-and `twbparser batch DIR [TABLE]`.
+Three reserved subcommands, dispatched on the first argument before the
+normal single-workbook parser runs: `twbparser diff A.twb B.twb [TABLE]`,
+`twbparser batch DIR [TABLE]` and `twbparser rename WORKBOOK [-r OLD.twb]`.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
 from .parser import TwbParser
+from .rename import STYLES, apply_field_renames, suggest_field_renames
 
 
 def _df_text(df: pd.DataFrame, fmt: str) -> str:
@@ -142,6 +143,67 @@ def _run_batch(argv: list[str]) -> int:
     return 0
 
 
+def build_rename_arg_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        prog="twbparser rename",
+        description="Suggest clean field names, e.g. after switching to a new datasource. "
+        "Read-only: prints a mapping, never edits the workbook.",
+    )
+    ap.add_argument("workbook", help="the .twb/.twbx file with the ugly names")
+    ap.add_argument(
+        "--reference", "-r",
+        help="a workbook from before the switch; matching fields take its names",
+    )
+    ap.add_argument("--style", choices=STYLES, default="title", help="naming style (default: title)")
+    ap.add_argument(
+        "--cutoff", type=float, default=0.85,
+        help="0..1 similarity needed to match a reference name approximately (default: 0.85)",
+    )
+    ap.add_argument("--only-changed", action="store_true", help="hide fields that need no rename")
+    ap.add_argument("--datasource", help="only this datasource (its internal name), e.g. the newly added one")
+    ap.add_argument(
+        "--write-workbook", nargs="?", const="", metavar="PATH",
+        help="also save a copy of the workbook with the renames applied "
+        "(default PATH: <name>_renamed.<ext> beside the original; never overwrites)",
+    )
+    ap.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    ap.add_argument("--output", "-o", help="write to this file instead of stdout")
+    return ap
+
+
+def _run_rename(argv: list[str]) -> int:
+    args = build_rename_arg_parser().parse_args(argv)
+    try:
+        wb = TwbParser(args.workbook)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    try:
+        ref = TwbParser(args.reference) if args.reference else None
+    except Exception as e:  # unreadable / malformed reference workbook
+        print(f"error: cannot read reference workbook: {e}", file=sys.stderr)
+        return 1
+
+    kwargs = dict(reference=ref, style=args.style, fuzzy_cutoff=args.cutoff, datasource=args.datasource)
+    try:
+        everything = suggest_field_renames(wb, **kwargs)
+    except ValueError as e:  # e.g. --cutoff outside 0..1
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    df = everything[everything["changed"]].reset_index(drop=True) if args.only_changed else everything
+    _write(_df_text(df, args.format), args.output)
+    if args.write_workbook is not None:
+        try:
+            out = apply_field_renames(
+                wb, renames=everything, output_path=args.write_workbook or None
+            )
+        except (FileExistsError, ValueError, OSError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        print(f"wrote {out}", file=sys.stderr)
+    return 0
+
+
 def _is_reserved_subcommand(argv: list[str], name: str) -> bool:
     """True if `argv` invokes the `name` subcommand -- but don't let that
     shadow an actual workbook that happens to be named exactly "diff" or
@@ -155,6 +217,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_diff(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "batch"):
         return _run_batch(raw_argv[1:])
+    if _is_reserved_subcommand(raw_argv, "rename"):
+        return _run_rename(raw_argv[1:])
 
     args = build_arg_parser().parse_args(argv)
 

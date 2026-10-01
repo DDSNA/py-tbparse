@@ -63,6 +63,7 @@ class TwbParser:
             info = read_twb_from_twbx(path)
             self.twbx_path = info["twbx_path"]
             self.twbx_manifest = info["manifest"]
+            self.twb_name = info["twb_name"]
             self.path = os.path.join(self.twbx_path, info["twb_name"])
             self.xml_doc = info["xml_doc"]
         elif ext == "twb":
@@ -200,6 +201,19 @@ class TwbParser:
             self.get_relationships(),
             self.get_inferred_relationships() if include_inferred else None,
         )
+
+    def get_field_renames(self, reference=None, **kwargs) -> pd.DataFrame:
+        """Suggested clean field names; see `rename.suggest_field_renames`."""
+        from .rename import suggest_field_renames
+
+        return suggest_field_renames(self, reference=reference, **kwargs)
+
+    def write_renamed_workbook(self, output_path=None, renames=None, overwrite=False, **kwargs) -> str:
+        """Save a copy of the workbook with clean field names; returns its
+        path. See `rename.apply_field_renames`."""
+        from .rename import apply_field_renames
+
+        return apply_field_renames(self, renames, output_path, overwrite, **kwargs)
 
     def _repr_html_(self) -> str:
         """Rich display for Jupyter/IPython: renders `get_overview()`."""

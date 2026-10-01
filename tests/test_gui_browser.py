@@ -402,3 +402,51 @@ def test_empty_path_is_rejected_client_side(page):
         timeout=10_000,
     )
     assert not page.is_visible("#controls")
+
+
+# --- field renames: create / download fixed workbook buttons ------------------
+
+
+def test_field_renames_buttons_create_a_workbook(page, wenjie_path, tmp_path):
+    import shutil
+
+    book = tmp_path / "book.twb"
+    shutil.copy(wenjie_path, book)
+    _load(page, str(book))
+    _open(page, "field-renames")
+    assert page.is_visible("#createBtn")
+    assert page.is_visible("#downloadBtn")
+    assert "style=title" in page.get_attribute("#downloadBtn", "href")
+
+    # Changing the style re-fetches the table and updates the download link.
+    page.select_option("#renameStyle", "snake")
+    page.wait_for_function(
+        "() => document.getElementById('downloadBtn').href.includes('style=snake')",
+        timeout=10_000,
+    )
+
+    page.select_option("#renameStyle", "title")
+    page.click("#createBtn")
+    page.wait_for_function(
+        "() => document.getElementById('status').textContent.startsWith('Saved')",
+        timeout=10_000,
+    )
+    assert (tmp_path / "book_renamed.twb").exists()
+
+    # A second click must not overwrite the first copy.
+    page.click("#createBtn")
+    page.wait_for_function(
+        "() => document.getElementById('status').textContent.includes('already exists')",
+        timeout=10_000,
+    )
+    # Chromium logs the deliberate 409 as a console error; nothing else may appear.
+    assert [e for e in page.js_errors if "409" not in e] == []
+
+
+def test_rename_tools_only_show_on_the_field_renames_view(page, wenjie_path):
+    _load(page, wenjie_path)
+    assert not page.is_visible("#renameTools")
+    _open(page, "field-renames")
+    assert page.is_visible("#renameTools")
+    _open(page, "fields")
+    assert not page.is_visible("#renameTools")

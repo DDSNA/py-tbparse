@@ -16,13 +16,14 @@ import os
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse, urlsplit
+from urllib.parse import parse_qs, quote, urlparse, urlsplit
 
 import pandas as pd
 
 from . import __version__
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .parser import TwbParser
+from .rename import _drop_parameters, build_renamed_workbook, default_renamed_path, suggest_field_renames
 
 _STATE: dict = {"parser": None, "path": None}
 
@@ -50,6 +51,62 @@ def _table_counts(parser: TwbParser) -> dict:
         except Exception:
             counts[name] = None
     return counts
+
+
+def _datasource_names(parser: TwbParser) -> list:
+    df = parser.get_fields()
+    if df.empty:
+        return []
+    names = _drop_parameters(df)["datasource"].dropna()
+    return sorted(set(names))
+
+
+_REFERENCE_CACHE: dict = {}
+
+
+def _reference_parser(path: str) -> TwbParser:
+    """The reference workbook, re-parsed only when its file changes -- the
+    page re-requests the table on every control change."""
+    st = os.stat(path)  # FileNotFoundError propagates to the caller's 400
+    key = (os.path.abspath(path), st.st_mtime_ns, st.st_size)
+    hit = _REFERENCE_CACHE.get(key)
+    if hit is None:
+        _REFERENCE_CACHE.clear()  # keep one: a reference workbook can be large
+        hit = _REFERENCE_CACHE[key] = TwbParser(path)
+    return hit
+
+
+def _rename_options(src: dict) -> dict:
+    """Rename options from a query-string dict (values are lists) or a JSON
+    body; the reference workbook path is loaded here, so a bad one raises
+    ValueError/FileNotFoundError for the caller to report."""
+    def one(key, default=None):
+        v = src.get(key, default)
+        return (v[0] if v else default) if isinstance(v, list) else v
+
+    style = one("style") or "title"
+    opts = {"style": style}
+    ref_path = str(one("reference") or "").strip()
+    if ref_path:
+        try:
+            opts["reference"] = _reference_parser(ref_path)
+        except (FileNotFoundError, ValueError):
+            raise
+        except Exception as e:  # malformed XML, bad zip, permissions, etc.
+            raise ValueError(f"failed to parse reference workbook: {e}") from e
+    ds = one("datasource")
+    if ds:
+        opts["datasource"] = ds
+    return opts
+
+
+def _attachment(filename: str) -> str:
+    """`Content-Disposition` value for a download. http.server encodes
+    headers as latin-1 (a CJK workbook name would abort the response) and a
+    `"` would end the quoted filename, so send an ASCII fallback plus the
+    RFC 6266 `filename*` UTF-8 form."""
+    fallback = "".join(c if 32 <= ord(c) < 127 and c not in '"\\' else "_" for c in filename)
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
 def _json_for_script(obj) -> str:
@@ -177,6 +234,8 @@ _PAGE = r"""<!doctype html>
   .btn.primary:hover { filter: brightness(1.08); }
   .btn:disabled { opacity: .6; cursor: progress; }
   .btn.small { height: 28px; padding: 0 10px; font-size: 12.5px; }
+  .rename-tools { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .rename-tools input[type=text] { width: 260px; font-family: var(--mono); font-size: 13px; }
   .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted);
            cursor: pointer; white-space: nowrap; }
   select.field { padding-right: 4px; }
@@ -316,6 +375,20 @@ _PAGE = r"""<!doctype html>
         <label id="inferredWrap" class="check" hidden>
           <input type="checkbox" id="includeInferred"> Include inferred (dashed)
         </label>
+        <span id="renameTools" class="rename-tools" hidden>
+          <select id="renameStyle" class="field" aria-label="Naming style">
+            <option value="title">Title Case</option><option value="snake">snake_case</option>
+            <option value="lower">lower case</option><option value="keep">Keep case</option>
+          </select>
+          <select id="renameDs" class="field" aria-label="Datasource">
+            <option value="">(all datasources)</option>
+          </select>
+          <input id="renameRef" class="field" type="text" spellcheck="false"
+                 placeholder="Reference workbook path (optional)" aria-label="Reference workbook path">
+          <label class="check"><input type="checkbox" id="renameChanged" checked> Only changes</label>
+          <button id="createBtn" class="btn primary" type="button">Create fixed workbook</button>
+          <a id="downloadBtn" class="btn" href="#" download>Download fixed workbook</a>
+        </span>
         <button id="copyBtn" class="btn" type="button" hidden>Copy</button>
         <a id="exportLink" class="btn" href="#" download><span id="exportBtn">Export CSV</span></a>
       </div>
@@ -336,7 +409,7 @@ const statusEl = $('status');
 // still show up, under "Other", so the registry stays the source of truth.
 const GROUPS = [
   ['Workbook', ['overview', 'published-refs']],
-  ['Data', ['datasources', 'parameters', 'fields', 'raw-fields', 'calculated-fields']],
+  ['Data', ['datasources', 'parameters', 'fields', 'raw-fields', 'calculated-fields', 'field-renames']],
   ['Data model', ['relationships', 'joins', 'relations', 'inferred-relationships', 'graph']],
   ['Dashboards', ['dashboards', 'dashboard-sheets']],
   ['SQL', ['custom-sql', 'initial-sql']],
@@ -349,6 +422,7 @@ const INFO = {
   'fields': ['Fields', 'Every column across all datasources.'],
   'raw-fields': ['Raw fields', 'Columns that come straight from the source.'],
   'calculated-fields': ['Calculated fields', 'Calculations and their formulas.'],
+  'field-renames': ['Field renames', 'Suggested clean names. Create a copy of the workbook with them applied.'],
   'joins': ['Joins', 'Join clauses from the physical layer.'],
   'relations': ['Relations', 'Physical tables and custom SQL relations.'],
   'relationships': ['Relationships', 'Logical-layer relationships (Tableau 2020.2+).'],
@@ -485,6 +559,13 @@ async function loadWorkbook() {
     $('wbName').title = data.path;
     document.title = (data.name || 'workbook') + ' - twbparser';
     setCounts(data.counts);
+    const dsSel = $('renameDs');
+    dsSel.innerHTML = '<option value="">(all datasources)</option>';
+    (data.datasources || []).forEach((name) => {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      dsSel.appendChild(opt);
+    });
     const dashSel = $('dashboardSel');
     dashSel.innerHTML = '<option value="">(all)</option>';
     (data.dashboards || []).forEach((name) => {
@@ -513,6 +594,7 @@ async function showTable() {
   $('paramsWrap').hidden = name !== 'calculated-fields';
   $('inferredWrap').hidden = !isGraph;
   $('copyBtn').hidden = !isGraph;
+  $('renameTools').hidden = name !== 'field-renames';
   $('filter').hidden = isGraph || isOverview;
   $('hint').hidden = isGraph || isOverview;
   $('exportBtn').textContent = isGraph ? 'Export DOT' : 'Export CSV';
@@ -544,6 +626,12 @@ async function showTable() {
   if (name === 'calculated-fields' && $('includeParams').checked) {
     params.set('include_parameters', 'true');
   }
+  if (name === 'field-renames') {
+    const opts = renameOptions();
+    Object.entries(opts).forEach(([k, v]) => { if (v) params.set(k, v); });
+    if ($('renameChanged').checked) params.set('only_changed', 'true');
+    $('downloadBtn').href = '/download-workbook?' + new URLSearchParams(opts).toString();
+  }
   $('exportLink').href = '/export?' + params.toString();
   try {
     const data = await fetchJSON('/table?' + params.toString());
@@ -553,6 +641,32 @@ async function showTable() {
     if (isOverview) renderOverview(); else renderTable();
   } catch (e) {
     setStatus('Error: ' + e.message, true);
+  }
+}
+
+function renameOptions() {
+  const opts = {style: $('renameStyle').value};
+  if ($('renameDs').value) opts.datasource = $('renameDs').value;
+  const ref = $('renameRef').value.trim();
+  if (ref) opts.reference = ref;
+  return opts;
+}
+
+async function createWorkbook() {
+  const btn = $('createBtn');
+  btn.disabled = true;
+  setStatus('Creating workbook ...');
+  try {
+    const data = await fetchJSON('/create-workbook', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(renameOptions()),
+    });
+    setStatus('Saved ' + data.renamed + ' rename(s) to ' + data.path);
+  } catch (e) {
+    setStatus('Error: ' + e.message, true);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -688,6 +802,9 @@ $('includeParams').addEventListener('change', showTable);
 $('includeInferred').addEventListener('change', showTable);
 $('copyBtn').addEventListener('click', copyDot);
 $('filter').addEventListener('input', renderTable);
+['renameStyle', 'renameDs', 'renameRef', 'renameChanged'].forEach((id) =>
+  $(id).addEventListener('change', showTable));
+$('createBtn').addEventListener('click', createWorkbook);
 $('filter').addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { $('filter').value = ''; renderTable(); }
 });
@@ -739,8 +856,12 @@ class Handler(BaseHTTPRequestHandler):
             return None, name
         dashboard = (qs.get("dashboard") or [None])[0] or None
         include_parameters = (qs.get("include_parameters") or ["false"])[0] == "true"
+        extra = {}
+        if name == "field-renames":
+            extra = _rename_options(qs)
+            extra["only_changed"] = (qs.get("only_changed") or ["false"])[0] == "true"
         df = TABLE_SPECS[name](
-            _STATE["parser"], dashboard=dashboard, include_parameters=include_parameters
+            _STATE["parser"], dashboard=dashboard, include_parameters=include_parameters, **extra
         )
         return df, name
 
@@ -775,7 +896,11 @@ class Handler(BaseHTTPRequestHandler):
             if _STATE["parser"] is None:
                 self._send_json({"error": "No workbook loaded"}, 400)
                 return
-            df, name = self._table_df(qs)
+            try:
+                df, name = self._table_df(qs)
+            except (FileNotFoundError, ValueError) as e:
+                self._send_json({"error": str(e)}, 400)
+                return
             if df is None:
                 self._send_json({"error": f"unknown table '{name}'"}, 404)
                 return
@@ -813,7 +938,11 @@ class Handler(BaseHTTPRequestHandler):
             if _STATE["parser"] is None:
                 self._send(400, "No workbook loaded", "text/plain")
                 return
-            df, name = self._table_df(qs)
+            try:
+                df, name = self._table_df(qs)
+            except (FileNotFoundError, ValueError) as e:
+                self._send(400, str(e), "text/plain")
+                return
             if df is None:
                 self._send(404, f"unknown table '{name}'", "text/plain")
                 return
@@ -826,12 +955,58 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path == "/download-workbook":
+            if _STATE["parser"] is None:
+                self._send(400, "No workbook loaded", "text/plain")
+                return
+            try:
+                data, filename, _n = self._renamed_workbook(_rename_options(qs))
+            except (FileNotFoundError, ValueError) as e:
+                self._send(400, str(e), "text/plain")
+                return
+            self._send(
+                200,
+                data,
+                "application/octet-stream",
+                {"Content-Disposition": _attachment(filename)},
+            )
+            return
+
         self._send(404, "not found", "text/plain")
+
+    @staticmethod
+    def _renamed_workbook(opts: dict):
+        parser = _STATE["parser"]
+        renames = suggest_field_renames(parser, **opts)
+        filename = os.path.basename(default_renamed_path(parser))
+        report: dict = {}
+        data = build_renamed_workbook(parser, renames, report)
+        return data, filename, report["applied"]
+
+    def _create_workbook(self, payload: dict) -> None:
+        """Save `<name>_renamed.<ext>` beside the loaded workbook (never over
+        an existing file), with the suggested renames applied."""
+        if _STATE["parser"] is None:
+            self._send_json({"error": "No workbook loaded"}, 400)
+            return
+        out = default_renamed_path(_STATE["parser"])
+        try:
+            data, _, renamed = self._renamed_workbook(_rename_options(payload))
+            # "xb" refuses an existing file atomically, so nothing is overwritten.
+            with open(out, "xb") as fh:
+                fh.write(data)
+        except FileExistsError:
+            self._send_json({"error": f"{out} already exists; move or delete it first"}, 409)
+            return
+        except (FileNotFoundError, ValueError, OSError) as e:
+            self._send_json({"error": str(e)}, 400)
+            return
+        self._send_json({"ok": True, "path": out, "renamed": renamed})
 
     def do_POST(self):  # noqa: N802
         if self._reject_foreign_host():
             return
-        if self.path != "/load":
+        if self.path not in ("/load", "/create-workbook"):
             self._send(404, "not found", "text/plain")
             return
 
@@ -854,6 +1029,13 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(raw or b"{}")
         except json.JSONDecodeError:
             self._send_json({"error": "malformed JSON body"}, 400)
+            return
+        if not isinstance(payload, dict):
+            self._send_json({"error": "JSON body must be an object"}, 400)
+            return
+
+        if self.path == "/create-workbook":
+            self._create_workbook(payload)
             return
 
         path = str(payload.get("path", "")).strip()
@@ -879,6 +1061,7 @@ class Handler(BaseHTTPRequestHandler):
                 "path": path,
                 "name": os.path.basename(path),
                 "counts": _table_counts(parser),
+                "datasources": _datasource_names(parser),
                 "dashboards": dashboards_df["name"].tolist()
                 if "name" in dashboards_df.columns
                 else [],

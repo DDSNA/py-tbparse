@@ -398,3 +398,81 @@ def test_wildcard_bind_still_rejects_domain_hosts(wildcard_server):
     port = urlsplit(wildcard_server).port
     status, _ = _raw(wildcard_server, "GET", "/tables", {"Host": f"attacker.example:{port}"})
     assert status == 403
+
+
+def test_field_renames_table_and_workbook_buttons(server, wenjie_path, tmp_path):
+    import shutil
+
+    book = tmp_path / "book.twb"
+    shutil.copy(wenjie_path, book)
+    status, data = _post(server, "/load", {"path": str(book)})
+    assert status == 200 and data["datasources"]
+    assert "field-renames" in data["counts"]
+
+    status, table = _get(server, "/table?name=field-renames&only_changed=true&style=title")
+    assert status == 200
+    assert [r[table["columns"].index("suggested")] for r in table["data"]] == ["Mun", "Counts", "No Data"]
+
+    status, err = _get(server, "/table?name=field-renames&reference=/nope.twb")
+    assert status == 400
+
+    with urllib.request.urlopen(server + "/download-workbook?style=title") as r:
+        assert r.status == 200
+        assert "book_renamed.twb" in r.headers["Content-Disposition"]
+        assert b"No Data" in r.read()
+    assert not (tmp_path / "book_renamed.twb").exists()  # download writes nothing
+
+    status, made = _post(server, "/create-workbook", {"style": "title"})
+    assert status == 200 and made["renamed"] == 3
+    assert (tmp_path / "book_renamed.twb").exists()
+    status, again = _post(server, "/create-workbook", {})
+    assert status == 409
+
+
+def test_create_workbook_needs_a_workbook(server):
+    status, _ = _post(server, "/create-workbook", {})
+    assert status == 400
+
+
+def test_download_workbook_with_non_latin1_name(server, wenjie_path, tmp_path):
+    # http.server encodes headers as latin-1; a raw CJK filename used to abort
+    # the response mid-headers. (No quotes in the on-disk name: `"` is not a
+    # legal Windows filename character -- that case is covered below.)
+    import shutil
+    from urllib.parse import quote
+
+    book = tmp_path / "Ventes été 売上.twb"
+    shutil.copy(wenjie_path, book)
+    assert _post(server, "/load", {"path": str(book)})[0] == 200
+    with urllib.request.urlopen(server + "/download-workbook?style=title") as r:
+        assert r.status == 200
+        disp = r.headers["Content-Disposition"]
+    assert "filename*=UTF-8''" + quote("Ventes été 売上_renamed.twb", safe="") in disp
+    disp.encode("latin-1")  # what http.server will do with it
+
+
+def test_attachment_header_survives_quotes_and_backslashes():
+    from urllib.parse import quote
+
+    name = 'Ventes "été" \\ 売上.twb'
+    disp = webgui._attachment(name)
+    assert disp.count('"') == 2  # the name's own quotes don't end the fallback early
+    assert "\\" not in disp.split("; filename*")[0]
+    assert "filename*=UTF-8''" + quote(name, safe="") in disp
+    disp.encode("latin-1")
+
+
+def test_malformed_reference_workbook_is_a_400(server, wenjie_path, tmp_path):
+    bad = tmp_path / "bad.twb"
+    bad.write_text("<workbook")
+    assert _post(server, "/load", {"path": str(wenjie_path)})[0] == 200
+    status, err = _get(server, "/table?name=field-renames&reference=" + str(bad))
+    assert status == 400 and "reference" in err["error"]
+    status, err = _post(server, "/create-workbook", {"reference": str(bad)})
+    assert status == 400
+
+
+def test_post_body_must_be_a_json_object(server):
+    for path in ("/load", "/create-workbook"):
+        status, err = _post(server, path, [1])
+        assert status == 400 and "object" in err["error"]
