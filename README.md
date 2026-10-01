@@ -38,6 +38,27 @@ diff_workbooks(TwbParser("v1.twb"), TwbParser("v2.twb"), table="datasources")
 scan_folder("./workbooks", table="datasources")   # one table, every workbook in the folder
 ```
 
+### Cleaning field names after a datasource switch
+
+Pointing a workbook at a new datasource that only partly matches the old schema tends to leave ugly names: `ORDER_ID`, `orderId`, `Order ID (Orders1)`, `Order ID1`. `suggest_field_renames` proposes a clean name for each field. It only reports; it never edits the workbook.
+
+```python
+from twbparser_py import TwbParser, suggest_field_renames
+
+new = TwbParser("after_switch.twb")
+old = TwbParser("before_switch.twb")           # optional: the schema you want to match
+
+suggest_field_renames(new, reference=old, only_changed=True)
+#   name                      current                 suggested     reason             score
+#   [ORDER_ID]                ORDER_ID                Order ID      matches reference  1.0
+#   [Sales Amount (Orders1)]  Sales Amount (Orders1)  Sales Amount  matches reference  1.0
+#   [orderDate]               orderDate               Order Date    normalized         NaN
+```
+
+With a `reference` (a workbook, a fields table or a plain list of names), fields that match by name ignoring case, separators and Tableau's duplicate suffixes take the reference's exact spelling, and near-misses above `fuzzy_cutoff` (default 0.85) are matched too. Everything else is tidied by `normalize_name(name, style)`, where `style` is `title` (default), `snake`, `lower` or `keep`. `1` and `(Table1)` suffixes are only dropped when the plain name exists in the same datasource, and two fields never get the same suggestion (the loser stays as it is, with `reason` set to `conflict`).
+
+`p.get_field_renames()` does the same from a parser.
+
 ### `.twbx` files
 
 A `.twbx` is read directly from the zip and nothing gets written to disk. That means `p.twbx_dir` is `None`, and `p.path` is a made-up `<file>.twbx/<name>.twb` that you can't open. If you want the files out, extract them yourself:
@@ -61,11 +82,12 @@ twbparser workbook.twb validate               # exit code 2 if it finds a proble
 twbparser workbook.twb graph > model.dot      # --include-inferred adds the guessed links
 twbparser diff old.twb new.twb datasources
 twbparser batch ./workbooks datasources
+twbparser rename new.twb --reference old.twb --only-changed   # suggested clean field names
 ```
 
 Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calculated-fields`, `joins`, `relations`, `relationships`, `inferred-relationships`, `dashboards`, `dashboard-sheets`, `custom-sql`, `initial-sql`, `published-refs`.
 
-`--format` takes `table` (default), `csv` or `json`. `graph` always prints Graphviz text. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
+`--format` takes `table` (default), `csv` or `json`. `graph` always prints Graphviz text. `rename` takes `--reference`, `--style`, `--cutoff`, `--only-changed`, `--format` and `--output`. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
 
 ## GUI
 

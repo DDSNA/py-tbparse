@@ -201,6 +201,12 @@ class TwbParser:
             self.get_inferred_relationships() if include_inferred else None,
         )
 
+    def get_field_renames(self, reference=None, **kwargs) -> pd.DataFrame:
+        """Suggested clean field names; see `rename.suggest_field_renames`."""
+        from .rename import suggest_field_renames
+
+        return suggest_field_renames(self, reference=reference, **kwargs)
+
     def _repr_html_(self) -> str:
         """Rich display for Jupyter/IPython: renders `get_overview()`."""
         overview_html = self.get_overview().to_html(index=False, na_rep="")
