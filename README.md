@@ -59,6 +59,17 @@ With a `reference` (a workbook, a fields table or a plain list of names), fields
 
 `p.get_field_renames()` does the same from a parser.
 
+**Edit the suggestions yourself.** Export them, change the `suggested` column in a spreadsheet (blank means leave the field alone), then apply your version to a copy of the workbook:
+
+```bash
+twbparser rename new.twb -r old.twb -f csv -o mapping.csv
+twbparser rename new.twb --apply mapping.csv      # writes new_renamed.twb; add --write-workbook PATH to choose the file
+```
+
+Your edits are applied as written, including rows the tool had marked `conflict`; two rows giving the same name in one datasource are rejected. From Python this is `apply_field_renames(p, renames=load_rename_mapping("mapping.csv"))`.
+
+**What will stay broken.** `twbparser rename new.twb -r old.twb --missing` (or `compare_field_schemas(new, old)`) lists the fields with no counterpart after the switch: `old only` fields that nothing in the new source matches, and `new only` fields nothing in the old workbook matches, each with the closest name on the other side as a hint. Sheets using an `old only` field stay red after Replace Data Source until you map or recreate it.
+
 To save the result, `p.write_renamed_workbook()` (or `apply_field_renames(p, ...)`) writes `<name>_renamed.twb` / `.twbx` next to the original. It sets each field's caption, which is how Tableau renames a field; the internal names that formulas and sheets use are not touched, and a `.twbx` keeps all its other contents. A field that only exists as a physical column (typical right after a datasource switch) gets a new minimal `<column>` element carrying the caption; that shape follows what Tableau writes but I have not opened such files in Tableau itself. It never modifies the original and refuses to overwrite an existing file unless you pass `overwrite=True`.
 
 **When to run it.** Add the new datasource to a *copy* of the workbook first, then run this with the old workbook as `reference` and `datasource=` set to the new source, so only its fields are renamed. Open the fixed copy and use Replace Data Source; fields with matching names should re-link on their own. It also works after references have already broken, but it only fixes names: sheets that point at missing fields stay broken until you replace the source again. (Check this on a copy first; I have not tested the re-linking in Tableau itself.)
@@ -92,7 +103,7 @@ twbparser rename new.twb -r old.twb --datasource federated.abc123 --write-workbo
 
 Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calculated-fields`, `joins`, `relations`, `relationships`, `inferred-relationships`, `dashboards`, `dashboard-sheets`, `custom-sql`, `initial-sql`, `published-refs`.
 
-`--format` takes `table` (default), `csv` or `json`. `graph` always prints Graphviz text. `rename` takes `--reference`, `--datasource`, `--write-workbook [PATH]`, `--style`, `--cutoff`, `--only-changed`, `--format` and `--output`. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
+`--format` takes `table` (default), `csv` or `json`. `graph` always prints Graphviz text. `rename` takes `--reference`, `--datasource`, `--write-workbook [PATH]`, `--style`, `--cutoff`, `--only-changed`, `--apply MAPPING.csv`, `--missing`, `--format` and `--output`. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
 
 ## GUI
 

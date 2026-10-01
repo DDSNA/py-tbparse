@@ -120,10 +120,11 @@ beyond the R package's scope:
 | Python module | What it is |
 |---|---|
 | `_tables.py` | Name → `TwbParser`-accessor registry shared by `cli.py`, `webgui.py`, `diff.py`, and `batch.py`. Adding a new extractor to `TwbParser`? Add it here too so it's automatically available everywhere else. |
-| `cli.py` | `twbparser` command-line entry point, plus the `diff`/`batch` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
+| `cli.py` | `twbparser` command-line entry point, plus the `diff`/`batch`/`rename` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
 | `webgui.py` | `twbparser-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
 | `graph.py` | `to_dot()`: Graphviz DOT export of joins/relationships (+ optional inferred, as dashed edges). Replaces the R package's igraph/ggraph-based `plot_dependency_graph`/`plot_relationship_graph` with a dependency-free text format any Graphviz-compatible tool can render. |
 | `diff.py` | `diff_tables()`/`diff_workbooks()`: row-level added/removed diff between two workbooks' same-named table, via `_tables.TABLE_SPECS`. No "changed" classification without a natural key — a changed row shows as one removed + one added row. |
+| `rename.py` | `suggest_field_renames()` (clean-name suggestions, optionally matched against a "before" reference), `load_rename_mapping()` (read an edited CSV back), `compare_field_schemas()` (fields with no counterpart across a datasource switch) and `apply_field_renames()`/`build_renamed_workbook()` (write a copy with captions set; never overwrites). Also the `field-renames` table in `_tables.py`. |
 | `batch.py` | `scan_folder()`: runs one table across every `.twb`/`.twbx` in a directory, concatenated with a `workbook` column. Skips (with a warning) any file that fails to load/extract rather than aborting the batch. |
 
 ## Porting conventions (read before adding/modifying a function)

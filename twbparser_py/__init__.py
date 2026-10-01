@@ -15,7 +15,13 @@ from .joins import extract_joins
 from .parser import TwbParser
 from .published import extract_published_refs
 from .relationships import extract_relations, extract_relationships
-from .rename import apply_field_renames, normalize_name, suggest_field_renames
+from .rename import (
+    apply_field_renames,
+    compare_field_schemas,
+    load_rename_mapping,
+    normalize_name,
+    suggest_field_renames,
+)
 from .sql import extract_custom_sql, extract_initial_sql
 from .validators import validate_relationships
 from ._xml import extract_twb_from_twbx, twbx_extract_files, twbx_list
@@ -46,6 +52,8 @@ __all__ = [
     "diff_workbooks",
     "scan_folder",
     "apply_field_renames",
+    "compare_field_schemas",
+    "load_rename_mapping",
     "normalize_name",
     "suggest_field_renames",
 ]

@@ -18,7 +18,13 @@ from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
 from .parser import TwbParser
-from .rename import STYLES, apply_field_renames, suggest_field_renames
+from .rename import (
+    STYLES,
+    apply_field_renames,
+    compare_field_schemas,
+    load_rename_mapping,
+    suggest_field_renames,
+)
 
 
 def _df_text(df: pd.DataFrame, fmt: str) -> str:
@@ -166,23 +172,59 @@ def build_rename_arg_parser() -> argparse.ArgumentParser:
         help="also save a copy of the workbook with the renames applied "
         "(default PATH: <name>_renamed.<ext> beside the original; never overwrites)",
     )
+    ap.add_argument(
+        "--apply", metavar="MAPPING.csv",
+        help="skip the suggestions and apply this edited mapping (the CSV from `-f csv`, with the "
+        "`suggested` column changed by hand) to a copy of the workbook; "
+        "PATH from --write-workbook is optional",
+    )
+    ap.add_argument(
+        "--missing", action="store_true",
+        help="instead of renames, list fields with no counterpart between --reference and the workbook "
+        "(what stays broken after Replace Data Source)",
+    )
     ap.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
     ap.add_argument("--output", "-o", help="write to this file instead of stdout")
     return ap
 
 
 def _run_rename(argv: list[str]) -> int:
-    args = build_rename_arg_parser().parse_args(argv)
+    ap = build_rename_arg_parser()
+    args = ap.parse_args(argv)
+    if args.missing and not args.reference:
+        ap.error("--missing needs --reference")
+    if args.missing and args.apply:
+        ap.error("--missing and --apply cannot be combined")
     try:
         wb = TwbParser(args.workbook)
     except (FileNotFoundError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+    if args.apply:
+        try:
+            mapping = load_rename_mapping(args.apply)
+            out = apply_field_renames(wb, renames=mapping, output_path=args.write_workbook or None)
+        except (FileNotFoundError, FileExistsError, ValueError, OSError, pd.errors.ParserError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        print(f"wrote {out} ({int(mapping['changed'].sum())} renames from {args.apply})", file=sys.stderr)
+        return 0
     try:
         ref = TwbParser(args.reference) if args.reference else None
     except Exception as e:  # unreadable / malformed reference workbook
         print(f"error: cannot read reference workbook: {e}", file=sys.stderr)
         return 1
+
+    if args.missing:
+        try:
+            gaps = compare_field_schemas(
+                wb, ref, datasource=args.datasource, style=args.style, fuzzy_cutoff=args.cutoff
+            )
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        _write(_df_text(gaps, args.format), args.output)
+        return 0
 
     kwargs = dict(reference=ref, style=args.style, fuzzy_cutoff=args.cutoff, datasource=args.datasource)
     try:
