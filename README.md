@@ -4,7 +4,7 @@ Reads Tableau workbooks (`.twb` and `.twbx`) and gives you what's in them as pan
 
 It began as a port of PrigasG's R package [twbparser](https://github.com/PrigasG/twbparser). The browser GUI, the command-line tool, workbook diffing and folder scanning are new here.
 
-![py-tbparse GUI, overview of a loaded workbook](docs/gui-overview.png)
+![py-tbparse GUI, overview of a loaded workbook](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/gui-overview.png)
 
 ## Install
 
