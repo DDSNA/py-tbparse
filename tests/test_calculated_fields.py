@@ -1,3 +1,5 @@
+from conftest import REAL_PARAMS_XML, xml_from_string
+
 from twbparser_py import extract_calculated_fields, extract_raw_fields
 
 
@@ -18,3 +20,16 @@ def test_extract_raw_fields_excludes_calc_and_params(wenjie_xml):
     assert "Calculation_2139209847776120832" not in raw["tableau_internal_name"].apply(
         lambda x: (x or "").strip("[]")
     ).values
+
+
+def test_include_parameters_returns_real_parameter_columns():
+    xml = xml_from_string(REAL_PARAMS_XML)
+
+    default = extract_calculated_fields(xml)
+    assert list(default["datasource"]) == ["Orders"]
+
+    with_params = extract_calculated_fields(xml, include_parameters=True)
+    params = with_params[with_params["datasource"] == "Parameters"]
+    assert sorted(params["tableau_internal_name"]) == ["[Parameter 1]", "[Parameter 2]"]
+    assert set(params["name"]) == {"Top N", "Region Pick"}
+    assert "Orders" in with_params["datasource"].values

@@ -4,3 +4,4 @@ include AGENTS.md
 recursive-include tests *.py
 include tests/fixtures/*.twb
 include tests/fixtures/*.twbx
+recursive-include docs *.png

@@ -46,6 +46,11 @@ PACKAGES=(
   "$(resolve_name libatk-bridge2.0-0t64 libatk-bridge2.0-0)"
   "$(resolve_name libatspi2.0-0t64 libatspi2.0-0)"
   libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2
+  # Not libraries, but a minimal/container image often lacks them too:
+  # without keyboard-layout data Chromium silently drops all key input
+  # (fill()/type() leave inputs empty), and without any font it can crash
+  # rendering text. tests/test_gui_browser.py points the browser at both.
+  xkb-data fonts-dejavu-core
 )
 
 echo "==> Resolving dependency closure for: ${PACKAGES[*]}"
@@ -89,11 +94,21 @@ while IFS= read -r line; do
   hash_field="$(grep -oP 'SHA256:\S+' <<<"$line" || grep -oP 'MD5Sum:\S+' <<<"$line" || true)"
   algo="${hash_field%%:*}"
   digest="${hash_field#*:}"
-  fname="$(basename "$url")"
+  fname="$(awk '{print $2}' <<<"$line")"
   dest="$DEB_DIR/$fname"
 
   if [ ! -f "$dest" ]; then
-    wget -q -O "$dest" "$url"
+    case "$url" in
+      http://*|https://*) wget -q -O "$dest" "$url" ;;
+      *)
+        # e.g. mirror+file:/etc/apt/mirrors/... -- a scheme only apt's own
+        # transports understand, so let apt fetch it. The cache filename
+        # is <name>_<version>_<arch>.deb with the epoch colon as %3a.
+        pkg="${fname%%_*}"
+        ver="$(cut -d_ -f2 <<<"$fname" | sed 's/%3a/:/g')"
+        (cd "$DEB_DIR" && apt-get download -q "$pkg=$ver" >/dev/null)
+        ;;
+    esac
   fi
 
   if [ -z "$algo" ]; then
@@ -119,6 +134,17 @@ echo "==> Extracting into $EXTRACT_DIR"
 for deb in "$DEB_DIR"/*.deb; do
   dpkg-deb -x "$deb" "$EXTRACT_DIR"
 done
+
+if [ -d "$EXTRACT_DIR/usr/share/fonts" ]; then
+  cat > "$LIB_ROOT/fonts.conf" <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>$EXTRACT_DIR/usr/share/fonts</dir>
+  <cachedir>$LIB_ROOT/fontcache</cachedir>
+</fontconfig>
+EOF
+fi
 
 LIBDIR="$EXTRACT_DIR/usr/lib/x86_64-linux-gnu"
 echo "==> Done. Libraries in: $LIBDIR"

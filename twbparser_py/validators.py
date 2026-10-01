@@ -9,7 +9,7 @@ import re
 
 import pandas as pd
 
-from ._clean import is_missing
+from ._clean import is_missing, strip_brackets
 
 _FUNC_CALL_FULL_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\((.*)\)")
 
@@ -17,7 +17,7 @@ _FUNC_CALL_FULL_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\((.*)\)")
 def _clean_str(x) -> str:
     if is_missing(x):
         return ""
-    return re.sub(r"[\[\]]", "", str(x)).strip()
+    return strip_brackets(str(x)).strip()
 
 
 def _clean_pool(series: pd.Series) -> list[str]:
@@ -37,7 +37,7 @@ def _base_token(x) -> str:
         raw = str(x)
     m = _FUNC_CALL_FULL_RE.fullmatch(raw)
     inside = m.group(1) if m else raw
-    inside = re.sub(r"[\[\]]", "", inside).strip()
+    inside = strip_brackets(inside).strip()
     parts = [p for p in inside.split(".") if p]
     return parts[-1] if parts else inside
 

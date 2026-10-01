@@ -1,135 +1,114 @@
-# twbparser-py
+# py-tbparse
 
-A native Python port of the [`twbparser`](https://github.com/PrigasG/twbparser)
-R package: parses Tableau `.twb`/`.twbx` workbook files into `pandas`
-DataFrames. No R runtime required — pure `lxml` XML parsing.
+Reads Tableau workbooks (`.twb` and `.twbx`) and gives you what's in them as pandas DataFrames: datasources, fields, calculated fields, joins, relationships, dashboards, custom SQL. It's plain Python. You don't need Tableau or R installed.
 
-This is a v1 subset covering the parser's core: workbook loading,
-datasources, parameters, fields, calculated fields, joins, relationships
-(legacy and 2020.2+), inferred relationships, dashboards, relationship
-validation, custom/initial SQL, and published-source detection.
-Formatting/tooltips/colors/axes/sorts, dashboard layout/actions,
-analytics helpers (calc complexity, field usage, replication brief), and
-the Shiny-inspector equivalent are not yet ported.
+It began as a port of PrigasG's R package [twbparser](https://github.com/PrigasG/twbparser). The browser GUI, the command-line tool, workbook diffing and folder scanning are new here.
 
-Beyond the R original, this port also adds a few Python-native extras: a
-Graphviz DOT export of the relationship graph, a workbook-to-workbook
-diff, folder/batch analysis across many workbooks, and Jupyter rich
-display (`_repr_html_`).
+![py-tbparse GUI, overview of a loaded workbook](docs/gui-overview.png)
 
 ## Install
 
 ```bash
+git clone https://github.com/DDSNA/py-tbparse.git
+cd py-tbparse
 pip install -e .
 ```
 
-## Usage
+The project got renamed but the module and commands didn't, so: import `twbparser_py`, run `twbparser` or `twbparser-gui`.
+
+## Using it from Python
 
 ```python
 from twbparser_py import TwbParser
 
-p = TwbParser("workbook.twb")  # or .twbx
-p.get_datasources()
-p.get_fields()
-p.get_calculated_fields()
-p.get_joins()
-p.get_relationships()
-p.get_inferred_relationships()
-p.get_dashboards()
-p.get_dashboard_sheets()
-p.get_custom_sql()
-p.get_initial_sql()
-p.get_published_refs()
-p.get_relationship_graph_dot()   # Graphviz DOT string
-p.validate()
-p.get_overview()
-p  # in Jupyter: renders get_overview() via _repr_html_
+p = TwbParser("workbook.twb")    # or a .twbx
+p.get_overview()                 # counts of everything
+p.get_calculated_fields()        # each calculation and its formula
+p.get_relationships()            # how the tables connect
+```
 
+Every getter returns a DataFrame. The rest are `get_datasources`, `get_parameters`, `get_fields`, `get_raw_fields`, `get_joins`, `get_relations`, `get_inferred_relationships`, `get_dashboards`, `get_dashboard_sheets`, `get_custom_sql`, `get_initial_sql` and `get_published_refs`. `get_relationship_graph_dot()` returns the data model as Graphviz text, and `validate()` looks for problems in the relationships. In Jupyter, a bare `p` shows the overview.
+
+Two helpers work across workbooks:
+
+```python
 from twbparser_py import diff_workbooks, scan_folder
 
 diff_workbooks(TwbParser("v1.twb"), TwbParser("v2.twb"), table="datasources")
-scan_folder("./workbooks", table="datasources")  # one row per workbook x datasource
+scan_folder("./workbooks", table="datasources")   # one table, every workbook in the folder
 ```
 
-### CLI
+### `.twbx` files
+
+A `.twbx` is read directly from the zip and nothing gets written to disk. That means `p.twbx_dir` is `None`, and `p.path` is a made-up `<file>.twbx/<name>.twb` that you can't open. If you want the files out, extract them yourself:
+
+```python
+from twbparser_py import extract_twb_from_twbx, twbx_extract_files
+
+extract_twb_from_twbx("workbook.twbx", extract_dir="out/")
+twbx_extract_files("workbook.twbx", exdir="out/")    # everything in the package
+```
+
+## Command line
 
 ```bash
-twbparser workbook.twb                              # overview (default table)
-twbparser workbook.twb tables                        # list available tables
-twbparser workbook.twb calculated-fields             # print a table
+twbparser workbook.twb                        # overview
+twbparser workbook.twb tables                 # list the tables
+twbparser workbook.twb calculated-fields
 twbparser workbook.twb fields --format csv -o fields.csv
 twbparser workbook.twbx dashboard-sheets --dashboard "Sales Overview"
-twbparser workbook.twb validate                       # exit code 2 if invalid
-twbparser workbook.twb graph --include-inferred > relationships.dot
-twbparser diff old.twb new.twb datasources             # row-level added/removed
-twbparser batch ./workbooks datasources                # one table, every workbook in a folder
+twbparser workbook.twb validate               # exit code 2 if it finds a problem
+twbparser workbook.twb graph > model.dot      # --include-inferred adds the guessed links
+twbparser diff old.twb new.twb datasources
+twbparser batch ./workbooks datasources
 ```
 
-Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`,
-`calculated-fields`, `joins`, `relations`, `relationships`,
-`inferred-relationships`, `dashboards`, `dashboard-sheets`,
-`custom-sql`, `initial-sql`, `published-refs`. `--format` is `table`
-(default), `csv`, or `json` (`graph` always prints Graphviz DOT text
-regardless of `--format`). `diff`/`batch` accept most of the same table
-names, minus `graph`/`validate`/`tables`.
+Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calculated-fields`, `joins`, `relations`, `relationships`, `inferred-relationships`, `dashboards`, `dashboard-sheets`, `custom-sql`, `initial-sql`, `published-refs`.
 
-### GUI
+`--format` takes `table` (default), `csv` or `json`. `graph` always prints Graphviz text. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
 
-A local, browser-based GUI — standard library only (`http.server` +
-vanilla JS), no GUI toolkit or extra dependency required:
+## GUI
 
 ```bash
-twbparser-gui workbook.twb   # opens your default browser
-twbparser-gui                # opens with an empty path field; paste one and click Load
-twbparser-gui --no-browser --port 8765   # just run the server, e.g. for a headless box
+twbparser-gui workbook.twb               # opens your browser with it loaded
+twbparser-gui                            # starts empty, paste a path and hit Load
+twbparser-gui --no-browser --port 8765   # server only, for a machine with no display
 ```
 
-Pick a table from the dropdown, filter `dashboard-sheets` by dashboard,
-toggle "include Parameters" for `calculated-fields`, pick `graph` to
-preview/export a Graphviz DOT digraph of the relationships, and export
-any tabular view as CSV. All state lives server-side in memory for the
-life of the process — it's a single-user local tool, not something to
-expose on a shared network.
+It uses only the standard library, so there's nothing more to install.
 
-## Testing
+The sidebar lists every table with its row count. Click a column header to sort, type in the filter box to narrow rows (`/` jumps to it), click a row to see a long formula or SQL statement in full. The tiles on the overview open their tables. The graph view lets you copy or download the DOT text. Everything else exports as CSV. It has a dark theme and works in a narrow window.
+
+It's meant to run on your own machine for one person. It refuses requests that come from other websites, but there's no login, so don't put it on a shared network.
+
+## Tests
 
 ```bash
 pip install -e ".[test]"
 pytest
 ```
 
-Fixtures in `tests/fixtures/` are the same tiny sample workbooks used by
-the original R package's test suite (`inst/extdata/`).
+The sample workbooks in `tests/fixtures/` come from the R package.
 
-The GUI additionally has end-to-end tests that drive the page in a real
-headless Chromium (via Playwright) and fail on any uncaught JavaScript
-error. They're opt-in — without the browser installed they skip and the
-rest of the suite runs normally:
+The GUI tests run the page in headless Chromium through Playwright and fail on any JavaScript error. They skip if the browser isn't installed. To run them:
 
 ```bash
 pip install -e ".[test,browser]"
-playwright install chromium          # add --with-deps if you have root
-./scripts/setup-browser-libs.sh      # no-root alternative to --with-deps
+playwright install chromium         # add --with-deps if you have root
+./scripts/setup-browser-libs.sh     # without root, this unpacks the system libraries locally
 pytest tests/test_gui_browser.py
 ```
 
-## Background
+## Compared with the R package
 
-`.twb` is plain XML, and `.twbx` is just a zip wrapper around one, which
-is why parsing it natively in Python — no R, no reverse-engineering —
-was tractable at this scale. Power BI's equivalent format, `.pbix`, is a
-binary container built around the proprietary VertiPaq storage engine,
-which is why reading it programmatically needed dedicated
-reverse-engineering projects like
-[PBIXRay](https://github.com/Hugoberry/pbixray) and
-[pbi-tools](https://github.com/pbi-tools/pbi-tools). The comparison
-isn't one-sided, though: Tableau's own official Python tooling for
-*server* automation
-([`tableauserverclient`](https://pypi.org/project/tableauserverclient/),
-`tabcmd`) is more mature and more open than anything Microsoft ships for
-Power BI's REST API.
+The code follows the R original function by function, and the aim is the same output. Not everything is ported. Missing so far: formatting, tooltips, colors, axes and sorts, dashboard layout and actions, the analytics helpers (calculation complexity, field usage, replication brief) and the Shiny inspector. The GUI covers some of what the inspector did.
+
+Where the R version has a bug, this one doesn't copy it. That currently covers joins and relationships on more than one key, nested joins, the include-parameters option, and calculations with brackets inside brackets.
+
+## Why a Tableau parser
+
+A `.twb` is XML and a `.twbx` is a zip containing one, so reading them from Python isn't hard. Power BI's `.pbix` is a binary format built on a proprietary storage engine, and getting into it from code took reverse-engineering projects like [PBIXRay](https://github.com/Hugoberry/pbixray) and [pbi-tools](https://github.com/pbi-tools/pbi-tools). On the server side it goes the other way: Tableau's own Python tooling ([tableauserverclient](https://pypi.org/project/tableauserverclient/) and `tabcmd`) is more mature and more open than what Microsoft has for the Power BI REST API.
 
 ## Credit
 
-Ported from the R implementation by George Arthur
-([`PrigasG/twbparser`](https://github.com/PrigasG/twbparser)), MIT licensed.
+Based on [twbparser](https://github.com/PrigasG/twbparser) by George Arthur, MIT licensed.

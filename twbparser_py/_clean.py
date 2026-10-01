@@ -78,6 +78,38 @@ def strip_brackets(x: Optional[str]) -> Optional[str]:
     return _BRACKETS.sub("", x)
 
 
+def bracket_tokens(x: Optional[str]) -> list[str]:
+    """Top-level `[...]` tokens in `x`, brackets included, honouring nesting.
+
+    Replaces R's `\\[[^\\]]+\\]`, which stops at the first `]` and so cuts a
+    bracketed calc short (`[LOWER([x])]` -> `[LOWER([x]`). Tableau escapes a
+    literal `]` in a name as `]]`; that is only treated as an escape at
+    depth 1, so `[[x]]` still parses as one token. Unclosed brackets are
+    dropped, as the regex would.
+    """
+    if not x:
+        return []
+    tokens: list[str] = []
+    depth = 0
+    start = 0
+    i = 0
+    while i < len(x):
+        ch = x[i]
+        if ch == "[":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "]" and depth:
+            if depth == 1 and x[i + 1:i + 2] == "]" and x[i + 2:i + 3] != "":
+                i += 2
+                continue
+            depth -= 1
+            if depth == 0:
+                tokens.append(x[start:i + 1])
+        i += 1
+    return tokens
+
+
 def basename_safe(x: Optional[str], fallback: str = "<unknown>") -> str:
     """Port of `basename_safe`."""
     if not x:

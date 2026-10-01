@@ -1,3 +1,4 @@
+import http.client
 import json
 import re
 import sys
@@ -6,6 +7,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -86,6 +88,41 @@ def test_load_and_fetch_table(server, wenjie_path):
     assert status == 200
     assert data["rows"] == 2
     assert "<table" in data["html"]
+
+
+def test_load_reports_name_and_row_counts(server, wenjie_path):
+    status, data = _post(server, "/load", {"path": wenjie_path})
+    assert status == 200
+    assert data["name"] == "test_for_wenjie.twb"
+    assert set(data["counts"]) == set(webgui.TABLE_NAMES)
+    assert data["counts"]["datasources"] == 2
+    assert data["counts"]["fields"] == 55
+
+
+def test_table_returns_json_rows_for_client_rendering(server, wenjie_path):
+    _post(server, "/load", {"path": wenjie_path})
+    status, data = _get(server, "/table?name=relationships")
+    assert status == 200
+    assert data["columns"][:3] == ["relationship_type", "left_table", "right_table"]
+    assert len(data["data"]) == data["rows"] == 1
+    row = dict(zip(data["columns"], data["data"][0]))
+    # Real JSON types (not stringified) so the page can sort numerically
+    # and render booleans as flags.
+    assert row["left_is_calc"] is False
+    assert row["left_table"] == "Sheet1"
+
+
+def test_table_json_uses_null_for_missing_values(server, wenjie_path):
+    _post(server, "/load", {"path": wenjie_path})
+    status, data = _get(server, "/table?name=fields")
+    caption = data["columns"].index("caption")
+    assert any(r[caption] is None for r in data["data"])
+
+
+def test_page_includes_app_version(server):
+    with urllib.request.urlopen(server + "/") as r:
+        body = r.read().decode()
+    assert "window.APP_VERSION = " in body
 
 
 def test_load_missing_file(server):
@@ -226,3 +263,138 @@ def test_graph_download(server, wenjie_path):
         assert r.headers.get("Content-Type", "").startswith("text/vnd.graphviz")
         body = r.read().decode()
     assert body.startswith("digraph \"twb\" {")
+
+
+def _raw(base, method, path, headers, body=None):
+    """Send a request with full control over Host/Origin/Content-Type."""
+    parts = urlsplit(base)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=5)
+    try:
+        conn.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
+        for k, v in headers.items():
+            conn.putheader(k, v)
+        if body is not None:
+            conn.putheader("Content-Length", str(len(body)))
+        conn.endheaders(body)
+        resp = conn.getresponse()
+        return resp.status, resp.read()
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/", "/tables", "/table?name=custom-sql", "/export?name=custom-sql", "/graph", "/dashboards"],
+)
+def test_get_with_foreign_host_rejected(server, wenjie_path, path):
+    # DNS rebinding: attacker.example re-resolves to 127.0.0.1, so the
+    # browser treats the GUI as same-origin with the attacker's page and
+    # lets it read responses. Only the Host header gives it away.
+    _post(server, "/load", {"path": wenjie_path})
+    port = urlsplit(server).port
+    status, _ = _raw(server, "GET", path, {"Host": f"attacker.example:{port}"})
+    assert status == 403
+
+
+def test_get_with_wrong_port_host_rejected(server):
+    status, _ = _raw(server, "GET", "/tables", {"Host": "127.0.0.1:1"})
+    assert status == 403
+
+
+def test_get_without_host_rejected(server):
+    status, _ = _raw(server, "GET", "/tables", {})
+    assert status == 403
+
+
+@pytest.mark.parametrize("hostname", ["127.0.0.1", "localhost", "LocalHost"])
+def test_get_with_loopback_host_allowed(server, hostname):
+    port = urlsplit(server).port
+    status, body = _raw(server, "GET", "/tables", {"Host": f"{hostname}:{port}"})
+    assert status == 200
+    assert "datasources" in json.loads(body)["tables"]
+
+
+def test_load_with_foreign_host_rejected(server, wenjie_path):
+    port = urlsplit(server).port
+    status, _ = _raw(
+        server,
+        "POST",
+        "/load",
+        {"Host": f"attacker.example:{port}", "Content-Type": "application/json"},
+        json.dumps({"path": wenjie_path}).encode(),
+    )
+    assert status == 403
+    assert webgui._STATE["parser"] is None
+
+
+@pytest.mark.parametrize("ctype", ["text/plain", "text/plain;charset=UTF-8", None])
+def test_load_requires_json_content_type(server, wenjie_path, ctype):
+    # text/plain (or no type) is a CORS "simple" request: any website can
+    # send it cross-origin with no preflight. Requiring application/json
+    # forces a preflight, which this server never approves.
+    headers = {"Host": urlsplit(server).netloc}
+    if ctype:
+        headers["Content-Type"] = ctype
+    status, _ = _raw(server, "POST", "/load", headers, json.dumps({"path": wenjie_path}).encode())
+    assert status == 415
+    assert webgui._STATE["parser"] is None
+
+
+@pytest.mark.parametrize("origin", ["http://attacker.example", "null", "http://127.0.0.1:1"])
+def test_load_with_cross_origin_rejected(server, wenjie_path, origin):
+    status, _ = _raw(
+        server,
+        "POST",
+        "/load",
+        {"Host": urlsplit(server).netloc, "Content-Type": "application/json", "Origin": origin},
+        json.dumps({"path": wenjie_path}).encode(),
+    )
+    assert status == 403
+    assert webgui._STATE["parser"] is None
+
+
+def test_load_with_same_origin_allowed(server, wenjie_path):
+    # Mirrors what the page's own fetch() sends.
+    status, body = _raw(
+        server,
+        "POST",
+        "/load",
+        {
+            "Host": urlsplit(server).netloc,
+            "Content-Type": "application/json",
+            "Origin": server,
+        },
+        json.dumps({"path": wenjie_path}).encode(),
+    )
+    assert status == 200
+    assert json.loads(body)["ok"] is True
+
+
+@pytest.fixture
+def wildcard_server():
+    webgui._STATE["parser"] = None
+    webgui._STATE["path"] = None
+    srv = ThreadingHTTPServer(("0.0.0.0", 0), webgui.Handler)
+    port = srv.server_address[1]
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        srv.shutdown()
+        thread.join(timeout=2)
+
+
+@pytest.mark.parametrize("hostname", ["192.168.1.20", "10.0.0.5", "[::1]", "localhost"])
+def test_wildcard_bind_accepts_ip_literal_hosts(wildcard_server, hostname):
+    # Bound to 0.0.0.0 the server can't know which address it's reached
+    # as, but an IP-literal Host can't be the product of DNS rebinding.
+    port = urlsplit(wildcard_server).port
+    status, _ = _raw(wildcard_server, "GET", "/tables", {"Host": f"{hostname}:{port}"})
+    assert status == 200
+
+
+def test_wildcard_bind_still_rejects_domain_hosts(wildcard_server):
+    port = urlsplit(wildcard_server).port
+    status, _ = _raw(wildcard_server, "GET", "/tables", {"Host": f"attacker.example:{port}"})
+    assert status == 403

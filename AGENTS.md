@@ -220,7 +220,13 @@ the test fixture picks that directory up automatically via
 `LD_LIBRARY_PATH`. It verifies each download against the checksum
 `apt-get --print-uris` reports for it (SHA256 if offered, MD5Sum as the
 realistic fallback — this environment's apt only emits MD5Sum) before
-extracting; don't remove that step to "simplify" the script. Don't add
+extracting; don't remove that step to "simplify" the script. URIs that
+aren't plain http(s) (e.g. `mirror+file:` apt sources, which `wget` can't
+fetch) are downloaded with `apt-get download` instead, still followed by
+the same checksum check. It also unpacks `xkb-data` and a font, and the
+test fixture sets `XKB_CONFIG_ROOT`/`FONTCONFIG_FILE` from them: on a host
+with neither, Chromium silently drops all keyboard input (so `fill()`
+leaves inputs empty and tests time out) and may crash rendering. Don't add
 `pytest-playwright` — it's a pytest plugin that imports playwright at
 startup, which makes collection fail for anyone who doesn't have it
 installed.

@@ -35,7 +35,7 @@ def _df_text(df: pd.DataFrame, fmt: str) -> str:
 
 def _write(text: str, output: str | None) -> None:
     if output:
-        Path(output).write_text(text)
+        Path(output).write_text(text, encoding="utf-8")
     else:
         print(text)
 

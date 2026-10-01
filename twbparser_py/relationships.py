@@ -11,11 +11,13 @@ from typing import Optional
 
 import pandas as pd
 
-from ._clean import attr_safe_get, clean_table
+from ._clean import attr_safe_get, bracket_tokens, clean_table
 
-_BRACKET_RE = re.compile(r"\[[^\]]+\]")
 _FUNC_START_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(")
 _FUNC_CALL_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\([^)]*\)")
+# Tableau disambiguates duplicate column names as "Field (Table)", which
+# also matches _FUNC_START_RE. R has the same false positive; excluded here.
+_DISAMBIGUATED_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s+\([^()\[\]'\",]*\)$")
 
 _RELATION_COLUMNS = ["name", "table", "connection", "type", "join", "custom_sql"]
 _RELATIONSHIP_COLUMNS = [
@@ -46,6 +48,10 @@ def extract_relations(xml_doc) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows, columns=_RELATION_COLUMNS).drop_duplicates()
+
+
+def _is_calc(x: Optional[str]) -> bool:
+    return bool(x and _FUNC_START_RE.match(x) and not _DISAMBIGUATED_NAME_RE.match(x))
 
 
 def _rel_field_expr(node) -> Optional[str]:
@@ -79,11 +85,11 @@ def _rel_field_expr(node) -> Optional[str]:
 
     br: list[str] = []
     for v in vals:
-        br.extend(_BRACKET_RE.findall(v))
+        br.extend(bracket_tokens(v))
 
     if br:
         clean = [b.strip("[]") for b in br]
-        idx_fun = [c for c in clean if _FUNC_START_RE.match(c)]
+        idx_fun = [c for c in clean if _is_calc(c)]
         if idx_fun:
             return idx_fun[-1]
         return clean[-1]
@@ -122,6 +128,32 @@ def build_object_table_mapping(xml_doc) -> dict:
     return mapping
 
 
+def _leaf_comparisons(ex) -> list:
+    """Split a logical AND/OR relationship expression into its comparisons.
+
+    A multi-key relationship is stored as ``<expression op="AND">`` wrapping
+    one comparison per key; treating the AND node itself as the comparison
+    would pair the first clause's field with the second's. Deviates from R,
+    which has the same bug.
+    """
+    if (ex.get("op") or "").upper() not in ("AND", "OR"):
+        return [ex]
+    leaves = []
+    for child in ex.findall("./expression"):
+        if len(child.findall("./expression")) >= 2:
+            leaves.extend(_leaf_comparisons(child))
+    return leaves or [ex]
+
+
+def _relationship_comparisons(rel_nodes):
+    for rel_node in rel_nodes:
+        candidates = rel_node.xpath(".//expression[@op][count(./expression) >= 2]")
+        if not candidates:
+            continue
+        for ex in _leaf_comparisons(candidates[0]):
+            yield rel_node, ex
+
+
 def extract_relationships(xml_doc) -> pd.DataFrame:
     """Port of `extract_relationships()` (Tableau 2020.2+ relationships)."""
     rel_nodes = xml_doc.xpath("//relationships/relationship")
@@ -131,18 +163,13 @@ def extract_relationships(xml_doc) -> pd.DataFrame:
     id_map = build_object_table_mapping(xml_doc)
 
     rows = []
-    for rel_node in rel_nodes:
+    for rel_node, ex in _relationship_comparisons(rel_nodes):
         first_ep = rel_node.find(".//first-end-point")
         second_ep = rel_node.find(".//second-end-point")
         e1 = first_ep.get("object-id") if first_ep is not None else None
         e2 = second_ep.get("object-id") if second_ep is not None else None
         left_table = clean_table(id_map.get(e1, e1))
         right_table = clean_table(id_map.get(e2, e2))
-
-        candidates = rel_node.xpath(".//expression[@op][count(./expression) >= 2]")
-        ex = candidates[0] if candidates else None
-        if ex is None:
-            continue
 
         # xpath predicate [@op] guarantees the attribute is present (though
         # possibly empty) -- preserve "" rather than forcing "=".
@@ -161,8 +188,8 @@ def extract_relationships(xml_doc) -> pd.DataFrame:
                 "left_field": left_field,
                 "operator": op,
                 "right_field": right_field,
-                "left_is_calc": bool(left_field and _FUNC_START_RE.match(left_field)),
-                "right_is_calc": bool(right_field and _FUNC_START_RE.match(right_field)),
+                "left_is_calc": _is_calc(left_field),
+                "right_is_calc": _is_calc(right_field),
             }
         )
 

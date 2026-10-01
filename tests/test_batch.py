@@ -37,3 +37,15 @@ def test_scan_folder_datasources_table():
     assert "workbook" in df.columns
     assert "datasource" in df.columns
     assert (df["workbook"] == "test_for_wenjie.twb").sum() == 2
+
+
+def test_scan_folder_directory_with_glob_metacharacters(tmp_path):
+    import shutil
+    import sys
+
+    # `*` can't appear in a Windows path; `[` and `]` still exercise the fix.
+    folder = tmp_path / ("[2024] Q1" if sys.platform == "win32" else "[2024] Q1 *")
+    folder.mkdir()
+    shutil.copy("tests/fixtures/test_for_wenjie.twb", folder)
+    df = scan_folder(str(folder), table="overview")
+    assert list(df["workbook"]) == ["test_for_wenjie.twb"]

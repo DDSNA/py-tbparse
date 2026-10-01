@@ -43,7 +43,14 @@ def extract_calculated_fields(xml_doc, include_parameters: bool = False) -> pd.D
         if not include_parameters and ds_name == "Parameters":
             continue
 
-        cols = ds.xpath(".//column[@name and not(@param-domain-type)][.//calculation]")
+        # Every real Parameters-datasource column carries @param-domain-type,
+        # so only exclude those when parameters weren't requested -- the R
+        # original always excludes them, making include_parameters a no-op.
+        if ds_name == "Parameters":
+            xpath = ".//column[@name][.//calculation]"
+        else:
+            xpath = ".//column[@name and not(@param-domain-type)][.//calculation]"
+        cols = ds.xpath(xpath)
         for col in cols:
             ca = dict(col.attrib)
             calc = col.find(".//calculation")
