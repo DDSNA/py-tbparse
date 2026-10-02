@@ -1,6 +1,6 @@
 # py-tbparse GUI redesign plan: smoother, clearer, more accessible
 
-Target: phases 0-1 (the file split and the new look) go out as **0.4.1**, decided by the user on 2026-10-02: a patch release, because nothing breaks. The versions for phases 2-4 are open (the earlier proposal was 0.5.0 and 0.6.0).
+Target: phases 0-1 (the file split and the new look) go out as **0.4.1**, and phase 2 (the table) as **0.4.2**, both decided by the user on 2026-10-02: patch releases, because nothing breaks. The versions for phases 2-4 are open (the earlier proposal was 0.5.0 and 0.6.0).
 Method: design-critique, accessibility-review and design-system frameworks applied to the real GUI
 (9 screenshots: start, overview, fields, renames, graph, dark, phone; one 190-field workbook), plus measurements from the page's CSS and JS.
 No third-party UI-redesign skill was installed; the three installed design skills were used.
@@ -157,8 +157,8 @@ the source), so use them as progressive enhancement behind a feature check, neve
 1. **Split the page into `webui/` files:** yes. Done in phase 0.
 2. **Drag-and-drop upload on the local-only server:** yes, keeping the existing Host/Origin checks and adding a size limit. Dropped files have no path on disk, so "create beside the original" becomes "download" for them, and the UI says so.
 3. **Graph:** write our own small dependency-free SVG layout.
-4. **Versions:** phases 0-1 ship as 0.4.1 (the user's call, 2026-10-02). Phases 2-4 are open; the earlier proposal was 0.5.0 for phase 2 and 0.6.0 for phases 3-4.
-5. **Default density:** comfortable (a compact toggle comes in phase 2).
+4. **Versions:** phases 0-1 ship as 0.4.1 and phase 2 as 0.4.2 (the user's calls, 2026-10-02). Phases 3-4 are open; the earlier proposal was 0.6.0.
+5. **Default density:** comfortable; a Compact rows button in the table toolbar switches to compact and is remembered.
 6. **Branch discipline:** all redesign work lives on `ui-redesign` (pushed 2026-10-02). Later pushes and any PR only when the user says so.
 
 ## 9. Design direction: "cozy corporate meets small shop"
@@ -218,11 +218,33 @@ Every text/background pair the stylesheet uses (22 per theme) passes 4.5:1, and 
 - **Phase 1 done** (see `git log`): the tokens and palette above, calm motion with reduced-motion support, the contrast/keyboard/landmark fixes, debounced filter, skeleton loading, toasts, fill-height panel, 2-column tiles on phones, friendlier copy and the shop-awning start screen. 342 tests pass (10 token tests, 11 new browser tests). Findings 1, 2 (debounce; windowing is phase 2), 8, 9, 10, 11 and 12 from the critique are addressed.
 - **Decisions taken while building (they differ from the plan on purpose):**
   - Selecting a sidebar item does **not** move focus to the heading, which would drag keyboard users out of the sidebar. A polite live region announces "Showing Fields, 55 rows" instead, and the view fades in.
-  - The table has **one tab stop** with arrow-key navigation between rows (Home/End too), Enter/Space to expand, and `aria-expanded`; making all rows tab stops would mean 190 stops on the Fields table.
+  - The table has **one tab stop** with arrow-key navigation between rows (Home/End too), Enter/Space to open the details drawer (`aria-current` marks the open row); making all rows tab stops would mean 190 stops on the Fields table.
   - The status line became a **toast** that reuses the `#status` live region: successes fade after about 4.5 s (the text stays for assistive technology), errors and "busy" messages stay until replaced or clicked. Error copy is now "That didn’t work: ..." and the save message promises the original is untouched.
   - The skeleton appears only after 180 ms, so quick loads never flash it.
 - **A bug the keyboard test found in the old code:** sorting from the keyboard destroyed the focused header (the table is rebuilt), so Enter could not flip the direction. Focus is now restored to the same column header.
-- **Next: phase 2** (a better table: windowed rows, column menu, readable datasource labels, density toggle, row detail drawer). Re-capture the screenshot baseline first, since phase 1 changed the look on purpose.
+- **Phase 2 done** (see `git log`; version **0.4.2**): a windowed table with a column menu, filter chips, a details drawer, readable datasource labels and a density toggle. The page now holds about 23 rows whatever the table size. Measured on this 2-CPU sandbox, same method before and after (first paint / filter / sort):
+
+  | rows | before | after | rows in the page |
+  |---|---|---|---|
+  | 1,000 | 21 / 20 / 339 ms | 13 / 21 / 15 ms | 1,000 to 23 |
+  | 5,000 | 86 / 108 / 743 ms | 11 / 17 / 23 ms | 5,000 to 23 |
+  | 20,000 | 317 / 280 / **4,070 ms** | 14 / 17 / 54 ms | 20,000 to 23 |
+  | 50,000 | never finished (it killed the session twice) | 16 / 22 / 119 ms | 23 |
+
+  Budgets, enforced by tests that fail at twice the figure so a slow CI machine does not flake them: first paint of 1,000 rows 150 ms, filtering 50,000 rows 100 ms per keystroke. "Filter" is a warm keystroke; the first one, typed before the search index finishes building in the background, was 6 to 20 ms in the same runs.
+- **What phase 2 added:**
+  - **Windowing** (`webui/table.js`, class `VTable`): rows have a fixed height (`--row-h`), spacer rows stand in for what is off screen, and the table carries `aria-rowcount` and `aria-rowindex` so assistive technology still knows its real size. Browsers cap an element height at about 33 million px, which at 40 px rows is around 800,000 rows.
+  - **Fast data path** (`app.js`): one precomputed lowercase search string per row, built in 4,000-row slices right after a table is drawn (and finished at once if you type first); a typed sort with a numeric fast path and one shared `Intl.Collator`. The page records its render time as the User Timing measure `py-tbparse:table`, which the speed tests read.
+  - **Column menu** (Alt+Down on a header, the context-menu key, or the visible options button): sort, filter this column, pin to the left, hide, wider/narrower/reset width, copy column values. Drag a header edge to resize. A **Columns** menu brings hidden columns back. Settings are kept per table for the session.
+  - **Filter chips** for column filters, with Clear filters; they combine with the search box.
+  - **Details drawer** replaces inline row expansion (fixed row height is what makes windowing cheap): every column of the row, the full text, the real datasource id, Copy row as JSON, Escape closes it and focus returns to the row.
+  - **Readable datasources**: `/load` now returns each datasource's caption, so a cell reads "Listings+ (Tableau Full Project)" instead of `federated.1yoogmp19z69r21gvk5nd1r8nec2`; the tooltip, the drawer, the search and anything copied keep the real id.
+  - **Density**: Compact rows (32 px rows) next to the default 40 px, remembered across reloads.
+  - **Glide**: a sort or filter animates rows to their new places with the View Transitions API where the browser has it and motion is welcome; the page itself swaps at once.
+- **Decisions taken in phase 2:** search covers the visible columns only (a hidden column is not searched); long values are truncated in the table (tooltip and drawer hold the full text); column choices are not kept across reloads, density is.
+- **Three bugs the tests caught while building it:** (1) a rapid second sort skipped the first view transition and surfaced an unhandled "Transition was skipped" rejection; (2) choosing "Filter this column" rebuilt the menu and wiped the form it had just opened; (3) a menu action that did not redraw the table (copying) dropped focus to the page. All fixed, all covered.
+- **Process note:** measuring 50,000 rows against the OLD table crashed the session twice (400,000 page nodes plus a multi-second sort on a 2-CPU, 7.9 GB machine). The measuring scripts now check free memory, set timeouts and print progress; the heavy tests skip below 1.5 GB free.
+- **Next: phase 3** (open, overview report card, rendered graph). Re-capture the screenshot baseline first, since phase 2 changed the table's look.
 - Pushed to `origin/ui-redesign` on 2026-10-02 at the user's word. Version bumped to 0.4.1 and pushed on the user's word. No PR yet; open one only when asked, and a release only on an explicit go.
 
 ## Sources

@@ -122,7 +122,7 @@ beyond the R package's scope:
 |---|---|
 | `_tables.py` | Name → `TwbParser`-accessor registry shared by `cli.py`, `webgui.py`, `diff.py`, and `batch.py`. Adding a new extractor to `TwbParser`? Add it here too so it's automatically available everywhere else. |
 | `cli.py` | `py-tbparse` command-line entry point, plus the `diff`/`batch`/`rename`/`template` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
-| `webgui.py` + `webui/` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. The server is `webgui.py`; the page is `webui/` (`index.html`, `tokens.css`, `app.css`, `app.js`). Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
+| `webgui.py` + `webui/` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. The server is `webgui.py`; the page is `webui/` (`index.html`, `tokens.css`, `app.css`, `table.js`, `app.js`). Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
 | `graph.py` | `to_dot()`: Graphviz DOT export of joins/relationships (+ optional inferred, as dashed edges). Replaces the R package's igraph/ggraph-based `plot_dependency_graph`/`plot_relationship_graph` with a dependency-free text format any Graphviz-compatible tool can render. |
 | `diff.py` | `diff_tables()`/`diff_workbooks()`: row-level added/removed diff between two workbooks' same-named table, via `_tables.TABLE_SPECS`. No "changed" classification without a natural key — a changed row shows as one removed + one added row. |
 | `rename.py` | `suggest_field_renames()` (clean-name suggestions, optionally matched against a "before" reference), `suggest_renames()` (the same for every kind of object: field, parameter, worksheet, dashboard, datasource, folder, hierarchy; adds a `kind` column), `load_rename_mapping()` (read an edited CSV back), `compare_field_schemas()` (fields with no counterpart across a datasource switch) and `apply_field_renames()`/`build_renamed_workbook()` (write a copy with captions set; never overwrites). Also the `field-renames` and `report-renames` tables in `_tables.py`. A worksheet/dashboard rename must rewrite every reference (`_SHEET_REFERENCES`); if you learn of another place Tableau writes a sheet name, add it there. |
@@ -214,10 +214,10 @@ tokens), `app.css` and `app.js`. They are served by `webgui.py` from a fixed whi
 `/static/` (`_ASSETS`), so a request can never reach any other file; add a new asset to
 `_ASSETS` and to the `webui/*` package-data (pyproject and MANIFEST.in) or it will not ship.
 `index.html` is the only thing that gets server values: `_render_index()` replaces
-`<!--APP_CONFIG-->` with the single inline `<script>`. Keep it that way (one inline script plus
-`<script src="/static/app.js">`); a test counts them. `populateTables();` must appear exactly once
-in `app.js`, and its structural tests (unterminated string literals, bracket balance) read the
-served `/static/app.js`.
+`<!--APP_CONFIG-->` with the single inline `<script>`. Keep it that way (one inline script plus the two
+external ones, `table.js` then `app.js`); a test counts them. `populateTables();` must appear exactly once
+in `app.js`, and the structural tests (unterminated string literals, bracket balance) read both served scripts.
+Keep apostrophes out of JS strings and comments (the test counts quotes per line).
 
 Any server-side value spliced into the page (currently `TABLE_NAMES`, the preloaded workbook path
 and the version, all in `_render_index()`'s config script) must go through `_json_for_script()`, not
@@ -243,6 +243,15 @@ leaves inputs empty and tests time out) and may crash rendering. Don't add
 `pytest-playwright` — it's a pytest plugin that imports playwright at
 startup, which makes collection fail for anyone who doesn't have it
 installed.
+
+The table is windowed (`table.js`, class `VTable`): rows have a fixed height (`--row-h`) and only the rows
+near the viewport exist in the page, so code and tests that read rows from the DOM see a window, not the table.
+Use `aria-rowcount` for the size and the column menu's "Copy column values" to read a whole column (the tests do:
+`_copy_column`). Never render every row; the old table needed over 4 s to sort 20,000 rows and could not draw
+50,000. Data work (search index, typed sort) is in `app.js`; each render records the User Timing measure
+`py-tbparse:table`, which the speed tests read. The budgets (first paint of 1,000 rows 150 ms, filtering 50,000 rows
+100 ms) are enforced at twice the figure. Heavy tests skip below 1.5 GB of free memory (`_enough_memory`); this
+sandbox has only 2 CPUs and 7.9 GB, and a 50,000-row DOM render has crashed it before.
 
 The page's colours, spacing, type and motion are tokens in `webui/tokens.css`; use them rather than literals.
 `tests/test_webui_tokens.py` reads that file and fails if any text/background pair drops below WCAG AA
