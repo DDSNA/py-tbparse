@@ -810,6 +810,7 @@ def test_hide_show_and_remember_columns_per_table(page, wenjie_path):
     page.click("#menu >> text=Hide column")
     page.wait_for_function("(n) => document.querySelectorAll('#tableWrap th').length === n - 1", arg=total, timeout=10_000)
     _open(page, "datasources")
+    page.wait_for_function("() => document.querySelector('#tableWrap table') && document.getElementById('meta').textContent.includes('row')")
     assert page.text_content("#colsBtn") == "Columns"
     _open(page, "fields")
     page.wait_for_function("(n) => document.querySelectorAll('#tableWrap th').length === n - 1", arg=total, timeout=10_000)
@@ -1041,3 +1042,26 @@ def test_menu_closes_when_you_click_elsewhere_or_scroll(page, wenjie_path):
     _open_column_menu(page, "name")
     page.evaluate("() => { document.getElementById('tableWrap').scrollTop = 40; }")
     page.wait_for_selector("#menu", state="hidden", timeout=5_000)
+
+
+def test_columns_button_does_not_keep_the_old_tables_hidden_count_while_the_next_loads(page, wenjie_path):
+    # Found by CI: the label is rewritten when the new table arrives, so for a moment it still described the
+    # previous table. Hold the response open to make that moment as long as we like.
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    _open_column_menu(page, "caption")
+    page.click("#menu >> text=Hide column")
+    page.wait_for_function("() => document.getElementById('colsBtn').textContent === 'Columns (1 hidden)'")
+    held = []
+    page.route(re.compile(r"/table\?name=datasources"), lambda route: held.append(route))
+    page.click('.nav-item[data-table="datasources"]')
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held, "the datasources request was never made"
+    assert page.text_content("#colsBtn") == "Columns"
+    held[0].continue_()
+    page.wait_for_function("() => document.querySelector('#tableWrap table') !== null")
+    assert page.js_errors == []
