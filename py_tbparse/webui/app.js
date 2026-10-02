@@ -42,11 +42,53 @@ const OVERVIEW_LINKS = {
 const CODE_COLUMNS = new Set(['formula', 'custom_sql', 'initial_sql', 'connection_target']);
 
 const state = { table: 'overview', columns: [], data: [], sortCol: -1, sortDir: 0,
-                loaded: false, req: 0, dot: '' };
+                loaded: false, req: 0, dot: '', fresh: false };
+let filterTimer = null;
+let toastTimer = null;
 
-function setStatus(msg, isErr) {
+// The status element is both the live region and a toast. kind 'ok' fades after a few seconds,
+// 'busy' and errors stay until the next message or a click. The text is kept after it fades.
+function toastMs() { return typeof window.TOAST_MS === 'number' ? window.TOAST_MS : 4500; }
+function hideToast() { statusEl.classList.remove('show'); }
+function setStatus(msg, isErr, kind) {
+  clearTimeout(toastTimer);
   statusEl.textContent = msg || '';
   statusEl.classList.toggle('err', !!isErr);
+  statusEl.classList.toggle('ok', kind === 'ok');
+  statusEl.classList.toggle('show', !!msg);
+  if (msg && kind === 'ok') toastTimer = setTimeout(hideToast, toastMs());
+}
+function fail(e, note) {
+  setStatus('That didn\u2019t work: ' + e.message + (note ? '. ' + note : ''), true);
+}
+statusEl.addEventListener('click', hideToast);
+
+// The skip link moves focus without touching the URL hash, which remembers the current table.
+document.querySelector('.skip').addEventListener('click', (e) => {
+  e.preventDefault();
+  $('main').focus();
+});
+
+// A view fades in when you switch to it (not on every filter keystroke), and screen readers hear
+// where they landed, without moving focus out of the sidebar.
+function playEnter(node) {
+  node.classList.remove('enter');
+  void node.offsetWidth;
+  node.classList.add('enter');
+}
+function finishView(fresh, node, message) {
+  if (!fresh) return;
+  playEnter(node);
+  $('announce').textContent = message;
+}
+function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+function showSkeleton() {
+  const wrap = $('tableWrap');
+  wrap.innerHTML = '';
+  const box = el('div', 'skeleton');
+  box.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 8; i++) box.appendChild(el('div', 'row'));
+  wrap.appendChild(box);
 }
 
 async function fetchJSON(url, opts) {
@@ -129,7 +171,8 @@ function selectTable(name) {
   if (!allTables().includes(name)) return;
   const changed = name !== state.table;
   state.table = name;
-  if (changed) { $('filter').value = ''; state.sortCol = -1; state.sortDir = 0; }
+  clearTimeout(filterTimer);
+  if (changed) { $('filter').value = ''; state.sortCol = -1; state.sortDir = 0; state.fresh = true; }
   markCurrent();
   if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
   showTable();
@@ -138,16 +181,16 @@ function selectTable(name) {
 async function loadWorkbook() {
   const path = $('path').value.trim();
   if (!path) { setStatus('Enter a workbook path first.', true); return; }
-  setStatus('Loading ' + path + ' ...');
+  setStatus('Opening ' + path + ' ...', false, 'busy');
   const btn = $('loadBtn');
-  btn.disabled = true; btn.textContent = 'Loading';
+  btn.disabled = true; btn.textContent = 'Opening';
   try {
     const data = await fetchJSON('/load', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({path}),
     });
-    setStatus('Loaded: ' + data.path);
+    setStatus('Opened ' + (data.name || data.path), false, 'ok');
     state.loaded = true;
     $('empty').hidden = true;
     $('controls').hidden = false;
@@ -172,9 +215,10 @@ async function loadWorkbook() {
     const fromHash = decodeURIComponent(location.hash.slice(1));
     if (allTables().includes(fromHash)) state.table = fromHash;
     markCurrent();
+    state.fresh = true;
     await showTable();
   } catch (e) {
-    setStatus('Error: ' + e.message, true);
+    fail(e);
   } finally {
     btn.disabled = false; btn.textContent = 'Load';
   }
@@ -195,6 +239,15 @@ async function showTable() {
   $('hint').hidden = isGraph || isOverview;
   $('exportBtn').textContent = isGraph ? 'Export DOT' : 'Export CSV';
   const req = ++state.req;
+  const fresh = state.fresh;
+  state.fresh = false;
+  // A quick answer never flashes a skeleton; a slow one gets calm placeholder rows.
+  const loadingTimer = setTimeout(() => { if (req === state.req) showSkeleton(); }, 180);
+  const failed = (e) => {
+    clearTimeout(loadingTimer);
+    if ($('tableWrap').querySelector('.skeleton')) $('tableWrap').innerHTML = '';
+    fail(e);
+  };
 
   if (isGraph) {
     const params = new URLSearchParams();
@@ -203,14 +256,16 @@ async function showTable() {
     $('exportLink').href = '/graph?' + params.toString() + '&download=1';
     try {
       const data = await fetchJSON('/graph?' + params.toString());
+      clearTimeout(loadingTimer);
       if (req !== state.req) return;
       state.dot = data.dot;
       const wrap = $('tableWrap');
       wrap.innerHTML = '';
       wrap.appendChild(el('pre', 'dot', data.dot));
       $('meta').textContent = data.dot.split('\n').length + ' line(s)';
+      finishView(fresh, wrap, 'Showing the relationship graph');
     } catch (e) {
-      setStatus('Error: ' + e.message, true);
+      failed(e);
     }
     return;
   }
@@ -231,12 +286,15 @@ async function showTable() {
   $('exportLink').href = '/export?' + params.toString();
   try {
     const data = await fetchJSON('/table?' + params.toString());
+    clearTimeout(loadingTimer);
     if (req !== state.req) return;
     state.columns = data.columns || [];
     state.data = data.data || [];
     if (isOverview) renderOverview(); else renderTable();
+    finishView(fresh, $('tableWrap'),
+               'Showing ' + titleOf(name) + (isOverview ? '' : ', ' + plural(state.data.length, 'row')));
   } catch (e) {
-    setStatus('Error: ' + e.message, true);
+    failed(e);
   }
 }
 
@@ -252,16 +310,17 @@ function renameOptions() {
 async function createWorkbook() {
   const btn = $('createBtn');
   btn.disabled = true;
-  setStatus('Creating workbook ...');
+  setStatus('Making your fixed copy ...', false, 'busy');
   try {
     const data = await fetchJSON('/create-workbook', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(renameOptions()),
     });
-    setStatus('Saved ' + data.renamed + ' rename(s) to ' + data.path);
+    setStatus('Saved a fixed copy next to your original (' + plural(data.renamed, 'change') + '): ' + data.path,
+              false, 'ok');
   } catch (e) {
-    setStatus('Error: ' + e.message, true);
+    fail(e, 'Your original is untouched');
   } finally {
     btn.disabled = false;
   }
@@ -319,6 +378,10 @@ function toggleSort(i) {
   else if (state.sortDir === 1) { state.sortDir = -1; }
   else { state.sortCol = -1; state.sortDir = 0; }
   renderTable();
+  // The table was rebuilt, which destroyed the focused header. Put focus back on the same
+  // column, so a keyboard user can press Enter again to flip the direction.
+  const header = $('tableWrap').querySelectorAll('th')[i];
+  if (header) header.focus();
 }
 
 function cellNode(col, value) {
@@ -342,13 +405,35 @@ function emptyState(title, text) {
   return box;
 }
 
+function toggleRow(tr) {
+  const open = tr.classList.toggle('open');
+  tr.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function onRowKey(e) {
+  const body = e.currentTarget;
+  const tr = e.target;
+  if (tr.tagName !== 'TR') return;
+  const rows = Array.from(body.children);
+  const at = rows.indexOf(tr);
+  const go = (to) => {
+    e.preventDefault();
+    rows[Math.max(0, Math.min(rows.length - 1, to))].focus();
+  };
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRow(tr); }
+  else if (e.key === 'ArrowDown') go(at + 1);
+  else if (e.key === 'ArrowUp') go(at - 1);
+  else if (e.key === 'Home') go(0);
+  else if (e.key === 'End') go(rows.length - 1);
+}
+
 function renderTable() {
   const wrap = $('tableWrap');
   wrap.innerHTML = '';
   const total = state.data.length;
   if (!total) {
     $('meta').textContent = '0 row(s)';
-    wrap.appendChild(emptyState('Nothing here', 'This workbook has no rows in this table.'));
+    wrap.appendChild(emptyState('Nothing here yet', 'This workbook has no rows in this table.'));
     return;
   }
   const rows = visibleRows();
@@ -364,17 +449,27 @@ function renderTable() {
     th.setAttribute('aria-sort', sorted ? (state.sortDir === 1 ? 'ascending' : 'descending') : 'none');
     th.append(el('span', '', col), el('span', 'arrow', sorted ? (state.sortDir === 1 ? '▲' : '▼') : ''));
     th.addEventListener('click', () => toggleSort(i));
-    th.addEventListener('keydown', (e) => { if (e.key === 'Enter') toggleSort(i); });
+    th.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSort(i); }
+    });
     headRow.appendChild(th);
   });
   table.appendChild(el('thead')).appendChild(headRow);
 
   const body = el('tbody');
-  rows.forEach((r) => {
+  rows.forEach((r, n) => {
     const tr = el('tr');
+    // One tab stop for the whole table; arrow keys move between rows, Enter or Space expands.
+    tr.tabIndex = n === 0 ? 0 : -1;
+    tr.setAttribute('aria-expanded', 'false');
     r.forEach((v, i) => tr.appendChild(cellNode(state.columns[i], v)));
-    tr.addEventListener('click', () => tr.classList.toggle('open'));
+    tr.addEventListener('click', () => toggleRow(tr));
     body.appendChild(tr);
+  });
+  body.addEventListener('keydown', onRowKey);
+  body.addEventListener('focusin', (e) => {
+    const tr = e.target.closest('tr');
+    if (tr) Array.from(body.children).forEach((row) => { row.tabIndex = row === tr ? 0 : -1; });
   });
   table.appendChild(body);
   wrap.appendChild(table);
@@ -398,12 +493,15 @@ $('dashboardSel').addEventListener('change', showTable);
 $('includeParams').addEventListener('change', showTable);
 $('includeInferred').addEventListener('change', showTable);
 $('copyBtn').addEventListener('click', copyDot);
-$('filter').addEventListener('input', renderTable);
+$('filter').addEventListener('input', () => {
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(renderTable, 120);
+});
 ['renameStyle', 'renameDs', 'renameKinds', 'renameRef', 'renameChanged'].forEach((id) =>
   $(id).addEventListener('change', showTable));
 $('createBtn').addEventListener('click', createWorkbook);
 $('filter').addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { $('filter').value = ''; renderTable(); }
+  if (e.key === 'Escape') { clearTimeout(filterTimer); $('filter').value = ''; renderTable(); }
 });
 document.addEventListener('keydown', (e) => {
   const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);

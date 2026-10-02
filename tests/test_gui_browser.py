@@ -111,7 +111,7 @@ def _load(page, path):
     page.fill("#path", path)
     page.click("#loadBtn")
     page.wait_for_function(
-        "() => document.getElementById('status').textContent.startsWith('Loaded:')",
+        "() => document.getElementById('status').textContent.startsWith('Opened')",
         timeout=10_000,
     )
 
@@ -387,7 +387,7 @@ def test_bad_path_surfaces_an_error_in_the_ui(page):
     page.fill("#path", "/definitely/not/a/workbook.twb")
     page.click("#loadBtn")
     page.wait_for_function(
-        "() => document.getElementById('status').textContent.startsWith('Error:')",
+        "() => document.getElementById('status').textContent.startsWith('That didn’t work')",
         timeout=10_000,
     )
     assert "err" in (page.get_attribute("#status", "class") or "")
@@ -473,3 +473,181 @@ def test_rename_everything_switch(page, tmp_path):
     text = (tmp_path / "report_renamed.twb").read_text(encoding="utf-8")
     assert "my dashboard" not in text and "My Dashboard" in text
     assert page.js_errors == []
+
+
+# --- phase 1 of the redesign: keyboard, motion, loading, toasts, phone ------------------------------
+
+
+def _status_classes(page):
+    return (page.get_attribute("#status", "class") or "").split()
+
+
+def test_the_whole_flow_works_from_the_keyboard(page, wenjie_path):
+    page.focus("#path")
+    page.keyboard.type(wenjie_path)
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#controls", state="visible", timeout=10_000)
+
+    # the sidebar is made of real buttons: Enter on one opens that table
+    page.focus('.nav-item[data-table="fields"]')
+    page.keyboard.press("Enter")
+    _wait_meta(page, "55 row(s)")
+    assert page.evaluate("() => document.activeElement.dataset.table") == "fields"  # focus stays put
+
+    # Space and Enter both sort a column from its header
+    first_header = page.locator("#tableWrap th").first
+    first_header.focus()
+    page.keyboard.press("Space")
+    assert page.locator("#tableWrap th").first.get_attribute("aria-sort") == "ascending"
+    # the table was rebuilt, but focus is back on the same header, so Enter flips the direction
+    assert page.evaluate("() => document.activeElement === document.querySelector('#tableWrap th')")
+    page.keyboard.press("Enter")
+    assert page.locator("#tableWrap th").first.get_attribute("aria-sort") == "descending"
+
+    # rows: one tab stop, arrows move, Enter / Space expand and collapse
+    stops = page.eval_on_selector_all('#tableWrap tbody tr[tabindex="0"]', "els => els.length")
+    assert stops == 1
+    page.focus('#tableWrap tbody tr[tabindex="0"]')
+    page.keyboard.press("ArrowDown")
+    assert page.evaluate("() => Array.from(document.querySelectorAll('#tableWrap tbody tr')).indexOf(document.activeElement)") == 1
+    assert page.eval_on_selector_all('#tableWrap tbody tr[tabindex="0"]', "els => els.length") == 1
+    page.keyboard.press("Enter")
+    assert page.evaluate("() => document.activeElement.getAttribute('aria-expanded')") == "true"
+    assert page.evaluate("() => document.activeElement.classList.contains('open')")
+    page.keyboard.press("Space")
+    assert page.evaluate("() => document.activeElement.getAttribute('aria-expanded')") == "false"
+    page.keyboard.press("End")
+    assert page.evaluate("() => { const r = document.querySelectorAll('#tableWrap tbody tr'); return document.activeElement === r[r.length - 1]; }")
+    page.keyboard.press("Home")
+    assert page.evaluate("() => document.activeElement === document.querySelector('#tableWrap tbody tr')")
+    assert page.js_errors == []
+
+
+def test_skip_link_moves_focus_to_the_table_and_keeps_the_url(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    before = page.evaluate("() => location.hash")
+    page.focus(".skip")
+    page.wait_for_function(  # it slides into view over about 120 ms
+        "() => document.querySelector('.skip').getBoundingClientRect().top >= 0", timeout=5_000
+    )
+    page.keyboard.press("Enter")
+    assert page.evaluate("() => document.activeElement.id") == "main"
+    assert page.evaluate("() => location.hash") == before == "#fields"
+
+
+def test_switching_views_announces_where_you_landed(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    page.wait_for_function(
+        "() => document.getElementById('announce').textContent === 'Showing Fields, 55 rows'", timeout=10_000
+    )
+    # an animation class on the view, not on every filter keystroke
+    assert "enter" in (page.get_attribute("#tableWrap", "class") or "")
+
+
+def test_a_slow_view_shows_a_skeleton_then_the_table(page, wenjie_path):
+    _load(page, wenjie_path)
+    # make the next requests slow, in the page, so the skeleton has time to appear
+    page.evaluate(
+        "() => { const f = window.fetch; "
+        "window.fetch = (u, o) => new Promise((r) => setTimeout(r, 900)).then(() => f(u, o)); }"
+    )
+    page.click('.nav-item[data-table="fields"]')
+    page.wait_for_selector("#tableWrap .skeleton", timeout=5_000)
+    assert page.get_attribute("#tableWrap .skeleton", "aria-hidden") == "true"
+    page.wait_for_selector("#tableWrap table.tbl", timeout=10_000)
+    assert page.locator("#tableWrap .skeleton").count() == 0
+
+
+def test_a_quick_view_never_flashes_a_skeleton(page, wenjie_path):
+    _load(page, wenjie_path)
+    page.evaluate(
+        "() => { window.__skeletons = 0; "
+        "new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => "
+        "{ if (n.classList && n.classList.contains('skeleton')) window.__skeletons++; })))"
+        ".observe(document.getElementById('tableWrap'), {childList: true}); }"
+    )
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    assert page.evaluate("() => window.__skeletons") == 0
+
+
+def test_success_toasts_fade_but_errors_stay_until_dismissed(page, wenjie_path):
+    page.evaluate("() => { window.TOAST_MS = 300; }")
+    _load(page, wenjie_path)
+    page.wait_for_function(
+        "() => !document.getElementById('status').classList.contains('show')", timeout=5_000
+    )
+    assert page.text_content("#status").startswith("Opened")  # the text stays for assistive tech
+
+    page.fill("#path", "/definitely/not/a/workbook.twb")
+    page.click("#loadBtn")
+    page.wait_for_function(
+        "() => document.getElementById('status').classList.contains('err')", timeout=10_000
+    )
+    page.wait_for_timeout(800)  # well past TOAST_MS: an error must still be showing
+    assert "show" in _status_classes(page)
+    page.click("#status")
+    assert "show" not in _status_classes(page)
+
+
+def test_there_is_no_persistent_loaded_line_and_the_page_has_landmarks(page, wenjie_path):
+    _load(page, wenjie_path)
+    assert page.locator("header.top").count() == 1
+    assert page.locator("main#main").count() == 1
+    assert page.get_attribute("nav#nav", "aria-label") == "Tables"
+    assert page.locator("h1").count() == 2  # the start screen's (hidden) and the view's
+    assert page.locator("h1:visible").count() == 1
+
+
+def test_the_filter_waits_for_a_pause_in_typing(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    page.evaluate(
+        "() => { window.__renders = 0; "
+        "new MutationObserver(() => { window.__renders++; })"
+        ".observe(document.getElementById('tableWrap'), {childList: true}); }"
+    )
+    page.focus("#filter")
+    page.keyboard.type("county", delay=15)  # six keystrokes in well under the debounce window
+    page.wait_for_function(
+        "() => /of 55 row/.test(document.getElementById('meta').textContent)", timeout=10_000
+    )
+    assert page.evaluate("() => window.__renders") <= 3  # not one rebuild per key
+
+
+def test_reduced_motion_turns_every_transition_and_animation_off(page, wenjie_path):
+    _load(page, wenjie_path)
+    page.emulate_media(reduced_motion="no-preference")
+    normal = page.evaluate("() => parseFloat(getComputedStyle(document.getElementById('loadBtn')).transitionDuration)")
+    assert normal > 0.05  # about 0.12 s
+    page.emulate_media(reduced_motion="reduce")
+    reduced = page.evaluate("() => parseFloat(getComputedStyle(document.getElementById('loadBtn')).transitionDuration)")
+    assert reduced < 0.001
+    toast = page.evaluate("() => parseFloat(getComputedStyle(document.getElementById('status')).transitionDuration)")
+    assert toast < 0.001
+    _open(page, "fields")
+    nav = page.evaluate("() => parseFloat(getComputedStyle(document.querySelector('.nav-item')).transitionDuration)")
+    assert nav < 0.001
+
+
+def test_overview_tiles_sit_two_across_on_a_phone(page, wenjie_path):
+    page.set_viewport_size({"width": 390, "height": 800})
+    _load(page, wenjie_path)
+    page.wait_for_selector("#tableWrap .stat", timeout=10_000)  # the toast appears just before the view
+    boxes = page.eval_on_selector_all(
+        "#tableWrap .stat", "els => els.map(e => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width]; })"
+    )
+    assert len(boxes) >= 3
+    assert boxes[0][1] == boxes[1][1] and boxes[0][0] < boxes[1][0]  # first two share a row
+    assert boxes[2][1] > boxes[0][1]  # the third starts the next one
+    assert boxes[0][2] < 390 / 2  # each is under half the screen
+    # nothing scrolls sideways at phone width
+    assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 1")
+
+
+def test_start_screen_has_the_friendly_copy(page):
+    assert page.text_content("#empty h1") == "Let’s open a workbook"
+    assert "Nothing is uploaded" in page.text_content("#empty")
