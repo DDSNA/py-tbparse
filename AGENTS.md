@@ -244,6 +244,12 @@ leaves inputs empty and tests time out) and may crash rendering. Don't add
 startup, which makes collection fail for anyone who doesn't have it
 installed.
 
+The page's colours, spacing, type and motion are tokens in `webui/tokens.css`; use them rather than literals.
+`tests/test_webui_tokens.py` reads that file and fails if any text/background pair drops below WCAG AA
+4.5:1, if the stylesheet uses an undefined variable, or if text is faded with `opacity` (use `--faint`).
+Motion durations come from the `--dur-*` tokens, which `prefers-reduced-motion` sets to instant; keep new
+animations on those tokens.
+
 `scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures nine GUI states (start,
 overview and fields in light and dark, renames, graph, phone width) deterministically. Use it for GUI
 refactors: a pure refactor must compare all-identical to the baseline taken before it; a redesign is expected to

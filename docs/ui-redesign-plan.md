@@ -181,7 +181,7 @@ and friendliness of a well-run small shop. A place people are glad to open, not 
 | `--panel` | #fffdfa | #231f1b | cards, tables, sidebar |
 | `--text` | #2b2622 | #efe9e1 | body text (14.7:1 / 13.6:1 on panel) |
 | `--muted` | #6b625a | #b3a99d | descriptions, meta (5.9:1 / 7.1:1) |
-| `--faint` | #7a7067 | #a0968a | zero counts, empty cells: a real colour, never opacity (4.8:1 / 5.6:1) |
+| `--faint` | #736a61 | #a79d91 | zero counts, empty cells: a real colour, never opacity. Chosen to stay 4.5:1 on hovered and expanded rows too (the first proposal, #7a7067, fell to 4.1:1 there; the token test caught it) |
 | `--border` | #e6dfd5 | #3a342d | dividers and card edges |
 | `--primary` | #1d6b73 | #6cc0c8 | main buttons, links, focus ring (calm teal) |
 | `--primary-text` | #ffffff | #10282b | label on primary (6.2:1 / 7.4:1) |
@@ -191,14 +191,14 @@ and friendliness of a well-run small shop. A place people are glad to open, not 
 | `--warning` | #8a5a00 | #e6b34d | would break, close match |
 | `--danger` | #b3382c | #ff8b7c | errors |
 
-All 13 text/UI pairs pass 4.5:1 (3:1 for the focus ring) in both themes; the check should become a test in phase 1 that reads the real `tokens.css`.
+Every text/background pair the stylesheet uses (22 per theme) passes 4.5:1, and the focus ring 3:1, in both themes. `tests/test_webui_tokens.py` enforces this by reading the real `tokens.css`, and also fails on undefined CSS variables and on text faded with `opacity`.
 
 ### Shape, space, type
 - **Radius:** `--radius-sm 8px`, `--radius-md 12px`, `--radius-lg 16px`; buttons and fields use md, cards lg. Nothing sharp.
 - **Elevation:** one soft, warm-tinted shadow for cards and a slightly deeper one for drawers and toasts (no hard borders doing shadow's job).
 - **Space:** 4 px scale; comfortable density by default (row height about 40 px, generous card padding); compact is an option, not the default.
 - **Type:** system fonts only (no web fonts, nothing fetched). Body `system-ui`; headings use `ui-rounded` where the platform has it (falls back to `system-ui`) at slightly heavier weight for a friendlier feel. Mono for ids and paths.
-- **Touch targets:** at least 40 px tall for nav items, buttons and rows (WCAG 2.2 AA asks 24 px; we aim higher because comfortable is the brief).
+- **Touch targets:** buttons, fields and table rows are at least 40 px tall; sidebar items are 38 px (17 of them at 40 px would scroll the sidebar on a laptop). WCAG 2.2 AA asks for 24 px, so both clear it.
 
 ### Voice and copy (examples to follow)
 - Start: "Let's open a workbook" / "Drop a .twb or .twbx here, or paste its path. Everything stays on this computer."
@@ -215,7 +215,14 @@ All 13 text/UI pairs pass 4.5:1 (3:1 for the focus ring) in both themes; the che
 ## 10. Status
 
 - **Phase 0 done** (commit b0e275f on `ui-redesign`): page split into `webui/index.html`, `tokens.css`, `app.css`, `app.js`; served from a fixed whitelist; 321 tests pass; nine screenshots (start, overview light/dark, fields light/dark, renames, graph, phone x2) are byte-identical to before the split.
-- **Next: phase 1.** Introduce the tokens above and the motion spec, fix the contrast and keyboard findings, add the contrast test.
+- **Phase 1 done** (see `git log`): the tokens and palette above, calm motion with reduced-motion support, the contrast/keyboard/landmark fixes, debounced filter, skeleton loading, toasts, fill-height panel, 2-column tiles on phones, friendlier copy and the shop-awning start screen. 342 tests pass (10 token tests, 11 new browser tests). Findings 1, 2 (debounce; windowing is phase 2), 8, 9, 10, 11 and 12 from the critique are addressed.
+- **Decisions taken while building (they differ from the plan on purpose):**
+  - Selecting a sidebar item does **not** move focus to the heading, which would drag keyboard users out of the sidebar. A polite live region announces "Showing Fields, 55 rows" instead, and the view fades in.
+  - The table has **one tab stop** with arrow-key navigation between rows (Home/End too), Enter/Space to expand, and `aria-expanded`; making all rows tab stops would mean 190 stops on the Fields table.
+  - The status line became a **toast** that reuses the `#status` live region: successes fade after about 4.5 s (the text stays for assistive technology), errors and "busy" messages stay until replaced or clicked. Error copy is now "That didn’t work: ..." and the save message promises the original is untouched.
+  - The skeleton appears only after 180 ms, so quick loads never flash it.
+- **A bug the keyboard test found in the old code:** sorting from the keyboard destroyed the focused header (the table is rebuilt), so Enter could not flip the direction. Focus is now restored to the same column header.
+- **Next: phase 2** (a better table: windowed rows, column menu, readable datasource labels, density toggle, row detail drawer). Re-capture the screenshot baseline first, since phase 1 changed the look on purpose.
 - Pushed to `origin/ui-redesign` on 2026-10-02 at the user's word. No PR yet; open one only when asked, and bump the version to 0.5.0 when the first merge is planned.
 
 ## Sources
