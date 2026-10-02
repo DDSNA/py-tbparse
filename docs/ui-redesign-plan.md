@@ -1,6 +1,6 @@
 # py-tbparse GUI redesign plan: smoother, clearer, more accessible
 
-Target: the release after 0.4.0 (proposed 0.5.0 for phases 0-2, 0.6.0 for phases 3-4).
+Target: phases 0-1 (the file split and the new look) go out as **0.4.1**, decided by the user on 2026-10-02: a patch release, because nothing breaks. The versions for phases 2-4 are open (the earlier proposal was 0.5.0 and 0.6.0).
 Method: design-critique, accessibility-review and design-system frameworks applied to the real GUI
 (9 screenshots: start, overview, fields, renames, graph, dark, phone; one 190-field workbook), plus measurements from the page's CSS and JS.
 No third-party UI-redesign skill was installed; the three installed design skills were used.
@@ -157,7 +157,7 @@ the source), so use them as progressive enhancement behind a feature check, neve
 1. **Split the page into `webui/` files:** yes. Done in phase 0.
 2. **Drag-and-drop upload on the local-only server:** yes, keeping the existing Host/Origin checks and adding a size limit. Dropped files have no path on disk, so "create beside the original" becomes "download" for them, and the UI says so.
 3. **Graph:** write our own small dependency-free SVG layout.
-4. **Versions:** phases 0-2 ship as 0.5.0, phases 3-4 as 0.6.0. Bump the version when the first merge is planned.
+4. **Versions:** phases 0-1 ship as 0.4.1 (the user's call, 2026-10-02). Phases 2-4 are open; the earlier proposal was 0.5.0 for phase 2 and 0.6.0 for phases 3-4.
 5. **Default density:** comfortable (a compact toggle comes in phase 2).
 6. **Branch discipline:** all redesign work lives on `ui-redesign` (pushed 2026-10-02). Later pushes and any PR only when the user says so.
 
@@ -223,7 +223,7 @@ Every text/background pair the stylesheet uses (22 per theme) passes 4.5:1, and 
   - The skeleton appears only after 180 ms, so quick loads never flash it.
 - **A bug the keyboard test found in the old code:** sorting from the keyboard destroyed the focused header (the table is rebuilt), so Enter could not flip the direction. Focus is now restored to the same column header.
 - **Next: phase 2** (a better table: windowed rows, column menu, readable datasource labels, density toggle, row detail drawer). Re-capture the screenshot baseline first, since phase 1 changed the look on purpose.
-- Pushed to `origin/ui-redesign` on 2026-10-02 at the user's word. No PR yet; open one only when asked, and bump the version to 0.5.0 when the first merge is planned.
+- Pushed to `origin/ui-redesign` on 2026-10-02 at the user's word. Version bumped to 0.4.1 and pushed on the user's word. No PR yet; open one only when asked, and a release only on an explicit go.
 
 ## Sources
 
