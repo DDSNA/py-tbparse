@@ -688,7 +688,8 @@ def test_fifty_thousand_rows_stay_a_few_dozen_in_the_page(page, wenjie_path):
     assert page.evaluate("() => document.activeElement.dataset.pos") == "49999"
     head = page.locator("#tableWrap th").first.bounding_box()
     wrap = page.locator("#tableWrap").bounding_box()
-    assert abs(head["y"] - wrap["y"]) < 2
+    # a few pixels of slack for sub-pixel layout on other machines; a header that scrolled away is hundreds off
+    assert abs(head["y"] - wrap["y"]) < 4
     assert page.js_errors == []
 
 
