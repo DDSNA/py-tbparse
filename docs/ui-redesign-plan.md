@@ -152,13 +152,71 @@ the source), so use them as progressive enhancement behind a feature check, neve
 - **Drag-and-drop trust.** Accepting uploaded bytes on a local server must keep the existing Host/Origin checks and size limits.
 - **Browser support.** Everything new is feature-detected; the baseline experience works without View Transitions.
 
-## 8. Decisions needed
+## 8. Decisions (confirmed 2026-10-02)
 
-1. Split the page into `webui/` files (recommended), or keep the single string?
-2. Drag-and-drop upload acceptable for a local-only server (with the caveat above)?
-3. Graph: write the small SVG layout ourselves (recommended, dependency-free) or vendor a library?
-4. Ship phases 0-2 as 0.5.0 and 3-4 as 0.6.0?
-5. Default density: comfortable (today's) or compact?
+1. **Split the page into `webui/` files:** yes. Done in phase 0.
+2. **Drag-and-drop upload on the local-only server:** yes, keeping the existing Host/Origin checks and adding a size limit. Dropped files have no path on disk, so "create beside the original" becomes "download" for them, and the UI says so.
+3. **Graph:** write our own small dependency-free SVG layout.
+4. **Versions:** phases 0-2 ship as 0.5.0, phases 3-4 as 0.6.0. Bump the version when the first merge is planned.
+5. **Default density:** comfortable (a compact toggle comes in phase 2).
+6. **Branch discipline:** all redesign work lives on `ui-redesign`. Do not push it until the user says so.
+
+## 9. Design direction: "cozy corporate meets small shop"
+
+The feeling to aim for: the calm, trustworthy competence of a good corporate tool, with the warmth
+and friendliness of a well-run small shop. A place people are glad to open, not a console.
+
+### Principles
+- **Warm, not sterile.** Paper-and-ink neutrals instead of cold greys; soft edges; generous spacing.
+- **Confident, not loud.** One calm primary colour does the work; a terracotta accent is used sparingly for highlights and small moments of personality.
+- **Friendly voice, precise facts.** Plain language, no jargon in headlines, exact numbers and names in the details.
+- **Never at the cost of access.** Every colour pair below passes WCAG AA (verified by script); warmth does not buy lower contrast.
+- **Calm motion.** Gentle ease-out, short durations, nothing bouncy; all of it off under reduced motion.
+
+### Palette (proposed tokens, contrast verified)
+
+| Token | Light | Dark | Use |
+|---|---|---|---|
+| `--bg` | #f7f3ee | #1a1714 | page background (warm paper / warm charcoal) |
+| `--panel` | #fffdfa | #231f1b | cards, tables, sidebar |
+| `--text` | #2b2622 | #efe9e1 | body text (14.7:1 / 13.6:1 on panel) |
+| `--muted` | #6b625a | #b3a99d | descriptions, meta (5.9:1 / 7.1:1) |
+| `--faint` | #7a7067 | #a0968a | zero counts, empty cells: a real colour, never opacity (4.8:1 / 5.6:1) |
+| `--border` | #e6dfd5 | #3a342d | dividers and card edges |
+| `--primary` | #1d6b73 | #6cc0c8 | main buttons, links, focus ring (calm teal) |
+| `--primary-text` | #ffffff | #10282b | label on primary (6.2:1 / 7.4:1) |
+| `--primary-soft` / `--primary-on-soft` | #e3f0f0 / #17575e | #203638 / #8fd3d9 | active nav and selection (7.0:1 / 7.6:1) |
+| `--accent` / `--accent-soft` | #a9482a / #f8e8df | #eb9a76 / #3a2a22 | warm highlights, badges, empty-state art (4.8:1+) |
+| `--success` | #2f6b3d | #7fcf93 | saved, matched |
+| `--warning` | #8a5a00 | #e6b34d | would break, close match |
+| `--danger` | #b3382c | #ff8b7c | errors |
+
+All 13 text/UI pairs pass 4.5:1 (3:1 for the focus ring) in both themes; the check should become a test in phase 1 that reads the real `tokens.css`.
+
+### Shape, space, type
+- **Radius:** `--radius-sm 8px`, `--radius-md 12px`, `--radius-lg 16px`; buttons and fields use md, cards lg. Nothing sharp.
+- **Elevation:** one soft, warm-tinted shadow for cards and a slightly deeper one for drawers and toasts (no hard borders doing shadow's job).
+- **Space:** 4 px scale; comfortable density by default (row height about 40 px, generous card padding); compact is an option, not the default.
+- **Type:** system fonts only (no web fonts, nothing fetched). Body `system-ui`; headings use `ui-rounded` where the platform has it (falls back to `system-ui`) at slightly heavier weight for a friendlier feel. Mono for ids and paths.
+- **Touch targets:** at least 40 px tall for nav items, buttons and rows (WCAG 2.2 AA asks 24 px; we aim higher because comfortable is the brief).
+
+### Voice and copy (examples to follow)
+- Start: "Let's open a workbook" / "Drop a .twb or .twbx here, or paste its path. Everything stays on this computer."
+- Empty table: "Nothing here yet. This workbook has no rows in this table."
+- Success: "Saved a fixed copy next to your original." (the original is never touched, and says so)
+- Error: "That didn't work: <reason>. Your original is untouched."
+- Zero counts read as quiet facts ("No parameters"), not as failures.
+
+### Small-shop touches (restrained)
+- A friendly line-art illustration on the start screen and empty states (inline SVG, drawn in `--primary` and `--accent`), no stock art.
+- A warm accent underline on the active nav item and the wordmark; one tiny celebratory moment when a workbook finishes loading (a soft check, not confetti), skipped under reduced motion.
+- The overview greets the workbook by name and summarises it in a sentence before the numbers.
+
+## 10. Status
+
+- **Phase 0 done** (commit b0e275f on `ui-redesign`): page split into `webui/index.html`, `tokens.css`, `app.css`, `app.js`; served from a fixed whitelist; 321 tests pass; nine screenshots (start, overview light/dark, fields light/dark, renames, graph, phone x2) are byte-identical to before the split.
+- **Next: phase 1.** Introduce the tokens above and the motion spec, fix the contrast and keyboard findings, add the contrast test.
+- Not pushed; waiting for the user.
 
 ## Sources
 
