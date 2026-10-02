@@ -7,8 +7,18 @@ import pytest
 from test_gui_a11y import failures, settle  # noqa: F401  (the rendered-contrast audit)
 from test_gui_browser import _load, _open, _open_column_menu, _wait_meta, new_page
 
-THEMES = ["shop", "matcha", "fjord", "pastel", "neon", "contrast"]
-LABELS = {"shop": "Shop", "matcha": "Matcha", "fjord": "Fjord", "pastel": "Pastel", "neon": "Neon", "contrast": "High contrast"}
+from py_tbparse import webgui
+
+ALL_THEMES = list(webgui.THEMES)
+# The heavy per-theme browser tests run on the original six plus a spread of the later ones; the contrast of every
+# theme, in both modes, is checked from the stylesheet itself in test_webui_tokens.py.
+THEMES = ["shop", "matcha", "fjord", "pastel", "neon", "contrast", "harbor", "graphite", "rose", "peacock"]
+LABELS = {"contrast": "High contrast"}
+
+
+def label(theme):
+    return LABELS.get(theme, theme.capitalize())
+
 
 ROOT = "() => ({theme: document.documentElement.dataset.theme, mode: document.documentElement.dataset.mode,"\
        " pref: document.documentElement.dataset.pref})"
@@ -44,10 +54,10 @@ def test_the_theme_menu_lists_every_theme_and_mode_as_radios(page):
     page.click("#themeBtn")
     assert page.get_attribute("#themeBtn", "aria-expanded") == "true"
     names = page.locator('#menu [role="menuitemradio"]').evaluate_all("els => els.map(e => e.textContent.replace('✓', '').trim())")
-    assert names == [LABELS[t] for t in THEMES] + ["Auto (follow my system)", "Light", "Dark"]
+    assert names == [label(t) for t in ALL_THEMES] + ["Auto (follow my system)", "Light", "Dark"]
     checked = page.locator('#menu [aria-checked="true"]').evaluate_all("els => els.map(e => e.textContent.replace('✓', '').trim())")
     assert checked == ["Shop", "Auto (follow my system)"]
-    assert page.locator("#menu .menu-swatch").count() == 6
+    assert page.locator("#menu .menu-swatch").count() == len(ALL_THEMES) == 36
     page.keyboard.press("Escape")
     assert page.get_attribute("#themeBtn", "aria-expanded") == "false"
     assert page.evaluate("() => document.activeElement.id") == "themeBtn"
@@ -67,7 +77,7 @@ def test_choosing_a_theme_changes_the_colours_at_once_and_keeps_the_menu_open(pa
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_every_theme_applies_and_survives_a_reload(page, theme):
-    _pick(page, LABELS[theme])
+    _pick(page, label(theme))
     page.keyboard.press("Escape")
     page.reload()
     assert page.evaluate(ROOT)["theme"] == theme
