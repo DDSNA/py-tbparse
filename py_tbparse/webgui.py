@@ -194,6 +194,7 @@ _ASSETS = {
     "tokens.css": "text/css; charset=utf-8",
     "app.css": "text/css; charset=utf-8",
     "app.js": "text/javascript; charset=utf-8",
+    "table.js": "text/javascript; charset=utf-8",
 }
 
 

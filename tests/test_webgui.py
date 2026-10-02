@@ -14,9 +14,9 @@ import pytest
 from py_tbparse import webgui
 
 
-def _page_script(base) -> str:
-    """The page's JavaScript, as the browser receives it (/static/app.js)."""
-    with urllib.request.urlopen(base + "/static/app.js") as r:
+def _page_script(base, name="app.js") -> str:
+    """The page's JavaScript, as the browser receives it (/static/app.js, /static/table.js)."""
+    with urllib.request.urlopen(base + f"/static/{name}") as r:
         assert r.headers["Content-Type"].startswith("text/javascript")
         return r.read().decode()
 
@@ -161,12 +161,13 @@ def test_preload_path_cannot_break_out_of_script_tag(server, wenjie_path, tmp_pa
     with urllib.request.urlopen(server + "/") as r:
         page = r.read().decode()
 
-    # The page has exactly one inline <script> (the config block) plus the external app.js
-    # tag: if the path's embedded "</script>" broke out of the inline block, the HTML parser
-    # would see (and this would count) another one.
+    # The page has exactly one inline <script> (the config block) plus the two external ones,
+    # table.js and app.js: if the path's embedded "</script>" broke out of the inline block, the
+    # HTML parser would see (and this would count) another one.
     assert page.count("<script>") == 1
-    assert page.count("<script") == 2
-    assert page.count("</script>") == 2
+    assert page.count("<script") == 3
+    assert page.count("</script>") == 3
+    assert '<script src="/static/table.js"></script>' in page
     assert '<script src="/static/app.js"></script>' in page
     # But the path itself (escaped) must still be present and round-trip
     # correctly -- \/ is a legal JSON escape, so json.loads decodes it
@@ -197,7 +198,8 @@ def test_dashboards_endpoint_empty_before_load(server):
     assert data["dashboards"] == []
 
 
-def test_page_js_has_no_string_literal_split_across_lines(server):
+@pytest.mark.parametrize("script", ["app.js", "table.js"])
+def test_page_js_has_no_string_literal_split_across_lines(server, script):
     # Regression (from when the page was a Python string): writing '\n' inside
     # the embedded JS made *Python* emit a real newline, splitting a JS
     # string literal across two physical lines. That's a SyntaxError, and
@@ -205,7 +207,7 @@ def test_page_js_has_no_string_literal_split_across_lines(server):
     # stays empty and the Load button does nothing. A JS string literal
     # can't span a physical line, so an odd number of unescaped quotes on
     # any line means an unterminated literal.
-    js = _page_script(server)
+    js = _page_script(server, script)
     offenders = []
     for lineno, line in enumerate(js.splitlines(), 1):
         for quote in ("'", '"'):
@@ -220,8 +222,9 @@ def test_page_js_escapes_newline_for_javascript(server):
     assert r"split('\n')" in js
 
 
-def test_page_js_brackets_are_balanced(server):
-    js = _page_script(server)
+@pytest.mark.parametrize("script", ["app.js", "table.js"])
+def test_page_js_brackets_are_balanced(server, script):
+    js = _page_script(server, script)
     # Strip string literals first so braces/parens inside them don't count.
     stripped = re.sub(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"", "''", js)
     for opener, closer in (("{", "}"), ("(", ")"), ("[", "]")):
@@ -507,7 +510,8 @@ def test_everything_in_the_report_via_the_endpoints(server, tmp_path):
 
 
 def test_static_assets_are_served_with_the_right_types(server):
-    expected = {"tokens.css": "text/css", "app.css": "text/css", "app.js": "text/javascript"}
+    expected = {"tokens.css": "text/css", "app.css": "text/css", "app.js": "text/javascript",
+                "table.js": "text/javascript"}
     for name, ctype in expected.items():
         with urllib.request.urlopen(server + f"/static/{name}") as r:
             assert r.status == 200
@@ -541,7 +545,7 @@ def test_webui_files_are_shipped_in_the_wheel_and_sdist():
     root = Path(__file__).resolve().parent.parent
     assert '"webui/*"' in (root / "pyproject.toml").read_text(encoding="utf-8")
     assert "recursive-include py_tbparse/webui" in (root / "MANIFEST.in").read_text(encoding="utf-8")
-    for name in ("index.html", "tokens.css", "app.css", "app.js"):
+    for name in ("index.html", "tokens.css", "app.css", "app.js", "table.js"):
         assert (root / "py_tbparse" / "webui" / name).is_file(), name
 
 
@@ -552,3 +556,12 @@ def test_load_reports_datasource_captions_for_readable_labels(server, wenjie_pat
     assert labels == {"federated.0grgaor1pd01yy1f0yr380of1ags": "Sheet1 (test_county)"}
     # only datasources that have a caption are listed; the internal id stays the key everywhere else
     assert set(labels) <= set(data["datasources"]) | set(labels)
+
+
+def test_the_page_loads_table_js_before_app_js(server):
+    with urllib.request.urlopen(server + "/") as r:
+        page = r.read().decode()
+    assert page.index('src="/static/table.js"') < page.index('src="/static/app.js"')
+    # app.js builds a VTable at load, so the class must exist by then
+    assert "new VTable(" in _page_script(server)
+    assert "window.VTable = VTable;" in _page_script(server, "table.js")

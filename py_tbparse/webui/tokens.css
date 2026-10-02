@@ -57,7 +57,7 @@
   /* comfortable density: the default (a compact option arrives with the table work) */
   --target: 40px;
   --nav-h: 38px;
-  --row-pad: 10px;
+  --row-h: 40px;
 
   /* motion: calm, short, ease-out; the reduced-motion block below makes all of it instant */
   --dur-fast: 120ms;
@@ -91,6 +91,9 @@
     --shadow-color: 0 0 0;
   }
 }
+
+/* compact rows: set by the Compact rows button on <html data-density> */
+[data-density="compact"] { --row-h: 32px; }
 
 @media (prefers-reduced-motion: reduce) {
   :root {

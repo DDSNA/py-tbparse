@@ -97,6 +97,8 @@ def test_reduced_motion_makes_every_duration_instant():
 
 def test_comfortable_density_targets():
     assert re.search(r"--target:\s*40px", TOKENS)
+    assert re.search(r"--row-h:\s*40px", TOKENS)
+    assert re.search(r'\[data-density="compact"\]\s*\{\s*--row-h:\s*32px', TOKENS)
     assert int(re.search(r"--nav-h:\s*(\d+)px", TOKENS).group(1)) >= 38
 
 
@@ -110,7 +112,7 @@ def test_text_is_never_faded_with_opacity():
     # `opacity` on text silently lowers contrast below AA; use the --faint colour instead. The only
     # places it is fine: disabled buttons (exempt), the toast and its fade, and animation keyframes.
     # (::placeholder sets opacity:1 to undo the browser's own fade, which is the opposite of fading.)
-    allowed = {".btn:disabled", ".toast", ".toast.show", "from", "to", "::placeholder"}
+    allowed = {".btn:disabled", ".toast", ".toast.show", ".drawer", ".drawer.show", "from", "to", "::placeholder"}
     offenders = []
     css = re.sub(r"/\*.*?\*/", "", APP_CSS, flags=re.S)  # comments are not selectors
     for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):

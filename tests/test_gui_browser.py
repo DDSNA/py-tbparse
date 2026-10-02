@@ -17,6 +17,7 @@ browser download:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -93,6 +94,7 @@ def gui_server():
 def page(browser, gui_server):
     """A page on the running GUI, with JS errors recorded on `page.js_errors`."""
     ctx = browser.new_context()
+    ctx.grant_permissions(["clipboard-read", "clipboard-write"])
     pg = ctx.new_page()
     pg.js_errors = []
     pg.on("pageerror", lambda e: pg.js_errors.append(str(e)))
@@ -124,6 +126,23 @@ def _open(page, name):
         arg=name,
         timeout=10_000,
     )
+
+
+
+def _copy_column(page, column):
+    """Every value of a column in the order the table shows it, via its own "Copy column values"
+    menu item. The table is windowed, so most rows are not in the page to read directly."""
+    page.evaluate("() => { document.getElementById('status').textContent = ''; }")
+    th = page.locator("#tableWrap th").filter(has=page.locator(".th-label", has_text=re.compile(rf"^{column}$"))).first
+    th.focus()
+    page.keyboard.press("Alt+ArrowDown")
+    page.click("#menu >> text=Copy column values")
+    page.wait_for_function("() => document.getElementById('status').textContent.startsWith('Copied')", timeout=10_000)
+    return page.evaluate("() => navigator.clipboard.readText()").split("\n")
+
+
+def _header(page, column):
+    return page.locator("#tableWrap th").filter(has=page.locator(".th-label", has_text=re.compile(rf"^{column}$"))).first
 
 
 def _wait_meta(page, text):
@@ -224,7 +243,9 @@ def test_filter_narrows_rows_and_escape_clears_it(page, wenjie_path):
     )
     shown = int(page.text_content("#meta").split()[0])
     assert 0 < shown < 55
-    assert page.eval_on_selector_all("#tableWrap tbody tr", "els => els.length") == shown
+    # the table is windowed: the page holds the visible rows, and aria-rowcount holds the true size
+    assert page.eval_on_selector_all("#tableWrap tbody tr[data-pos]", "els => els.length") == shown
+    assert page.get_attribute("#tableWrap table", "aria-rowcount") == str(shown + 1)
     page.press("#filter", "Escape")
     _wait_meta(page, "55 row(s)")
 
@@ -238,41 +259,46 @@ def test_slash_key_focuses_the_filter(page, wenjie_path):
 
 
 def test_clicking_a_header_sorts_the_column(page, wenjie_path):
+    from playwright.sync_api import expect
+
     _load(page, wenjie_path)
     _open(page, "fields")
     _wait_meta(page, "55 row(s)")
-    names_js = (
-        "() => { const i = [...document.querySelectorAll('#tableWrap th')]"
-        ".findIndex(th => th.textContent.startsWith('name'));"
-        " return [...document.querySelectorAll('#tableWrap tbody tr')]"
-        ".map(tr => tr.children[i].textContent); }"
-    )
-    header = "#tableWrap th:has-text('name') >> nth=0"
-    before = page.evaluate(names_js)
-    page.click(header)
-    assert page.get_attribute(header, "aria-sort") == "ascending"
-    asc = page.evaluate(names_js)
-    # Locale collation (what the page uses) and Python ordering disagree
-    # on punctuation, so compare against the page itself: same rows, and
-    # descending mirrors ascending at both ends.
+    header = _header(page, "name")
+    before = _copy_column(page, "name")
+    assert len(before) == 55
+    header.click()
+    expect(header).to_have_attribute("aria-sort", "ascending")
+    asc = _copy_column(page, "name")
+    # Locale collation (what the page uses) and Python ordering disagree on punctuation, so compare
+    # against the page itself: same rows, and descending mirrors ascending at both ends.
     assert sorted(asc) == sorted(before)
     assert asc != before
-    page.click(header)
-    assert page.get_attribute(header, "aria-sort") == "descending"
-    desc = page.evaluate(names_js)
+    header.click()
+    expect(header).to_have_attribute("aria-sort", "descending")
+    desc = _copy_column(page, "name")
     assert desc[0] == asc[-1] and desc[-1] == asc[0]
-    page.click(header)
-    assert page.get_attribute(header, "aria-sort") == "none"
-    assert page.evaluate(names_js) == before
+    header.click()
+    expect(header).to_have_attribute("aria-sort", "none")
+    assert _copy_column(page, "name") == before
 
 
-def test_clicking_a_row_expands_it(page, wenjie_path):
+def test_clicking_a_row_opens_its_details(page, wenjie_path):
     _load(page, wenjie_path)
     _open(page, "relations")
     _wait_meta(page, "6 row(s)")
-    row = "#tableWrap tbody tr >> nth=2"
+    row = "#tableWrap tbody tr[data-pos] >> nth=2"
     page.click(row)
-    assert "open" in page.get_attribute(row, "class")
+    page.wait_for_selector("#drawer.show", timeout=10_000)
+    assert page.get_attribute(row, "aria-current") == "true"
+    # the drawer lists every column of that row, in order
+    columns = page.eval_on_selector_all("#tableWrap th .th-label", "els => els.map(e => e.textContent)")
+    assert page.eval_on_selector_all("#drawerBody dt", "els => els.map(e => e.textContent)") == columns
+    page.click("#drawerClose")
+    page.wait_for_selector("#drawer", state="hidden", timeout=10_000)
+    assert page.get_attribute(row, "aria-current") is None
+    # focus goes back to the row that opened it
+    assert page.evaluate("() => document.activeElement.dataset.pos") == "2"
 
 
 def test_url_hash_picks_the_initial_table(page, wenjie_path):
@@ -483,6 +509,8 @@ def _status_classes(page):
 
 
 def test_the_whole_flow_works_from_the_keyboard(page, wenjie_path):
+    from playwright.sync_api import expect
+
     page.focus("#path")
     page.keyboard.type(wenjie_path)
     page.keyboard.press("Enter")
@@ -494,32 +522,37 @@ def test_the_whole_flow_works_from_the_keyboard(page, wenjie_path):
     _wait_meta(page, "55 row(s)")
     assert page.evaluate("() => document.activeElement.dataset.table") == "fields"  # focus stays put
 
-    # Space and Enter both sort a column from its header
+    # one tab stop in the header; arrows move along it; Space and Enter sort
     first_header = page.locator("#tableWrap th").first
+    assert page.eval_on_selector_all('#tableWrap th[tabindex="0"]', "els => els.length") == 1
     first_header.focus()
+    page.keyboard.press("ArrowRight")
+    assert page.evaluate("() => document.activeElement === document.querySelectorAll('#tableWrap th')[1]")
+    page.keyboard.press("ArrowLeft")
     page.keyboard.press("Space")
-    assert page.locator("#tableWrap th").first.get_attribute("aria-sort") == "ascending"
+    expect(page.locator("#tableWrap th").first).to_have_attribute("aria-sort", "ascending")
     # the table was rebuilt, but focus is back on the same header, so Enter flips the direction
     assert page.evaluate("() => document.activeElement === document.querySelector('#tableWrap th')")
     page.keyboard.press("Enter")
-    assert page.locator("#tableWrap th").first.get_attribute("aria-sort") == "descending"
+    expect(page.locator("#tableWrap th").first).to_have_attribute("aria-sort", "descending")
 
-    # rows: one tab stop, arrows move, Enter / Space expand and collapse
-    stops = page.eval_on_selector_all('#tableWrap tbody tr[tabindex="0"]', "els => els.length")
-    assert stops == 1
+    # rows: one tab stop, arrows move, End and Home reach the true last and first row,
+    # Enter opens the details drawer, Escape closes it and puts focus back on the row
+    assert page.eval_on_selector_all('#tableWrap tbody tr[tabindex="0"]', "els => els.length") == 1
     page.focus('#tableWrap tbody tr[tabindex="0"]')
     page.keyboard.press("ArrowDown")
-    assert page.evaluate("() => Array.from(document.querySelectorAll('#tableWrap tbody tr')).indexOf(document.activeElement)") == 1
+    assert page.evaluate("() => document.activeElement.dataset.pos") == "1"
     assert page.eval_on_selector_all('#tableWrap tbody tr[tabindex="0"]', "els => els.length") == 1
-    page.keyboard.press("Enter")
-    assert page.evaluate("() => document.activeElement.getAttribute('aria-expanded')") == "true"
-    assert page.evaluate("() => document.activeElement.classList.contains('open')")
-    page.keyboard.press("Space")
-    assert page.evaluate("() => document.activeElement.getAttribute('aria-expanded')") == "false"
     page.keyboard.press("End")
-    assert page.evaluate("() => { const r = document.querySelectorAll('#tableWrap tbody tr'); return document.activeElement === r[r.length - 1]; }")
+    assert page.evaluate("() => document.activeElement.dataset.pos") == "54"  # row 55 of 55, scrolled into view
     page.keyboard.press("Home")
-    assert page.evaluate("() => document.activeElement === document.querySelector('#tableWrap tbody tr')")
+    assert page.evaluate("() => document.activeElement.dataset.pos") == "0"
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#drawer.show", timeout=10_000)
+    assert page.evaluate("() => document.activeElement.id") == "drawerTitle"
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#drawer", state="hidden", timeout=10_000)
+    assert page.evaluate("() => document.activeElement.dataset.pos") == "0"
     assert page.js_errors == []
 
 
@@ -651,3 +684,428 @@ def test_overview_tiles_sit_two_across_on_a_phone(page, wenjie_path):
 def test_start_screen_has_the_friendly_copy(page):
     assert page.text_content("#empty h1") == "Let’s open a workbook"
     assert "Nothing is uploaded" in page.text_content("#empty")
+
+
+# --- phase 2 of the redesign: a windowed, column-aware table ----------------------------------------------
+
+
+def _enough_memory(mb):
+    """Skip the heavy tests on a machine that is short of memory (this sandbox has about 3 GB spare)."""
+    try:
+        with open("/proc/meminfo") as fh:
+            for line in fh:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / 1024 >= mb
+    except OSError:
+        pass
+    return True  # not Linux: assume it can take it
+
+
+_NEEDS_MEMORY = pytest.mark.skipif(not _enough_memory(1500), reason="needs about 1.5 GB of free memory")
+
+# Makes /table?name=fields return n synthetic rows, so a test can use big tables without a big workbook.
+_FEED = """
+(n) => {
+  const real = window.fetch;
+  const cols = ['datasource', 'name', 'caption', 'datatype', 'role', 'semantic_role', 'formula', 'n'];
+  const words = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliet'];
+  const data = [];
+  for (let i = 0; i < n; i++) {
+    data.push(['federated.' + (i % 7), words[i % 10] + '_' + i, null, i % 3 ? 'string' : 'integer',
+               i % 2 ? 'dimension' : 'measure', null, 'SUM([' + words[(i * 7) % 10] + '])', i]);
+  }
+  window.fetch = (u, o) => String(u).startsWith('/table?name=fields')
+    ? Promise.resolve(new Response(JSON.stringify({columns: cols, data}),
+                                   {status: 200, headers: {'Content-Type': 'application/json'}}))
+    : real(u, o);
+}
+"""
+
+
+def _last_render_ms(page):
+    return page.evaluate(
+        "() => { const m = performance.getEntriesByName('py-tbparse:table'); return m.length ? m[m.length - 1].duration : null; }"
+    )
+
+
+def _open_column_menu(page, column):
+    _header(page, column).focus()
+    page.keyboard.press("Alt+ArrowDown")
+    page.wait_for_selector("#menu:not([hidden])", timeout=10_000)
+
+
+def _feed_and_open(page, wenjie_path, n):
+    _load(page, wenjie_path)
+    page.evaluate(_FEED, n)
+    page.click('.nav-item[data-table="fields"]')
+    _wait_meta(page, f"{n} row(s)")
+
+
+@_NEEDS_MEMORY
+def test_fifty_thousand_rows_stay_a_few_dozen_in_the_page(page, wenjie_path):
+    _feed_and_open(page, wenjie_path, 50_000)
+    assert page.get_attribute("#tableWrap table", "aria-rowcount") == "50001"
+    in_page = lambda: page.eval_on_selector_all("#tableWrap tbody tr[data-pos]", "els => els.length")  # noqa: E731
+    assert 10 < in_page() < 100
+    # scroll to the middle: a different window, not a longer one
+    page.evaluate("() => { const w = document.getElementById('tableWrap'); w.scrollTop = w.scrollHeight / 2; }")
+    page.wait_for_function(
+        "() => Number(document.querySelector('#tableWrap tbody tr[data-pos]').dataset.pos) > 10000", timeout=10_000
+    )
+    assert 10 < in_page() < 100
+    # End reaches the true last row, and the sticky header never left the top of the table
+    page.focus('#tableWrap tbody tr[tabindex="0"]')
+    page.keyboard.press("End")
+    assert page.evaluate("() => document.activeElement.dataset.pos") == "49999"
+    head = page.locator("#tableWrap th").first.bounding_box()
+    wrap = page.locator("#tableWrap").bounding_box()
+    assert abs(head["y"] - wrap["y"]) < 2
+    assert page.js_errors == []
+
+
+def test_first_paint_of_a_thousand_rows_is_within_budget(page, wenjie_path):
+    _feed_and_open(page, wenjie_path, 1_000)
+    ms = _last_render_ms(page)
+    # budget 150 ms; the test fails at twice that so a slow CI machine does not flake it
+    assert ms is not None and ms < 300, f"first paint of 1,000 rows took {ms} ms"
+
+
+@_NEEDS_MEMORY
+def test_filter_and_sort_of_fifty_thousand_rows_are_within_budget(page, wenjie_path):
+    _feed_and_open(page, wenjie_path, 50_000)
+    # the search index is built in small slices right after the table is drawn
+    page.wait_for_function("() => state.hay !== null", timeout=30_000)
+    page.evaluate("() => performance.clearMeasures('py-tbparse:table')")
+    page.focus("#filter")
+    page.keyboard.type("echo_4", delay=0)
+    page.wait_for_function("() => /of 50000 row/.test(document.getElementById('meta').textContent)", timeout=30_000)
+    filter_ms = _last_render_ms(page)
+    # budget 100 ms of main-thread time per keystroke; the test fails at twice that
+    assert filter_ms is not None and filter_ms < 200, f"filtering 50,000 rows took {filter_ms} ms"
+    page.press("#filter", "Escape")
+    _wait_meta(page, "50000 row(s)")
+    page.evaluate("() => performance.clearMeasures('py-tbparse:table')")
+    _header(page, "name").click()
+    page.wait_for_function(
+        "() => document.querySelector(\"#tableWrap th[aria-sort='ascending']\")", timeout=30_000
+    )
+    sort_ms = _last_render_ms(page)
+    # the old table needed over 4 s to sort 20,000 rows; a regression guard, not a budget
+    assert sort_ms is not None and sort_ms < 1500, f"sorting 50,000 rows took {sort_ms} ms"
+
+
+def test_column_menu_opens_from_the_keyboard_and_closes_cleanly(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    _open_column_menu(page, "name")
+    assert page.get_attribute("#menu", "role") == "menu"
+    assert page.get_attribute("#menu", "aria-label") == "Options for column name"
+    roles = page.eval_on_selector_all("#menu button", "els => els.map(e => e.getAttribute('role'))")
+    assert set(roles) == {"menuitem"}
+    assert page.evaluate("() => document.activeElement.textContent.trim()") == "Sort ascending"
+    page.keyboard.press("ArrowDown")
+    assert page.evaluate("() => document.activeElement.textContent.trim()") == "Sort descending"
+    page.keyboard.press("ArrowDown")  # "Clear sort" is disabled, so the next stop is the filter item
+    assert "Filter this column" in page.evaluate("() => document.activeElement.textContent")
+    page.keyboard.press("End")
+    assert page.evaluate("() => document.activeElement.textContent.trim()") == "Copy column values"
+    page.keyboard.press("Escape")
+    assert page.is_hidden("#menu")
+    assert page.evaluate("() => document.activeElement.textContent.startsWith('name')")  # back on the header
+    # the visible options button opens it too
+    page.click("#tableWrap th .col-menu-btn >> nth=1")
+    page.wait_for_selector("#menu:not([hidden])")
+    page.keyboard.press("Tab")
+    assert page.is_hidden("#menu")
+    assert page.js_errors == []
+
+
+def test_sorting_from_the_column_menu(page, wenjie_path):
+    from playwright.sync_api import expect
+
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    _open_column_menu(page, "name")
+    page.click("#menu >> text=Sort descending")
+    expect(_header(page, "name")).to_have_attribute("aria-sort", "descending")
+    desc = _copy_column(page, "name")
+    _open_column_menu(page, "name")
+    page.click("#menu >> text=Sort ascending")
+    expect(_header(page, "name")).to_have_attribute("aria-sort", "ascending")
+    # focus is back on the header the menu was opened from (the sort rebuilt the table under it)
+    page.wait_for_function(
+        "() => document.activeElement.tagName === 'TH' && document.activeElement.querySelector('.th-label').textContent === 'name'",
+        timeout=10_000,
+    )
+    asc = _copy_column(page, "name")
+    assert len(asc) == len(desc) == 55 and sorted(asc) == sorted(desc)
+    assert asc[0] == desc[-1] and asc[-1] == desc[0] and asc != desc
+    # Copy does not redraw the table, but focus still comes back to the header, not to the page
+    assert page.evaluate("() => document.activeElement.tagName") == "TH"
+    assert page.evaluate("() => document.activeElement.querySelector('.th-label').textContent") == "name"
+    _open_column_menu(page, "name")
+    page.click("#menu >> text=Clear sort")
+    expect(_header(page, "name")).to_have_attribute("aria-sort", "none")
+
+
+def test_hide_show_and_remember_columns_per_table(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    count = lambda: page.eval_on_selector_all("#tableWrap th", "els => els.length")  # noqa: E731
+    total = count()
+    assert page.get_attribute("#tableWrap table", "aria-colcount") == str(total)
+    _open_column_menu(page, "caption")
+    page.click("#menu >> text=Hide column")
+    page.wait_for_function("(n) => document.querySelectorAll('#tableWrap th').length === n - 1", arg=total, timeout=10_000)
+    assert page.get_attribute("#tableWrap table", "aria-colcount") == str(total - 1)
+    assert page.text_content("#colsBtn") == "Columns (1 hidden)"
+    # the Columns menu brings it back; it stays open so several can be toggled
+    page.click("#colsBtn")
+    item = page.locator("#menu button[role=menuitemcheckbox]", has_text="caption")
+    assert item.get_attribute("aria-checked") == "false"
+    item.click()
+    page.wait_for_function("(n) => document.querySelectorAll('#tableWrap th').length === n", arg=total, timeout=10_000)
+    assert page.is_visible("#menu")
+    assert page.locator("#menu button[role=menuitemcheckbox]", has_text="caption").get_attribute("aria-checked") == "true"
+    page.keyboard.press("Escape")
+    assert page.is_hidden("#menu")
+    assert page.evaluate("() => document.activeElement.id") == "colsBtn"
+    # hide it again, leave the table and come back: the choice is remembered for that table only
+    _open_column_menu(page, "caption")
+    page.click("#menu >> text=Hide column")
+    page.wait_for_function("(n) => document.querySelectorAll('#tableWrap th').length === n - 1", arg=total, timeout=10_000)
+    _open(page, "datasources")
+    assert page.text_content("#colsBtn") == "Columns"
+    _open(page, "fields")
+    page.wait_for_function("(n) => document.querySelectorAll('#tableWrap th').length === n - 1", arg=total, timeout=10_000)
+    assert page.text_content("#colsBtn") == "Columns (1 hidden)"
+    assert page.js_errors == []
+
+
+def test_the_last_visible_column_cannot_be_hidden(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    columns = page.eval_on_selector_all("#tableWrap th .th-label", "els => els.map(e => e.textContent)")
+    page.click("#colsBtn")
+    for name in columns:
+        if name != "name":
+            page.locator("#menu button[role=menuitemcheckbox]", has_text=re.compile(rf"^[\u2713\s]*{name}$")).click()
+    page.wait_for_function("() => document.querySelectorAll('#tableWrap th').length === 1", timeout=10_000)
+    last = page.locator("#menu button[role=menuitemcheckbox]", has_text=re.compile(r"^[\u2713\s]*name$"))
+    assert last.is_disabled() and last.get_attribute("aria-checked") == "true"
+    page.keyboard.press("Escape")
+    _open_column_menu(page, "name")
+    assert page.locator("#menu button", has_text="Hide column").is_disabled()
+
+
+def test_pin_a_column_and_widen_it(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    _open_column_menu(page, "datatype")
+    page.click("#menu >> text=Pin to the left")
+    page.wait_for_function("() => document.querySelector('#tableWrap th .th-label').textContent === 'datatype'", timeout=10_000)
+    assert "pin" in page.get_attribute("#tableWrap th", "class")
+    assert page.eval_on_selector_all("#tableWrap tbody tr[data-pos] td.pin", "els => els.length") > 5
+    # it stays at the left edge when the table scrolls sideways
+    page.evaluate("() => { document.getElementById('tableWrap').scrollLeft = 300; }")
+    wrap = page.locator("#tableWrap").bounding_box()
+    pinned = page.locator("#tableWrap th.pin").bounding_box()
+    assert abs(pinned["x"] - wrap["x"]) < 2
+    _open_column_menu(page, "datatype")
+    assert page.locator("#menu button", has_text="Unpin column").count() == 1
+    before = page.locator("#tableWrap th.pin").bounding_box()["width"]
+    page.click("#menu >> text=Wider")
+    page.wait_for_function(
+        "(w) => document.querySelector('#tableWrap th.pin').getBoundingClientRect().width > w + 30", arg=before, timeout=10_000
+    )
+
+
+def test_dragging_the_edge_of_a_header_resizes_the_column(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    th = _header(page, "name")
+    before = th.bounding_box()["width"]
+    grip = th.locator(".col-resize").bounding_box()
+    x, y = grip["x"] + grip["width"] / 2, grip["y"] + grip["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 60, y, steps=4)
+    page.mouse.up()
+    after = _header(page, "name").bounding_box()["width"]
+    assert 50 < after - before < 70
+    # it survives a re-render (a sort rebuilds the table)
+    _header(page, "name").click()
+    page.wait_for_function("() => document.querySelector(\"#tableWrap th[aria-sort='ascending']\")", timeout=10_000)
+    assert abs(_header(page, "name").bounding_box()["width"] - after) < 2
+
+
+def test_column_filter_chips(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    _open_column_menu(page, "datatype")
+    page.click("#menu >> text=Filter this column")
+    assert page.get_attribute("#menu", "role") == "dialog"
+    page.fill("#menu input", "string")
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => /of 55 row/.test(document.getElementById('meta').textContent)", timeout=10_000)
+    assert page.is_hidden("#menu")
+    chip = page.locator("#chips .chip")
+    assert chip.count() == 1
+    assert chip.get_attribute("aria-label") == "Remove filter: datatype contains string"
+    assert set(_copy_column(page, "datatype")) == {"string"}
+    # the search box and the chip work together
+    page.fill("#filter", "no-such-field-anywhere")
+    page.wait_for_selector("#tableWrap .empty-state", timeout=10_000)
+    page.press("#filter", "Escape")
+    page.wait_for_selector("#tableWrap tbody tr[data-pos]")
+    # removing the chip returns every row and puts focus somewhere sensible
+    page.click("#chips .chip")
+    _wait_meta(page, "55 row(s)")
+    assert page.is_hidden("#chips")
+    assert page.evaluate("() => document.activeElement.id") == "filter"
+
+
+def test_clear_filters_clears_the_search_and_the_chips(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    _open_column_menu(page, "datatype")
+    page.click("#menu >> text=Filter this column")
+    page.fill("#menu input", "string")
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#chips .chip")
+    page.fill("#filter", "a")
+    page.wait_for_function("() => /of 55 row/.test(document.getElementById('meta').textContent)", timeout=10_000)
+    page.click("#chips .chip-clear")
+    _wait_meta(page, "55 row(s)")
+    assert page.input_value("#filter") == ""
+    assert page.is_hidden("#chips")
+
+
+def test_search_ignores_hidden_columns(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    page.fill("#filter", "integer")
+    page.wait_for_function("() => /of 55 row/.test(document.getElementById('meta').textContent)", timeout=10_000)
+    matching = int(page.text_content("#meta").split()[0])
+    assert matching > 0
+    _open_column_menu(page, "datatype")
+    page.click("#menu >> text=Hide column")
+    page.wait_for_function("() => document.querySelectorAll('#tableWrap th').length < 10", timeout=10_000)
+    # "integer" only ever appeared in the datatype column, which is now hidden, so nothing matches
+    page.wait_for_selector("#tableWrap .empty-state", timeout=10_000)
+    assert page.text_content("#meta").startswith("0 of 55")
+
+
+def test_details_drawer_copies_a_row_as_json_and_follows_the_selection(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    page.click("#tableWrap tbody tr[data-pos] >> nth=0")
+    page.wait_for_selector("#drawer.show", timeout=10_000)
+    first_title = page.text_content("#drawerTitle")
+    page.click("#tableWrap tbody tr[data-pos] >> nth=1")
+    page.wait_for_function("(t) => document.getElementById('drawerTitle').textContent !== t", arg=first_title, timeout=10_000)
+    assert page.eval_on_selector_all('#tableWrap tr[aria-current="true"]', "els => els.length") == 1
+    page.click("#drawerCopy")
+    page.wait_for_function("() => document.getElementById('status').textContent.startsWith('Copied this row')", timeout=10_000)
+    copied = json.loads(page.evaluate("() => navigator.clipboard.readText()"))
+    columns = page.eval_on_selector_all("#tableWrap th .th-label", "els => els.map(e => e.textContent)")
+    assert list(copied) == columns
+    assert copied["datasource"] == "federated.0grgaor1pd01yy1f0yr380of1ags"  # the real id, not the caption
+    # opening a row in a hidden column's table does not leak: close and the row is no longer current
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#drawer", state="hidden", timeout=10_000)
+    assert page.eval_on_selector_all('#tableWrap tr[aria-current="true"]', "els => els.length") == 0
+
+
+def test_datasources_read_by_caption_and_search_finds_both_names(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    cell = page.locator("#tableWrap tbody tr[data-pos] td").first
+    assert cell.text_content() == "Sheet1 (test_county)"
+    assert "federated.0grgaor1pd01yy1f0yr380of1ags" in cell.get_attribute("title")  # the full id on hover
+    # the copied column and the drawer keep the real id
+    assert set(_copy_column(page, "datasource")) == {"federated.0grgaor1pd01yy1f0yr380of1ags"}
+    # search matches the readable name and the real id alike
+    for query in ("test_county", "federated.0grgaor1pd01"):
+        page.fill("#filter", query)
+        page.wait_for_function("() => /of 55 row/.test(document.getElementById('meta').textContent)", timeout=10_000)
+        assert page.text_content("#meta").startswith("55 of 55"), query
+        page.press("#filter", "Escape")
+        _wait_meta(page, "55 row(s)")
+
+
+def test_density_toggle_changes_row_height_and_is_remembered(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    row_height = "() => document.querySelector('#tableWrap tbody tr[data-pos]').getBoundingClientRect().height"
+    assert page.get_attribute("#densityBtn", "aria-pressed") == "false"
+    assert abs(page.evaluate(row_height) - 40) < 1
+    page.click("#densityBtn")
+    page.wait_for_function("() => document.documentElement.dataset.density === 'compact'", timeout=10_000)
+    assert page.get_attribute("#densityBtn", "aria-pressed") == "true"
+    page.wait_for_function(f"() => Math.abs(({row_height})() - 32) < 1", timeout=10_000)
+    assert page.evaluate("() => localStorage.getItem('py-tbparse.density')") == "compact"
+    # windowing still covers the whole table at the new height
+    page.focus('#tableWrap tbody tr[tabindex="0"]')
+    page.keyboard.press("End")
+    assert page.evaluate("() => document.activeElement.dataset.pos") == "54"
+    # a reload keeps the choice, and the button can switch it back
+    page.reload()
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    assert page.evaluate("() => document.documentElement.dataset.density") == "compact"
+    assert page.get_attribute("#densityBtn", "aria-pressed") == "true"
+    page.click("#densityBtn")
+    page.wait_for_function(f"() => Math.abs(({row_height})() - 40) < 1", timeout=10_000)
+    assert page.evaluate("() => localStorage.getItem('py-tbparse.density')") == "comfortable"
+
+
+def test_sorting_works_with_reduced_motion_too(page, wenjie_path):
+    from playwright.sync_api import expect
+
+    page.emulate_media(reduced_motion="reduce")
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    header = _header(page, "name")
+    header.click()
+    expect(header).to_have_attribute("aria-sort", "ascending")
+    names = _copy_column(page, "name")
+    assert len(names) == 55 and names != sorted(names, reverse=True)
+    assert page.js_errors == []
+
+
+def test_rapid_sorting_never_raises_an_error(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    for _ in range(6):  # a new view transition skips the one still running; that must stay silent
+        _header(page, "name").click()
+        _header(page, "role").click()
+    page.wait_for_timeout(600)
+    assert page.js_errors == []
+
+
+def test_menu_closes_when_you_click_elsewhere_or_scroll(page, wenjie_path):
+    _load(page, wenjie_path)
+    _open(page, "fields")
+    _wait_meta(page, "55 row(s)")
+    _open_column_menu(page, "name")
+    page.click("h1#viewTitle")
+    assert page.is_hidden("#menu")
+    _open_column_menu(page, "name")
+    page.evaluate("() => { document.getElementById('tableWrap').scrollTop = 40; }")
+    page.wait_for_selector("#menu", state="hidden", timeout=5_000)
