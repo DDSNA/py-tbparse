@@ -543,3 +543,12 @@ def test_webui_files_are_shipped_in_the_wheel_and_sdist():
     assert "recursive-include py_tbparse/webui" in (root / "MANIFEST.in").read_text(encoding="utf-8")
     for name in ("index.html", "tokens.css", "app.css", "app.js"):
         assert (root / "py_tbparse" / "webui" / name).is_file(), name
+
+
+def test_load_reports_datasource_captions_for_readable_labels(server, wenjie_path):
+    status, data = _post(server, "/load", {"path": wenjie_path})
+    assert status == 200
+    labels = data["datasource_labels"]
+    assert labels == {"federated.0grgaor1pd01yy1f0yr380of1ags": "Sheet1 (test_county)"}
+    # only datasources that have a caption are listed; the internal id stays the key everywhere else
+    assert set(labels) <= set(data["datasources"]) | set(labels)

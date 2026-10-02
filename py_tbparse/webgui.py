@@ -69,6 +69,17 @@ def _datasource_names(parser: TwbParser) -> list:
     return sorted(set(names))
 
 
+def _datasource_labels(parser: TwbParser) -> dict:
+    """Internal datasource name -> the caption people see in Tableau, only where one exists, so the
+    page can show `Sales (Orders)` instead of `federated.1yoogmp19z69r21gvk5nd1r8nec2`."""
+    labels = {}
+    for ds in parser.xml_doc.xpath("/workbook/datasources/datasource[@name]"):
+        caption = ds.get("caption")
+        if caption:
+            labels[ds.get("name")] = caption
+    return labels
+
+
 _REFERENCE_CACHE: dict = {}
 
 
@@ -438,6 +449,7 @@ class Handler(BaseHTTPRequestHandler):
                 "name": os.path.basename(path),
                 "counts": _table_counts(parser),
                 "datasources": _datasource_names(parser),
+                "datasource_labels": _datasource_labels(parser),
                 "dashboards": dashboards_df["name"].tolist()
                 if "name" in dashboards_df.columns
                 else [],
