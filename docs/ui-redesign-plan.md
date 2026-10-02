@@ -250,8 +250,108 @@ Every text/background pair the stylesheet uses (22 per theme) passes 4.5:1, and 
   - Only a sort glides, for 120 ms: while a view transition runs Chromium sends clicks to the page root and no CSS (`pointer-events: none` on the pseudo-elements included) prevents it.
   - Responsive: the Field renames toolbar overflowed below about 400 px (an `inline-flex` box sizes to its content and never wraps); it is a full-width flex row on phones.
 - **Process note:** measuring 50,000 rows against the OLD table crashed the session twice (400,000 page nodes plus a multi-second sort on a 2-CPU, 7.9 GB machine). The measuring scripts now check free memory, set timeouts and print progress; the heavy tests skip below 1.5 GB free.
-- **Next: phase 3** (open, overview report card, rendered graph). Re-capture the screenshot baseline first, since phase 2 changed the table's look.
+- **Next: phase 3** (open, overview report card, rendered graph) plus colour themes: see section 11. Re-capture the screenshot baseline first, since phase 2 changed the table's look.
 - Pushed to `origin/ui-redesign` on 2026-10-02 at the user's word. Version bumped to 0.4.1 and pushed on the user's word. No PR yet; open one only when asked, and a release only on an explicit go.
+
+## 11. Plan: phase 3 (open, overview, graph) and colour themes
+
+Drafted 2026-10-02, not started. Same branch (`ui-redesign`), same rules: every page change gets a browser
+test, colours stay tokens, nothing is pushed or released without the user saying so. Before any code, re-capture
+the screenshot baseline (phase 2 changed the table).
+
+Four parts, each one shippable on its own, in this order: **3a Open, 3d Themes, 3b Overview, 3c Graph**. Themes come
+second because the overview and graph are then built on the theme tokens from the start, not refitted later.
+
+### 3a. Opening a workbook
+- **Upload endpoint** `POST /upload`: raw bytes, `Content-Type: application/octet-stream`, file name in an
+  `X-Filename` header. Neither is CORS-safelisted, so a foreign page cannot send it without a preflight, which this
+  server never answers; the Host/Origin checks stay. Streamed to a private temp dir (`mkdtemp`, mode 0700) in 1 MB
+  chunks, never held in memory whole; size limit 200 MB (answers 413); the extension and the first bytes must agree
+  (`PK` zip for `.twbx`, XML for `.twb`); the previous upload is deleted when a new one arrives and at exit.
+- **The page:** an "Open file..." button (`<input type=file accept=".twb,.twbx">`) next to the path box, and a drop
+  overlay that appears on `dragenter` anywhere in the window ("Drop to open. It stays on this computer."). An
+  upload progress line for big files.
+- **No path on disk:** for an uploaded workbook "Create fixed workbook" writes into the temp dir and offers only
+  Download, and the toolbar says why. `_STATE` records where the workbook came from.
+- **Recent files:** the last 8 *paths* (never uploads) in `localStorage`, shown on the start screen with a remove
+  button; reads and writes wrapped in try/catch. A missing file gives a friendly error, not a broken list.
+- **Clearer errors:** one map from server error to copy: not found, not a workbook, broken zip, too big, no
+  `.twb` inside the `.twbx`. Each says what to do next.
+- **Tests:** endpoint tests (size limit, magic check, wrong content type is 415, foreign Origin is 403, temp
+  cleanup); a browser test with `set_input_files` and one with a synthetic `DataTransfer` drop; recent list; the
+  download-only state.
+
+### 3d. Colour themes
+The current palette stays the default ("Shop"). Each theme is a full set of **colour** tokens in a light and a
+dark variant; shape, space, type and motion stay shared, so a theme can never break layout. Proposed set, each in
+step with what is in fashion now but kept calm enough to work in all day:
+
+| Theme | Light | Dark | Feel |
+|---|---|---|---|
+| **Shop** (default) | warm paper, teal, terracotta | warm charcoal | the current look |
+| **Matcha** | oat cream, sage green, clay | deep moss | the sage/earthy trend, soft and natural |
+| **Fjord** | snow, slate blue, frost cyan | polar night | cool Nordic, very low glare |
+| **Pastel** | lavender milk, periwinkle, peach | soft aubergine | the pastel developer-theme look (our own palette, not a copy of a named one) |
+| **Neon** | lilac white, electric violet, cyan | near-black navy with violet/cyan glow | synthwave, the loud one, still AA |
+| **High contrast** | white, black, deep blue | black, white, yellow | accessibility, not fashion; 7:1 everywhere |
+
+- **Mechanism:** `webui/themes.css` (new asset, add it to `_ASSETS` and package data) with
+  `:root[data-theme="matcha"]` blocks, and dark variants under both
+  `@media (prefers-color-scheme: dark) { :root[data-theme="matcha"]:not([data-mode="light"]) }` and
+  `:root[data-theme="matcha"][data-mode="dark"]`. Mode is separate from theme: Auto (system), Light, Dark. Each
+  mode also sets `color-scheme` so form controls and scrollbars match.
+- **Picker:** a "Theme" button in the top bar opens the existing menu with a swatch per theme
+  (`menuitemradio`, `aria-checked`) and an Auto/Light/Dark switch. Choices are kept in `localStorage`.
+- **No flash of the wrong theme:** the theme must be on `<html>` before the first paint, so two lines that read
+  `localStorage` go into the one inline config script `_render_index()` already writes (still one inline script).
+- **Neon glow** is a shadow token (`--glow`), empty in every other theme, so nothing else changes.
+- **Tests:** `test_webui_tokens.py` grows to every theme x mode: each defines every colour token, every
+  text/background pair passes 4.5:1 (7:1 for High contrast), focus ring 3:1. A browser test switches themes and
+  checks the computed colours, that the choice survives a reload, and that there is no flash (the attribute is set
+  before `DOMContentLoaded`). The rendered contrast audit runs every theme on three states, not all twelve, to keep
+  the suite inside this machine.
+
+### 3b. Overview as a report card
+- **`GET /overview`** (computed on first request and cached, so `/load` does not get slower): a one-sentence
+  summary ("Superstore has 4 dashboards, 12 sheets and 2 datasources."), the counts, sheets and dashboards with
+  the sheets each dashboard shows, and a health list. Each health item has severity, title, count and a link:
+  table name plus column filters.
+- **Health checks, all from code that already exists:** relationship problems (`validate_relationships`), fields
+  nothing uses and calculations nothing uses (`field_usage`), inferred relationships that are not modelled,
+  custom SQL and published sources (information, not problems). "Missing references" (a calculation naming a
+  field that does not exist) needs a small new helper in `usage.py`, with its own synthetic-XML tests.
+- **Links into the tables:** a health item opens its table with the filter chips already set (the phase 2 chip
+  state takes a list of `{col, text}`), so "14 unused fields" lands on exactly those 14 rows.
+- **Look:** zero tiles stay quiet, a calm "All clear" when nothing is wrong, dashboard cards with their sheets.
+- **Speed:** time `/overview` on the 200-workbook corpus; budget 1 s on the largest. If `field_usage` is slower,
+  run it after the first paint and fill the health card in when it arrives.
+- **Tests:** `/overview` on the fixtures and on synthetic XML for each check; a corpus run that only asserts it
+  never fails; browser tests that a health link opens the right table and filters.
+
+### 3c. A real relationship graph
+- **Data:** split `graph.py` into `graph_data()` (nodes and edges with kind and label) and `to_dot()` built on it;
+  the DOT output must stay byte-identical (test). `/graph?format=json` returns the data.
+- **Layout** (`webui/graph.js`, dependency-free, deterministic): connected components side by side; a layered
+  layout (break cycles by depth-first search, longest-path layers, then four barycentre sweeps to cut crossings),
+  curved edges. Joins solid, relationships in the primary colour, inferred dashed, with a legend.
+- **Interaction:** drag to pan, wheel or +/- buttons to zoom, Fit. Nodes are focusable with arrow keys between
+  neighbours; hovering or focusing a node lights up its edges and dims the rest; clicking an edge shows its join
+  keys in the details drawer. All colours are theme tokens, so the graph follows the theme.
+- **Big graphs:** above about 300 nodes, show the largest component first and a component list, rather than a
+  hairball. Measure layout time on the corpus; budget 200 ms.
+- **Accessible alternative:** a "View as list" switch shows the edges as a table; the SVG has a text summary.
+- **Exports:** DOT stays; add SVG download.
+- **Tests:** layout unit tests in the browser (no overlaps, every edge drawn, same input gives same output),
+  DOT unchanged, keyboard navigation, pan/zoom without JS errors, reduced motion has no animated fit.
+
+### Version, size and risks
+- **Version:** 3a+3d could ship as **0.5.0** (new endpoint, new feature) and 3b+3c as 0.5.1, or all of phase 3 as
+  0.5.0. The user decides; bump in the branch before any PR.
+- **Rough size:** 3a medium, 3d medium (most of it is choosing palettes that pass contrast), 3b medium, 3c the
+  largest. Each lands as its own commits with its tests.
+- **Risks:** uploads on a 7.9 GB machine (streamed to disk, size-limited); layout cost on big graphs (cap and
+  measure); the test suite growing past this machine (themes multiply states, so the rendered audits are
+  sampled); trendy palettes failing AA (the token test decides, not taste).
 
 ## Sources
 
