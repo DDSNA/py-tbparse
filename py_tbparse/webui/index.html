@@ -20,6 +20,8 @@
       <input id="path" class="field" type="text" placeholder="/path/to/workbook.twb or .twbx"
              aria-label="Workbook path" spellcheck="false" autocomplete="off">
       <button id="loadBtn" class="btn primary" type="button">Load</button>
+      <button id="pickBtn" class="btn" type="button">Open file&hellip;</button>
+      <input id="filePick" type="file" accept=".twb,.twbx" hidden tabindex="-1" aria-hidden="true">
     </div>
   </div>
 </header>
@@ -34,8 +36,12 @@
     <path class="a-line" d="M100 52l4-6M104 56l5-3"/>
   </svg>
   <h1>Let’s open a workbook</h1>
-  <p>Paste the path to a <code>.twb</code> or <code>.twbx</code> file above and press Load.</p>
-  <p>Everything stays on this computer. Nothing is uploaded.</p>
+  <p>Drop a <code>.twb</code> or <code>.twbx</code> file anywhere on this page, choose one with Open file, or paste its path above and press Load.</p>
+  <p>Everything stays on this computer. Nothing leaves it.</p>
+  <section id="recent" class="recent" aria-labelledby="recentTitle" hidden>
+    <h2 id="recentTitle">Recently opened</h2>
+    <ul id="recentList"></ul>
+  </section>
   <p>Tip: start with <code>py-tbparse-gui path/to/book.twbx</code> to open one directly.</p>
 </section>
 
@@ -84,6 +90,7 @@
           <label class="check"><input type="checkbox" id="renameChanged" checked> Only changes</label>
           <button id="createBtn" class="btn primary" type="button">Create fixed workbook</button>
           <a id="downloadBtn" class="btn" href="#" download>Download fixed workbook</a>
+          <span id="uploadNote" class="note" hidden>This workbook was dropped in, so there is no folder to save beside. Download the fixed copy instead.</span>
         </span>
         <button id="colsBtn" class="btn" type="button" aria-haspopup="menu" aria-expanded="false" hidden>Columns</button>
         <button id="densityBtn" class="btn" type="button" aria-pressed="false" hidden
@@ -113,6 +120,10 @@
 </aside>
 
 <div id="menu" class="menu" role="menu" hidden></div>
+
+<div id="dropzone" class="dropzone" aria-hidden="true" hidden>
+  <div class="dropzone-card"><strong>Drop to open</strong><span>It stays on this computer.</span></div>
+</div>
 
 <div id="status" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="announce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>

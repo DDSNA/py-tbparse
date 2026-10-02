@@ -73,6 +73,27 @@ select.field { padding-right: 4px; }
 .art .a-line { stroke: var(--accent); stroke-width: 2; stroke-linecap: round; }
 .hero h1 { font: 700 var(--text-xl)/1.25 var(--font-display); margin: var(--space-3) 0 var(--space-2); }
 .hero p { color: var(--muted); margin: 6px 0; }
+.recent { margin: var(--space-4) auto; max-width: 460px; text-align: left; }
+.recent h2 { font: 600 var(--text-sm)/1.4 var(--font-display); color: var(--muted); margin: 0 0 var(--space-1); }
+.recent ul { list-style: none; margin: 0; padding: 0; }
+.recent li { display: flex; align-items: center; gap: var(--space-1); }
+.recent .open-recent { flex: 1; min-width: 0; text-align: left; border: 0; background: none; color: var(--primary);
+                       font: inherit; padding: 6px 4px; border-radius: var(--radius-sm); cursor: pointer;
+                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 32px; }
+.recent .open-recent:hover { background: var(--hover); }
+.recent .open-recent small { color: var(--muted); font-family: var(--mono); font-size: var(--text-xs, 12px); margin-left: 8px; }
+.recent .forget { border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: var(--radius-sm);
+                  min-width: 32px; min-height: 32px; font-size: 16px; }
+.recent .forget:hover { background: var(--hover); color: var(--text); }
+.note { color: var(--muted); font-size: var(--text-sm); max-width: 340px; }
+.dropzone { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+            background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(2px);
+            border: 3px dashed var(--primary); margin: var(--space-3); border-radius: var(--radius-lg);
+            pointer-events: none; }
+.dropzone[hidden] { display: none; }
+.dropzone-card { display: grid; gap: 4px; text-align: center; background: var(--panel); border-radius: var(--radius-lg);
+                 padding: var(--space-4) var(--space-5); box-shadow: var(--shadow-2); font-size: var(--text-lg, 18px); }
+.dropzone-card span { color: var(--muted); font-size: var(--text-sm); }
 code, kbd { font-family: var(--mono); font-size: var(--text-sm); background: var(--code-bg);
             border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px; }
 

@@ -13,11 +13,14 @@ import argparse
 import ipaddress
 import json
 import os
+import atexit
+import shutil
+import tempfile
 import threading
 import webbrowser
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, quote, urlparse, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlparse, urlsplit
 
 import pandas as pd
 
@@ -33,7 +36,32 @@ from .rename import (
     suggest_renames,
 )
 
-_STATE: dict = {"parser": None, "path": None}
+_STATE: dict = {"parser": None, "path": None, "uploaded": False}
+
+# An uploaded workbook (drag and drop, file picker) has no path the user can name, so it is written to a
+# private temp directory, kept only until the next upload or exit.
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+_UPLOAD: dict = {"dir": None}
+
+
+def _clear_upload() -> None:
+    if _UPLOAD["dir"]:
+        shutil.rmtree(_UPLOAD["dir"], ignore_errors=True)
+        _UPLOAD["dir"] = None
+
+
+atexit.register(_clear_upload)
+
+
+def _upload_problem(name: str, head: bytes) -> str | None:
+    """Why these bytes are not a workbook named `name`, or None. The extension and the content must agree,
+    so a renamed .exe or a text file is refused before the parser sees it."""
+    ext = os.path.splitext(name)[1].lower()
+    if ext == ".twbx":
+        return None if head[:2] == b"PK" else "That file is not a packaged workbook (a .twbx is a zip archive)."
+    if ext == ".twb":
+        return None if head.lstrip(b"\xef\xbb\xbf \t\r\n")[:1] == b"<" else "That file is not a Tableau workbook (a .twb is XML)."
+    return "Only .twb and .twbx files can be opened."
 
 
 def _df_to_html(df: pd.DataFrame) -> str:
@@ -218,6 +246,24 @@ def _render_index() -> str:
     return _read_webui("index.html").replace("<!--APP_CONFIG-->", config)
 
 
+def _open_response(parser: TwbParser, path: str, uploaded: bool = False, name: str | None = None) -> dict:
+    """Make `parser` the loaded workbook and describe it for the page."""
+    _STATE["parser"] = parser
+    _STATE["path"] = path
+    _STATE["uploaded"] = uploaded
+    dashboards_df = parser.get_dashboards()
+    return {
+        "ok": True,
+        "path": None if uploaded else path,
+        "name": name or os.path.basename(path),
+        "uploaded": uploaded,
+        "counts": _table_counts(parser),
+        "datasources": _datasource_names(parser),
+        "datasource_labels": _datasource_labels(parser),
+        "dashboards": dashboards_df["name"].tolist() if "name" in dashboards_df.columns else [],
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "py-tbparse-gui/0.1"
 
@@ -377,6 +423,12 @@ class Handler(BaseHTTPRequestHandler):
         if _STATE["parser"] is None:
             self._send_json({"error": "No workbook loaded"}, 400)
             return
+        if _STATE["uploaded"]:
+            self._send_json(
+                {"error": "This workbook was dropped in, so it has no folder to save beside. Use Download instead."},
+                409,
+            )
+            return
         out = default_renamed_path(_STATE["parser"])
         try:
             data, _, renamed = self._renamed_workbook(_rename_options(payload))
@@ -391,8 +443,75 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json({"ok": True, "path": out, "renamed": renamed})
 
+    def _foreign_origin(self) -> bool:
+        origin = self.headers.get("Origin")
+        if origin is not None and origin.lower() != "http://" + self.headers["Host"].strip().lower():
+            self._send_json({"error": "cross-origin request rejected"}, 403)
+            return True
+        return False
+
+    def _upload(self) -> None:
+        """Receive a workbook as raw bytes (the file name in `X-Filename`). Neither the content type nor the
+        header is CORS-safelisted, so another site cannot send this without a preflight the server never
+        answers; the Origin check is belt and braces. Streamed to disk in 1 MB pieces, never held whole."""
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/octet-stream":
+            self._send_json({"error": "Content-Type must be application/octet-stream"}, 415)
+            return
+        if self._foreign_origin():
+            return
+        name = os.path.basename(unquote(self.headers.get("X-Filename") or "").replace("\\", "/"))
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if not name or length <= 0:
+            self._send_json({"error": "Send the file bytes with an X-Filename header."}, 400)
+            return
+        if length > MAX_UPLOAD_BYTES:
+            self._send_json(
+                {"error": f"That file is {length // (1024 * 1024)} MB; the limit is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB."},
+                413,
+            )
+            self.close_connection = True
+            return
+        head = self.rfile.read(min(length, 16))
+        problem = _upload_problem(name, head)
+        if problem:
+            # the body is unread, so the connection cannot be reused
+            self.close_connection = True
+            self._send_json({"error": problem}, 400)
+            return
+        _clear_upload()
+        folder = tempfile.mkdtemp(prefix="py-tbparse-")
+        _UPLOAD["dir"] = folder
+        dest = os.path.join(folder, name)
+        try:
+            with open(dest, "wb") as fh:
+                fh.write(head)
+                left = length - len(head)
+                while left > 0:
+                    chunk = self.rfile.read(min(1024 * 1024, left))
+                    if not chunk:
+                        raise OSError("the upload ended early")
+                    fh.write(chunk)
+                    left -= len(chunk)
+            parser = TwbParser(dest)
+        except (FileNotFoundError, ValueError, OSError) as e:
+            _clear_upload()
+            self._send_json({"error": str(e)}, 400)
+            return
+        except Exception as e:  # malformed workbook, broken zip
+            _clear_upload()
+            self._send_json({"error": f"failed to parse workbook: {e}"}, 400)
+            return
+        self._send_json(_open_response(parser, dest, uploaded=True, name=name))
+
     def do_POST(self):  # noqa: N802
         if self._reject_foreign_host():
+            return
+        if self.path == "/upload":
+            self._upload()
             return
         if self.path not in ("/load", "/create-workbook"):
             self._send(404, "not found", "text/plain")
@@ -440,22 +559,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": f"failed to parse workbook: {e}"}, 400)
             return
 
-        _STATE["parser"] = parser
-        _STATE["path"] = path
-        dashboards_df = parser.get_dashboards()
-        self._send_json(
-            {
-                "ok": True,
-                "path": path,
-                "name": os.path.basename(path),
-                "counts": _table_counts(parser),
-                "datasources": _datasource_names(parser),
-                "datasource_labels": _datasource_labels(parser),
-                "dashboards": dashboards_df["name"].tolist()
-                if "name" in dashboards_df.columns
-                else [],
-            }
-        )
+        self._send_json(_open_response(parser, path))
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

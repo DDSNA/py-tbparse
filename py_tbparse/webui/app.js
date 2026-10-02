@@ -42,7 +42,7 @@ const OVERVIEW_LINKS = {
 const CODE_COLUMNS = new Set(['formula', 'custom_sql', 'initial_sql', 'connection_target']);
 
 const state = { table: 'overview', columns: [], data: [], sortCol: -1, sortDir: 0,
-                loaded: false, req: 0, dot: '', fresh: false, dsLabels: {}, hay: null, hayKey: '',
+                loaded: false, uploaded: false, req: 0, dot: '', fresh: false, dsLabels: {}, hay: null, hayKey: '',
                 colLower: {}, sortKeys: {}, numeric: {}, natural: null, drawerIdx: null };
 let filterTimer = null;
 let toastTimer = null;
@@ -181,24 +181,73 @@ function selectTable(name) {
   showTable();
 }
 
-async function loadWorkbook() {
-  const path = $('path').value.trim();
-  if (!path) { setStatus('Enter a workbook path first.', true); return; }
-  setStatus('Opening ' + path + ' ...', false, 'busy');
+// Plain words for the errors a person can run into when opening a file.
+function friendlyOpenError(message) {
+  const m = String(message || '');
+  if (/No such file|not found|FileNotFound/i.test(m)) return m + '. Check the path, or drop the file onto the page instead.';
+  if (/BadZipFile|not a zip|zip archive/i.test(m)) return 'that .twbx is damaged or not a zip archive.';
+  if (/no \.twb|No .*twb.* in/i.test(m)) return 'there is no workbook (.twb) inside that .twbx.';
+  return m;
+}
+
+function recentPaths() {
+  try {
+    const list = JSON.parse(localStorage.getItem('py-tbparse:recent') || '[]');
+    return Array.isArray(list) ? list.filter((p) => typeof p === 'string').slice(0, 8) : [];
+  } catch (e) { return []; }
+}
+function saveRecent(list) {
+  try { localStorage.setItem('py-tbparse:recent', JSON.stringify(list.slice(0, 8))); } catch (e) { /* private window */ }
+}
+function rememberRecent(path) {
+  if (!path) return;
+  saveRecent([path].concat(recentPaths().filter((p) => p !== path)));
+  renderRecent();
+}
+function forgetRecent(path) {
+  saveRecent(recentPaths().filter((p) => p !== path));
+  renderRecent();
+}
+function baseName(path) { return path.split(/[\\/]/).filter(Boolean).pop() || path; }
+function renderRecent() {
+  const list = recentPaths();
+  $('recent').hidden = !list.length;
+  const ul = $('recentList');
+  ul.innerHTML = '';
+  list.forEach((path) => {
+    const li = el('li');
+    const open = el('button', 'open-recent', baseName(path));
+    open.type = 'button';
+    open.title = path;
+    const dir = el('small', '', path.slice(0, path.length - baseName(path).length).replace(/[\\/]$/, ''));
+    open.appendChild(dir);
+    open.addEventListener('click', () => { $('path').value = path; loadWorkbook(); });
+    const forget = el('button', 'forget', '\u00d7');
+    forget.type = 'button';
+    forget.setAttribute('aria-label', 'Forget ' + baseName(path));
+    forget.addEventListener('click', () => { forgetRecent(path); });
+    li.appendChild(open);
+    li.appendChild(forget);
+    ul.appendChild(li);
+  });
+}
+
+// Show a freshly opened workbook. `request` resolves to the /load or /upload answer.
+async function openWorkbook(label, request) {
+  setStatus('Opening ' + label + ' ...', false, 'busy');
   const btn = $('loadBtn');
   btn.disabled = true; btn.textContent = 'Opening';
   try {
-    const data = await fetchJSON('/load', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path}),
-    });
+    const data = await request();
     setStatus('Opened ' + (data.name || data.path), false, 'ok');
     state.loaded = true;
+    state.uploaded = !!data.uploaded;
+    $('uploadNote').hidden = !state.uploaded;
+    $('createBtn').hidden = state.uploaded;
     $('empty').hidden = true;
     $('controls').hidden = false;
     $('wbName').textContent = data.name || data.path;
-    $('wbName').title = data.path;
+    $('wbName').title = data.path || data.name;
     document.title = (data.name || 'workbook') + ' - py-tbparse';
     setCounts(data.counts);
     state.dsLabels = data.datasource_labels || {};
@@ -222,11 +271,52 @@ async function loadWorkbook() {
     markCurrent();
     state.fresh = true;
     await showTable();
+    if (!data.uploaded) rememberRecent(data.path);
   } catch (e) {
-    fail(e);
+    setStatus('That didn\u2019t work: ' + friendlyOpenError(e.message), true);
   } finally {
     btn.disabled = false; btn.textContent = 'Load';
   }
+}
+
+async function loadWorkbook() {
+  const path = $('path').value.trim();
+  if (!path) { setStatus('Enter a workbook path first, or drop a file onto the page.', true); return; }
+  await openWorkbook(path, () => fetchJSON('/load', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path}),
+  }));
+}
+
+const MAX_UPLOAD_MB = 200;
+function uploadFile(file) {
+  const name = file.name || 'workbook';
+  if (!/\.(twb|twbx)$/i.test(name)) { setStatus('That didn\u2019t work: only .twb and .twbx files can be opened.', true); return Promise.resolve(); }
+  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+    setStatus('That didn\u2019t work: ' + name + ' is ' + Math.round(file.size / 1048576) + ' MB; the limit is ' + MAX_UPLOAD_MB + ' MB.', true);
+    return Promise.resolve();
+  }
+  $('path').value = '';
+  return openWorkbook(name, () => new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/upload');
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('X-Filename', encodeURIComponent(name));
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && file.size > 5 * 1048576) {
+        setStatus('Opening ' + name + ' (' + Math.round(100 * e.loaded / e.total) + '%) ...', false, 'busy');
+      }
+    };
+    xhr.onerror = () => reject(new Error('the upload did not go through'));
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch (e) { /* not JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new Error(data.error || xhr.statusText));
+    };
+    xhr.send(file);
+  }));
 }
 
 async function showTable() {
@@ -1014,6 +1104,34 @@ async function copyDot() {
 }
 
 $('loadBtn').addEventListener('click', loadWorkbook);
+$('pickBtn').addEventListener('click', () => $('filePick').click());
+$('filePick').addEventListener('change', () => {
+  const file = $('filePick').files[0];
+  $('filePick').value = '';
+  if (file) uploadFile(file);
+});
+// Drop a file anywhere. The overlay only shows for drags that carry files, and a counter copes with
+// dragenter/dragleave firing for every child element on the way.
+let dragDepth = 0;
+function hasFiles(e) { return e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'); }
+window.addEventListener('dragenter', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth++; $('dropzone').hidden = false;
+});
+window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('dragleave', (e) => {
+  if (!hasFiles(e)) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) $('dropzone').hidden = true;
+});
+window.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; $('dropzone').hidden = true;
+  const files = Array.from(e.dataTransfer.files);
+  if (files.length > 1) setStatus('Opening the first of ' + files.length + ' files; one workbook at a time.', false, 'ok');
+  if (files.length) uploadFile(files[0]);
+});
+renderRecent();
 $('path').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadWorkbook(); });
 $('tableSel').addEventListener('change', () => selectTable($('tableSel').value));
 $('dashboardSel').addEventListener('change', showTable);
