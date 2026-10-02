@@ -159,7 +159,7 @@ the source), so use them as progressive enhancement behind a feature check, neve
 3. **Graph:** write our own small dependency-free SVG layout.
 4. **Versions:** phases 0-2 ship as 0.5.0, phases 3-4 as 0.6.0. Bump the version when the first merge is planned.
 5. **Default density:** comfortable (a compact toggle comes in phase 2).
-6. **Branch discipline:** all redesign work lives on `ui-redesign`. Do not push it until the user says so.
+6. **Branch discipline:** all redesign work lives on `ui-redesign` (pushed 2026-10-02). Later pushes and any PR only when the user says so.
 
 ## 9. Design direction: "cozy corporate meets small shop"
 
@@ -216,7 +216,7 @@ All 13 text/UI pairs pass 4.5:1 (3:1 for the focus ring) in both themes; the che
 
 - **Phase 0 done** (commit b0e275f on `ui-redesign`): page split into `webui/index.html`, `tokens.css`, `app.css`, `app.js`; served from a fixed whitelist; 321 tests pass; nine screenshots (start, overview light/dark, fields light/dark, renames, graph, phone x2) are byte-identical to before the split.
 - **Next: phase 1.** Introduce the tokens above and the motion spec, fix the contrast and keyboard findings, add the contrast test.
-- Not pushed; waiting for the user.
+- Pushed to `origin/ui-redesign` on 2026-10-02 at the user's word. No PR yet; open one only when asked, and bump the version to 0.5.0 when the first merge is planned.
 
 ## Sources
 
