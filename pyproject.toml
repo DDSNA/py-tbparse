@@ -48,7 +48,7 @@ py-tbparse-gui = "py_tbparse.webgui:main"
 include = ["py_tbparse*"]
 
 [tool.setuptools.package-data]
-py_tbparse = ["py.typed"]
+py_tbparse = ["py.typed", "webui/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

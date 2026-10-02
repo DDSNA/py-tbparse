@@ -5,3 +5,4 @@ recursive-include tests *.py
 include tests/fixtures/*.twb
 include tests/fixtures/*.twbx
 recursive-include docs *.png
+recursive-include py_tbparse/webui *

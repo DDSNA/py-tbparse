@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>py-tbparse</title>
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/app.css">
+
+</head>
+<body>
+<header class="top">
+  <div class="bar">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
+      py-tbparse <span class="ver" id="version"></span>
+    </div>
+    <div class="open">
+      <input id="path" class="field" type="text" placeholder="/path/to/workbook.twb or .twbx"
+             aria-label="Workbook path" spellcheck="false" autocomplete="off">
+      <button id="loadBtn" class="btn primary" type="button">Load</button>
+    </div>
+  </div>
+  <div id="status" role="status" aria-live="polite"></div>
+</header>
+
+<section id="empty" class="hero">
+  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>
+  <h1>Open a Tableau workbook</h1>
+  <p>Paste the path to a <code>.twb</code> or <code>.twbx</code> file above and press Load.</p>
+  <p>Parsing happens locally; the workbook never leaves this machine.</p>
+  <p>Tip: start with <code>py-tbparse-gui path/to/book.twbx</code> to open one directly.</p>
+</section>
+
+<div id="controls" class="workspace" hidden>
+  <aside class="side" aria-label="Tables">
+    <div class="wb">
+      <div class="label">Workbook</div>
+      <div class="name" id="wbName"></div>
+    </div>
+    <nav id="nav"></nav>
+  </aside>
+
+  <main class="view">
+    <div class="view-head">
+      <div>
+        <h2 id="viewTitle"></h2>
+        <div class="desc" id="viewDesc"></div>
+      </div>
+      <div class="toolbar">
+        <label class="mobile-only" aria-label="Table">
+          <select id="tableSel" class="field"></select>
+        </label>
+        <input id="filter" class="field" type="search" placeholder="Filter rows  ( / )" aria-label="Filter rows">
+        <label id="dashboardWrap" class="check" hidden>Dashboard
+          <select id="dashboardSel" class="field"><option value="">(all)</option></select>
+        </label>
+        <label id="paramsWrap" class="check" hidden>
+          <input type="checkbox" id="includeParams"> Include parameters
+        </label>
+        <label id="inferredWrap" class="check" hidden>
+          <input type="checkbox" id="includeInferred"> Include inferred (dashed)
+        </label>
+        <span id="renameTools" class="rename-tools" hidden>
+          <select id="renameStyle" class="field" aria-label="Naming style">
+            <option value="title">Title Case</option><option value="snake">snake_case</option>
+            <option value="lower">lower case</option><option value="keep">Keep case</option>
+          </select>
+          <select id="renameDs" class="field" aria-label="Datasource">
+            <option value="">(all datasources)</option>
+          </select>
+          <select id="renameKinds" class="field" aria-label="What to rename">
+            <option value="">Fields only</option><option value="all">Everything in the report</option>
+          </select>
+          <input id="renameRef" class="field" type="text" spellcheck="false"
+                 placeholder="Reference workbook path (optional)" aria-label="Reference workbook path">
+          <label class="check"><input type="checkbox" id="renameChanged" checked> Only changes</label>
+          <button id="createBtn" class="btn primary" type="button">Create fixed workbook</button>
+          <a id="downloadBtn" class="btn" href="#" download>Download fixed workbook</a>
+        </span>
+        <button id="copyBtn" class="btn" type="button" hidden>Copy</button>
+        <a id="exportLink" class="btn" href="#" download><span id="exportBtn">Export CSV</span></a>
+      </div>
+    </div>
+    <div class="subbar">
+      <span id="meta"></span>
+      <span id="hint">Click a column to sort, a row to expand it.</span>
+    </div>
+    <div id="tableWrap"></div>
+  </main>
+</div>
+
+<!--APP_CONFIG-->
+<script src="/static/app.js"></script>
+
+</body>
+</html>
