@@ -1499,6 +1499,11 @@ try { savedDensity = localStorage.getItem('py-tbparse.density'); } catch (e) { /
 applyDensity(savedDensity === 'compact' ? 'compact' : 'comfortable', false);
 
 populateTables();
+if (window.SERVER_MODE) {
+  // A shared server opens only dropped files, never a path on its own disk.
+  $('path').hidden = true;
+  $('loadBtn').hidden = true;
+}
 if (window.PRELOAD_PATH) {
   $('path').value = window.PRELOAD_PATH;
   loadWorkbook();

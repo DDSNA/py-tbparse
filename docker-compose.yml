@@ -1,0 +1,40 @@
+# py-tbparse behind a reverse proxy (see docs/deployment.md). The app listens on the internal network only;
+# the proxy is the one thing exposed, and it is where TLS and login belong.
+#
+#   TBPARSE_HOST=tbparse.example.com docker compose up -d --build
+
+services:
+  tbparse:
+    build: .
+    restart: unless-stopped
+    environment:
+      PY_TBPARSE_ALLOWED_HOSTS: ${TBPARSE_HOST:?set TBPARSE_HOST to the public host name}
+      PY_TBPARSE_MAX_SESSIONS: "20"
+      PY_TBPARSE_SESSION_TTL: "3600"
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    expose: ["8080"]
+    networks: [internal]
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [tbparse]
+    ports: ["80:80", "443:443"]
+    environment:
+      TBPARSE_HOST: ${TBPARSE_HOST}
+    # Add a login here (basic_auth, forward_auth) before exposing this to anyone you do not trust: the
+    # app has none.
+    command: caddy reverse-proxy --from ${TBPARSE_HOST} --to tbparse:8080
+    volumes: [caddy-data:/data]
+    networks: [internal, default]
+
+networks:
+  internal:
+    internal: true
+
+volumes:
+  caddy-data:
