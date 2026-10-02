@@ -152,3 +152,38 @@ def test_loading_by_path_still_reports_the_path(server, wenjie_path):
     r = conn.getresponse()
     data = json.loads(r.read())
     assert data["path"] == wenjie_path and data["uploaded"] is False
+
+
+# --- refusals must reach the client even when the body is large (a Windows connection reset ate them in CI) ---
+
+BIG = b"\x00" * (6 * 1024 * 1024)
+
+
+def test_every_refusal_still_delivers_its_message_with_a_large_body(server):
+    cases = [
+        ({"ctype": "text/plain"}, 415),
+        ({"headers": {"Origin": "http://evil.example"}}, 403),
+        ({"headers": {"Host": "attacker.example:%d" % server[1]}}, 403),
+        ({"name": "big.exe"}, 400),
+        ({"name": "x.twb"}, 400),                          # not XML
+    ]
+    for kwargs, want in cases:
+        status, data = _upload(server, BIG, **kwargs)
+        assert status == want and data["error"], (kwargs, status, data)
+
+
+def test_drain_reads_what_it_refuses_and_gives_up_on_huge_bodies():
+    import io
+
+    class Stub:
+        close_connection = False
+
+    stub = Stub()
+    stub.rfile = io.BytesIO(b"x" * 3_000_000)
+    webgui.Handler._drain(stub, 3_000_000)
+    assert stub.rfile.read() == b"" and stub.close_connection is False
+    huge = Stub()
+    huge.rfile = io.BytesIO(b"x" * 10)
+    webgui.Handler._drain(huge, webgui.MAX_DRAIN_BYTES + 1)
+    assert huge.rfile.read() == b"x" * 10 and huge.close_connection is True, "too big to read: close instead"
+    webgui.Handler._drain(Stub(), 0)                       # nothing to drain is not an error

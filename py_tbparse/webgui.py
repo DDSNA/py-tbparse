@@ -41,6 +41,7 @@ _STATE: dict = {"parser": None, "path": None, "uploaded": False, "report": None}
 # An uploaded workbook (drag and drop, file picker) has no path the user can name, so it is written to a
 # private temp directory, kept only until the next upload or exit.
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+MAX_DRAIN_BYTES = 32 * 1024 * 1024
 _UPLOAD: dict = {"dir": None}
 
 
@@ -477,29 +478,46 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json({"ok": True, "path": out, "renamed": renamed})
 
-    def _foreign_origin(self) -> bool:
-        origin = self.headers.get("Origin")
-        if origin is not None and origin.lower() != "http://" + self.headers["Host"].strip().lower():
-            self._send_json({"error": "cross-origin request rejected"}, 403)
-            return True
-        return False
+    def _declared_length(self) -> int:
+        try:
+            return int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return -1
+
+    def _drain(self, left: int) -> None:
+        """Read and throw away an unread request body (up to MAX_DRAIN_BYTES) before refusing it. Answering
+        first and closing with bytes still arriving makes some systems, Windows in particular, reset the
+        connection, and then the client never sees the error message. A body too big to drain is not read;
+        the connection is closed and the client may see a network error instead of the message."""
+        if left <= 0:
+            return
+        if left > MAX_DRAIN_BYTES:
+            self.close_connection = True
+            return
+        while left > 0:
+            chunk = self.rfile.read(min(1024 * 1024, left))
+            if not chunk:
+                break
+            left -= len(chunk)
 
     def _upload(self) -> None:
         """Receive a workbook as raw bytes (the file name in `X-Filename`). Neither the content type nor the
         header is CORS-safelisted, so another site cannot send this without a preflight the server never
         answers; the Origin check is belt and braces. Streamed to disk in 1 MB pieces, never held whole."""
+        length = self._declared_length()
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/octet-stream":
+            self._drain(length)
             self._send_json({"error": "Content-Type must be application/octet-stream"}, 415)
             return
-        if self._foreign_origin():
+        origin = self.headers.get("Origin")
+        if origin is not None and origin.lower() != "http://" + self.headers["Host"].strip().lower():
+            self._drain(length)
+            self._send_json({"error": "cross-origin request rejected"}, 403)
             return
         name = os.path.basename(unquote(self.headers.get("X-Filename") or "").replace("\\", "/"))
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            length = -1
         if not name or length <= 0:
+            self._drain(length)
             self._send_json({"error": "Send the file bytes with an X-Filename header."}, 400)
             return
         if length > MAX_UPLOAD_BYTES:
@@ -512,8 +530,7 @@ class Handler(BaseHTTPRequestHandler):
         head = self.rfile.read(min(length, 16))
         problem = _upload_problem(name, head)
         if problem:
-            # the body is unread, so the connection cannot be reused
-            self.close_connection = True
+            self._drain(length - len(head))
             self._send_json({"error": problem}, 400)
             return
         _clear_upload()
@@ -542,6 +559,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(_open_response(parser, dest, uploaded=True, name=name))
 
     def do_POST(self):  # noqa: N802
+        if self.path == "/upload" and not _host_allowed(self.headers.get("Host"), self.server.server_address):
+            self._drain(self._declared_length())
         if self._reject_foreign_host():
             return
         if self.path == "/upload":
