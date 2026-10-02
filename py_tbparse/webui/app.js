@@ -296,8 +296,11 @@ async function showTable() {
     const data = await fetchJSON('/table?' + params.toString());
     clearTimeout(loadingTimer);
     if (req !== state.req) return;
+    const sortedName = state.sortCol >= 0 ? state.columns[state.sortCol] : null;
     state.columns = data.columns || [];
     state.data = data.data || [];
+    state.sortCol = sortedName === null ? -1 : state.columns.indexOf(sortedName);
+    if (state.sortCol < 0) state.sortDir = 0;
     resetCaches();
     if (isOverview) renderOverview();
     else { renderTable(); scheduleHay(); }
@@ -367,6 +370,14 @@ const OPAQUE_ID = /^[a-z]+\.[0-9a-z]{20,}$/;
 const views = {};  // per table: hidden columns, widths, the pinned column, column filters
 let hayJob = 0;
 
+// Column settings are remembered by column NAME, not by position. A table can change shape (Field renames
+// gains a kind column in front when you widen it to the whole report), and a setting for a column that is
+// not there waits, unused, until it is. Names are the keys of hidden, widths, auto and pinned, and the
+// col of every filter.
+function colIndex(name) { return state.columns.indexOf(name); }
+function liveFilters(v) { return v.filters.filter((f) => colIndex(f.col) >= 0); }
+function hiddenCount(v) { return state.columns.filter((name) => v.hidden.has(name)).length; }
+
 function viewFor(name) {
   if (!views[name]) views[name] = {hidden: new Set(), widths: {}, auto: {}, pinned: null, filters: []};
   return views[name];
@@ -377,10 +388,9 @@ function reducedMotion() {
 }
 
 function displayCols(v) {
-  const shown = state.columns.map((_, i) => i).filter((i) => !v.hidden.has(i));
-  if (v.pinned !== null && shown.includes(v.pinned)) {
-    return [v.pinned].concat(shown.filter((i) => i !== v.pinned));
-  }
+  const shown = state.columns.map((_, i) => i).filter((i) => !v.hidden.has(state.columns[i]));
+  const pin = v.pinned === null ? -1 : colIndex(v.pinned);
+  if (pin >= 0 && shown.includes(pin)) return [pin].concat(shown.filter((i) => i !== pin));
   return shown;
 }
 
@@ -409,21 +419,21 @@ function searchText(col, value) {
 }
 
 function autoWidth(ci, v) {
-  if (v.auto[ci]) return v.auto[ci];
   const col = state.columns[ci];
+  if (v.auto[col]) return v.auto[col];
   let longest = col.length + 8;  // room for the sort arrow and the options button
   const sample = Math.min(state.data.length, 300);
   for (let i = 0; i < sample; i++) {
     const len = shownText(col, state.data[i][ci]).length;
     if (len > longest) longest = len;
   }
-  v.auto[ci] = Math.max(96, Math.min(Math.round(longest * 7.6) + 30, 380));
-  return v.auto[ci];
+  v.auto[col] = Math.max(96, Math.min(Math.round(longest * 7.6) + 30, 380));
+  return v.auto[col];
 }
 
 function widthsFor(v) {
   const out = {};
-  state.columns.forEach((_, ci) => { out[ci] = v.widths[ci] || autoWidth(ci, v); });
+  state.columns.forEach((name, ci) => { out[ci] = v.widths[name] || autoWidth(ci, v); });
   return out;
 }
 
@@ -436,10 +446,11 @@ function resetCaches() {
   state.numeric = {};
   state.natural = null;
   state.drawerIdx = null;
+  Object.keys(views).forEach((name) => { views[name].auto = {}; });  // new data, new widths
   closeDrawer(false);
 }
 
-function visibleSig(v) { return Array.from(v.hidden).sort().join(','); }
+function visibleSig(v) { return state.columns.filter((name) => v.hidden.has(name)).sort().join(','); }
 
 function rowHay(row, cols) {
   let text = '';
@@ -452,7 +463,7 @@ function rowHay(row, cols) {
 function scheduleHay() {
   const v = viewFor(state.table);
   const sig = visibleSig(v);
-  const cols = state.columns.map((_, i) => i).filter((i) => !v.hidden.has(i));
+  const cols = state.columns.map((_, i) => i).filter((i) => !v.hidden.has(state.columns[i]));
   const rows = state.data;
   const hay = new Array(rows.length);
   const job = ++hayJob;
@@ -473,7 +484,7 @@ function ensureHay(v) {
   const sig = visibleSig(v);
   if (state.hay && state.hayKey === sig) return state.hay;
   hayJob += 1;
-  const cols = state.columns.map((_, i) => i).filter((i) => !v.hidden.has(i));
+  const cols = state.columns.map((_, i) => i).filter((i) => !v.hidden.has(state.columns[i]));
   state.hay = state.data.map((row) => rowHay(row, cols));
   state.hayKey = sig;
   return state.hay;
@@ -550,8 +561,8 @@ function computeOrder() {
     order = [];
     for (let i = 0; i < n; i++) if (hay[i].indexOf(q) !== -1) order.push(i);
   }
-  v.filters.forEach((f) => {
-    const col = colLowerFor(f.col);
+  liveFilters(v).forEach((f) => {
+    const col = colLowerFor(colIndex(f.col));
     const text = f.text.toLowerCase();
     const next = [];
     if (order) {
@@ -607,20 +618,23 @@ const vt = new VTable($('tableWrap'), {
   sort: (ci) => toggleSort(ci),
   openRow: (pos, opener) => openRow(pos, opener),
   menu: (ci, th) => openColumnMenu(ci, th),
-  resized: (ci, width) => { viewFor(state.table).widths[ci] = width; },
+  resized: (ci, width) => { viewFor(state.table).widths[state.columns[ci]] = width; },
 });
 
-// animate: let the browser glide rows to their new places (when it can, and motion is welcome).
+// animate: let the browser glide rows to their new places (when it can, and motion is welcome). Only sorting
+// asks for it: while a view transition runs (about 200 ms) the browser sends clicks to the page root and no
+// CSS can change that, so it is kept to the one change where the glide explains something, and is never
+// started by typing in the filter.
 // keepScroll: pinning, hiding and resizing keep your place; a new sort or filter starts at the top.
 // after: runs once the new table is on screen.
 function renderTable(animate, keepScroll, after) {
   const run = () => {
     const t0 = performance.now();
-    if (menuState && menuState.anchor.tagName === 'TH') closeMenu(false);
     const wrap = $('tableWrap');
     const total = state.data.length;
     const v = viewFor(state.table);
     if (!total) {
+      if (menuState && menuState.anchor.tagName === 'TH') closeMenu(false);  // no headers left to hang from
       wrap.innerHTML = '';
       $('meta').textContent = '0 row(s)';
       wrap.appendChild(emptyState('Nothing here yet', 'This workbook has no rows in this table.'));
@@ -629,13 +643,15 @@ function renderTable(animate, keepScroll, after) {
       return;
     }
     const order = computeOrder();
-    const filtered = $('filter').value.trim() !== '' || v.filters.length > 0;
+    const filtered = $('filter').value.trim() !== '' || liveFilters(v).length > 0;
     $('meta').textContent = filtered ? order.length + ' of ' + total + ' row(s)' : total + ' row(s)';
     vt.configure({
       cols: state.columns, data: state.data, order, display: displayCols(v), widths: widthsFor(v),
-      pinned: v.pinned, sort: {col: state.sortCol, dir: state.sortDir}, current: state.drawerIdx,
+      pinned: v.pinned === null || colIndex(v.pinned) < 0 ? null : colIndex(v.pinned),
+      sort: {col: state.sortCol, dir: state.sortDir}, current: state.drawerIdx,
     });
     vt.build(!keepScroll);
+    reanchorMenu();
     if (!order.length) wrap.appendChild(emptyState('No matches', 'No rows match those filters.'));
     renderChips();
     updateColumnsButton();
@@ -724,41 +740,51 @@ async function copyText(text, message) {
 
 let menuState = null;
 
+// aria-expanded belongs on the control that opens a menu: the options button inside a column header,
+// or the Columns button itself.
+function setExpanded(anchor, open) {
+  const trigger = anchor && anchor.tagName === 'TH' ? anchor.querySelector('.col-menu-btn') : anchor;
+  if (trigger && trigger.getAttribute('aria-haspopup')) trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
 function closeMenu(restoreFocus) {
   const menu = $('menu');
   if (menu.hidden) return;
   menu.hidden = true;
   menu.replaceChildren();
   const anchor = menuState ? menuState.anchor : null;
-  if (anchor && anchor.getAttribute('aria-haspopup')) anchor.setAttribute('aria-expanded', 'false');
+  setExpanded(anchor, false);
   menuState = null;
   if (restoreFocus && anchor && anchor.isConnected) anchor.focus();
 }
 
 function menuButtons() {
-  return Array.from($('menu').querySelectorAll('button:not([disabled])'));
+  return Array.from($('menu').querySelectorAll('button.menu-item'));
 }
 
-function fillMenu(items, focusAt) {
+// focusItem is an index into items, so focus stays on the same item when the menu is redrawn.
+function fillMenu(items, focusItem) {
   const menu = $('menu');
   menu.setAttribute('role', 'menu');
   menu.replaceChildren();
-  items.forEach((item) => {
+  const byItem = new Map();
+  items.forEach((item, at) => {
     if (item.sep) { const sep = el('div', 'menu-sep'); sep.setAttribute('role', 'separator'); menu.appendChild(sep); return; }
     const btn = el('button', 'menu-item');
     btn.type = 'button';
     btn.setAttribute('role', item.checkbox ? 'menuitemcheckbox' : 'menuitem');
     if (item.checkbox) btn.setAttribute('aria-checked', item.checked ? 'true' : 'false');
-    btn.disabled = !!item.disabled;
+    if (item.disabled) btn.setAttribute('aria-disabled', 'true');
+    byItem.set(at, btn);
     btn.append(el('span', 'menu-check', item.checkbox ? (item.checked ? '✓' : '') : ''), el('span', '', item.label));
     btn.addEventListener('click', () => {
+      if (item.disabled) return;
       if (item.keep) {
         item.run();
         // A keep-open item normally redraws the menu (to refresh its ticks); an item that swaps in
         // its own content, like the filter form, opts out with rebuild: false.
         if (item.rebuild !== false && menuState && menuState.build) {
-          const at = menuButtons().indexOf(btn);
-          fillMenu(menuState.build(), Math.max(0, at));
+          fillMenu(menuState.build(), items.indexOf(item));
         }
       } else {
         const anchor = menuState ? menuState.anchor : null;
@@ -771,18 +797,20 @@ function fillMenu(items, focusAt) {
     });
     menu.appendChild(btn);
   });
-  const buttons = menuButtons();
-  if (focusAt !== undefined && buttons[focusAt]) buttons[focusAt].focus();
+  const target = byItem.get(focusItem);
+  if (target) target.focus();
 }
 
-function showMenu(anchor, label, build) {
+function showMenu(anchor, label, build, col) {
   closeMenu(false);
   const menu = $('menu');
-  menuState = {anchor, build};
+  const wrap = $('tableWrap');
+  menuState = {anchor, build, col, scroll: [wrap.scrollLeft, wrap.scrollTop]};
   menu.setAttribute('aria-label', label);
-  if (anchor.getAttribute('aria-haspopup')) anchor.setAttribute('aria-expanded', 'true');
+  setExpanded(anchor, true);
   menu.hidden = false;
-  fillMenu(build(), 0);
+  const items = build();
+  fillMenu(items, items.findIndex((item) => !item.sep && !item.disabled));
   placeMenu(anchor);
 }
 
@@ -796,6 +824,25 @@ function placeMenu(anchor) {
   menu.style.top = top + 'px';
 }
 
+// The table redrew, which replaced the header a column menu hangs from. A redraw can arrive after the menu
+// was opened (a sort runs in the next frame, inside a view transition), so the menu follows its column to
+// the new header and refreshes its items, and closes only if that column is gone.
+function reanchorMenu() {
+  if (!menuState || menuState.anchor.tagName !== 'TH') return;
+  const th = $('tableWrap').querySelector('th[data-col="' + menuState.col + '"]');
+  if (!th) { closeMenu(false); return; }
+  const menu = $('menu');
+  menuState.anchor = th;
+  setExpanded(th, true);
+  const wrap = $('tableWrap');
+  menuState.scroll = [wrap.scrollLeft, wrap.scrollTop];
+  if (menu.getAttribute('role') === 'menu') {
+    const at = menuButtons().indexOf(document.activeElement);
+    fillMenu(menuState.build(), at >= 0 ? at : undefined);
+  }
+  placeMenu(th);
+}
+
 function afterColumnChange(ci) {
   scheduleHay();
   renderTable(false, true, () => vt.focusHeader(ci));
@@ -804,15 +851,16 @@ function afterColumnChange(ci) {
 function hideColumn(ci) {
   const v = viewFor(state.table);
   if (displayCols(v).length <= 1) return;
-  v.hidden.add(ci);
-  if (v.pinned === ci) v.pinned = null;
+  v.hidden.add(state.columns[ci]);
+  if (v.pinned === state.columns[ci]) v.pinned = null;
   if (state.sortCol === ci) { state.sortCol = -1; state.sortDir = 0; }
   afterColumnChange(displayCols(v)[0]);
 }
 
 function resizeBy(ci, delta) {
   const v = viewFor(state.table);
-  v.widths[ci] = Math.max(60, Math.min(900, (v.widths[ci] || autoWidth(ci, v)) + delta));
+  const name = state.columns[ci];
+  v.widths[name] = Math.max(80, Math.min(900, (v.widths[name] || autoWidth(ci, v)) + delta));
   renderTable(false, true, () => vt.focusHeader(ci));
 }
 
@@ -843,10 +891,10 @@ function showFilterForm(ci) {
     const text = input.value.trim();
     if (!text) return;
     const v = viewFor(state.table);
-    v.filters = v.filters.filter((f) => f.col !== ci).concat([{col: ci, text}]);
+    v.filters = v.filters.filter((f) => f.col !== name).concat([{col: name, text}]);
     const anchor = menuState ? menuState.anchor : null;
     closeMenu(false);
-    renderTable(true, false, () => { if (anchor && anchor.isConnected) anchor.focus(); else vt.focusHeader(ci); });
+    renderTable(false, false, () => { if (anchor && anchor.isConnected) anchor.focus(); else vt.focusHeader(ci); });
   });
   menu.replaceChildren(form);
   placeMenu(menuState.anchor);
@@ -863,28 +911,29 @@ function openColumnMenu(ci, th) {
       {label: 'Clear sort', disabled: state.sortCol !== ci, run: () => setSort(ci, 0)},
       {sep: true},
       {label: 'Filter this column…', keep: true, rebuild: false, run: () => showFilterForm(ci)},
-      {label: v.pinned === ci ? 'Unpin column' : 'Pin to the left', run: () => {
-        v.pinned = v.pinned === ci ? null : ci;
+      {label: v.pinned === name ? 'Unpin column' : 'Pin to the left', run: () => {
+        v.pinned = v.pinned === name ? null : name;
         renderTable(false, true, () => vt.focusHeader(ci));
       }},
       {label: 'Hide column', disabled: displayCols(v).length <= 1, run: () => hideColumn(ci)},
       {sep: true},
       {label: 'Wider', run: () => resizeBy(ci, 40)},
       {label: 'Narrower', run: () => resizeBy(ci, -40)},
-      {label: 'Reset width', run: () => { delete v.widths[ci]; renderTable(false, true, () => vt.focusHeader(ci)); }},
+      {label: 'Reset width', run: () => { delete v.widths[name]; renderTable(false, true, () => vt.focusHeader(ci)); }},
       {sep: true},
       {label: 'Copy column values', run: () => copyColumn(ci)},
     ];
-  });
+  }, ci);
 }
 
 function toggleColumn(ci) {
   const v = viewFor(state.table);
-  if (v.hidden.has(ci)) { v.hidden.delete(ci); scheduleHay(); renderTable(false, true); }
+  const name = state.columns[ci];
+  if (v.hidden.has(name)) { v.hidden.delete(name); scheduleHay(); renderTable(false, true); }
   else {
     if (displayCols(v).length <= 1) return;
-    v.hidden.add(ci);
-    if (v.pinned === ci) v.pinned = null;
+    v.hidden.add(name);
+    if (v.pinned === name) v.pinned = null;
     if (state.sortCol === ci) { state.sortCol = -1; state.sortDir = 0; }
     scheduleHay();
     renderTable(false, true);
@@ -895,12 +944,12 @@ function openColumnsMenu() {
   showMenu($('colsBtn'), 'Columns', () => {
     const v = viewFor(state.table);
     const items = [
-      {label: 'Show all columns', keep: true, disabled: v.hidden.size === 0,
+      {label: 'Show all columns', keep: true, disabled: hiddenCount(v) === 0,
        run: () => { v.hidden.clear(); scheduleHay(); renderTable(false, true); }},
       {sep: true},
     ];
     state.columns.forEach((name, ci) => {
-      const shown = !v.hidden.has(ci);
+      const shown = !v.hidden.has(name);
       items.push({label: name, checkbox: true, checked: shown, keep: true,
                   disabled: shown && displayCols(v).length <= 1, run: () => toggleColumn(ci)});
     });
@@ -909,7 +958,7 @@ function openColumnsMenu() {
 }
 
 function updateColumnsButton() {
-  const hidden = viewFor(state.table).hidden.size;
+  const hidden = hiddenCount(viewFor(state.table));
   $('colsBtn').textContent = hidden ? 'Columns (' + hidden + ' hidden)' : 'Columns';
 }
 
@@ -919,15 +968,16 @@ function renderChips() {
   const box = $('chips');
   const v = viewFor(state.table);
   box.replaceChildren();
-  if (!v.filters.length || state.table === 'overview' || state.table === 'graph') { box.hidden = true; return; }
-  v.filters.forEach((f) => {
+  const live = liveFilters(v);
+  if (!live.length || state.table === 'overview' || state.table === 'graph') { box.hidden = true; return; }
+  live.forEach((f) => {
     const chip = el('button', 'chip');
     chip.type = 'button';
-    chip.setAttribute('aria-label', 'Remove filter: ' + state.columns[f.col] + ' contains ' + f.text);
-    chip.append(el('span', '', state.columns[f.col] + ': ' + f.text), el('span', 'chip-x', '×'));
+    chip.setAttribute('aria-label', 'Remove filter: ' + f.col + ' contains ' + f.text);
+    chip.append(el('span', '', f.col + ': ' + f.text), el('span', 'chip-x', '×'));
     chip.addEventListener('click', () => {
       v.filters = v.filters.filter((x) => x !== f);
-      renderTable(true, false, () => { (document.querySelector('#chips .chip') || $('filter')).focus(); });
+      renderTable(false, false, () => { (document.querySelector('#chips .chip') || $('filter')).focus(); });
     });
     box.appendChild(chip);
   });
@@ -936,7 +986,7 @@ function renderChips() {
   clear.addEventListener('click', () => {
     v.filters = [];
     $('filter').value = '';
-    renderTable(true, false, () => $('filter').focus());
+    renderTable(false, false, () => $('filter').focus());
   });
   box.appendChild(clear);
   box.hidden = false;
@@ -972,7 +1022,7 @@ $('includeInferred').addEventListener('change', showTable);
 $('copyBtn').addEventListener('click', copyDot);
 $('filter').addEventListener('input', () => {
   clearTimeout(filterTimer);
-  filterTimer = setTimeout(() => renderTable(true), 120);
+  filterTimer = setTimeout(() => renderTable(false), 120);
 });
 ['renameStyle', 'renameDs', 'renameKinds', 'renameRef', 'renameChanged'].forEach((id) =>
   $(id).addEventListener('change', showTable));
@@ -990,6 +1040,11 @@ $('drawerCopy').addEventListener('click', () => {
   copyText(JSON.stringify(rowObject(state.drawerIdx), null, 2), 'Copied this row as JSON');
 });
 $('menu').addEventListener('keydown', (e) => {
+  if ($('menu').getAttribute('role') === 'dialog') {
+    // The filter form: Tab, Home, End and the arrows are the text box's, not the menu's. Escape still closes.
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(true); }
+    return;
+  }
   const items = menuButtons();
   const at = items.indexOf(document.activeElement);
   const focusItem = (k) => { if (items.length) items[(k + items.length) % items.length].focus(); };
@@ -999,6 +1054,11 @@ $('menu').addEventListener('keydown', (e) => {
   else if (e.key === 'Home') { e.preventDefault(); focusItem(0); }
   else if (e.key === 'End') { e.preventDefault(); focusItem(items.length - 1); }
   else if (e.key === 'Tab') { closeMenu(true); }
+});
+// Tabbing out of the filter form closes it.
+$('menu').addEventListener('focusout', (e) => {
+  const menu = $('menu');
+  if (menu.getAttribute('role') === 'dialog' && e.relatedTarget && !menu.contains(e.relatedTarget)) closeMenu(false);
 });
 document.addEventListener('mousedown', (e) => {
   if ($('menu').hidden) return;
@@ -1010,10 +1070,17 @@ document.addEventListener('keydown', (e) => {
     closeDrawer(true);
   }
 });
-$('tableWrap').addEventListener('scroll', () => closeMenu(false), {passive: true});
+// A menu closes when the table is scrolled out from under it. A scroll event can also arrive late,
+// from the table redrawing itself (a sort restores the scroll position inside a view transition), after
+// the menu was opened at that very position; that one must not close it.
+$('tableWrap').addEventListener('scroll', () => {
+  if (!menuState || !menuState.scroll) return;
+  const wrap = $('tableWrap');
+  if (wrap.scrollLeft !== menuState.scroll[0] || wrap.scrollTop !== menuState.scroll[1]) closeMenu(false);
+}, {passive: true});
 window.addEventListener('resize', () => closeMenu(false));
 $('filter').addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { clearTimeout(filterTimer); $('filter').value = ''; renderTable(true); }
+  if (e.key === 'Escape') { clearTimeout(filterTimer); $('filter').value = ''; renderTable(false); }
 });
 document.addEventListener('keydown', (e) => {
   const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);

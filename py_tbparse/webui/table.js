@@ -7,7 +7,7 @@
 // aria-rowcount and each row aria-rowindex, so assistive technology still knows the full size.
 (function () {
   const BUFFER = 10;
-  const MIN_WIDTH = 60;
+  const MIN_WIDTH = 80;  // narrower and the options button would cover the whole header
   const MAX_WIDTH = 900;
 
   function el(tag, cls, text) {
@@ -46,6 +46,7 @@
       this.active = 0;
       this.activeHead = 0;
       this.frame = 0;
+      this.swallowClick = false;
       wrap.addEventListener('scroll', () => this.schedule(), {passive: true});
       window.addEventListener('resize', () => this.schedule());
     }
@@ -157,6 +158,7 @@
         menu.tabIndex = -1;
         menu.setAttribute('aria-label', 'Options for column ' + name);
         menu.setAttribute('aria-haspopup', 'menu');
+        menu.setAttribute('aria-expanded', 'false');
         const grip = el('span', 'col-resize');
         grip.setAttribute('aria-hidden', 'true');
         th.append(label, arrow, menu, grip);
@@ -170,6 +172,8 @@
       head.addEventListener('click', (e) => {
         const th = e.target.closest('th');
         if (!th || e.target.closest('.col-resize')) return;
+        // the click that ends a column drag, released over the header, must not sort it
+        if (this.swallowClick) return;
         const ci = Number(th.dataset.col);
         if (e.target.closest('.col-menu-btn')) { this.h.menu(ci, th); return; }
         this.h.sort(ci);
@@ -330,15 +334,24 @@
     startResize(e, ci) {
       e.preventDefault();
       e.stopPropagation();
+      const grip = e.target.closest('.col-resize');
       const startX = e.clientX;
       const startWidth = this.widthOf(ci);
+      // Capture keeps the drag going when the pointer leaves the grip.
+      try { grip.setPointerCapture(e.pointerId); } catch (err) { /* the window listeners still work */ }
       const move = (ev) => this.setWidth(ci, startWidth + ev.clientX - startX);
-      const up = () => {
+      const finish = () => {
         window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', finish);
+        window.removeEventListener('pointercancel', finish);
+        // That click is dispatched in this same turn, so the flag only needs to outlive it.
+        this.swallowClick = true;
+        setTimeout(() => { this.swallowClick = false; }, 0);
         this.h.resized(ci, this.widthOf(ci));
       };
       window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', up, {once: true});
+      window.addEventListener('pointerup', finish);
+      window.addEventListener('pointercancel', finish);
     }
   }
 

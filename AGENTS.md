@@ -204,6 +204,14 @@ two lines) killed the entire script, so no handlers bound and the UI was
 inert — with the whole suite green.
 
 So: **any change to the page (`py_tbparse/webui/`) needs a browser test**, in
+The browser suite is split by concern, all sharing the fixtures in `tests/test_gui_browser.py`:
+`test_gui_table.py` (windowing invariants, pipeline vs. a Python oracle, a seeded random walk;
+`PYTBPARSE_WALK_SEEDS`/`PYTBPARSE_WALK_STEPS` widen it), `test_gui_a11y.py` (roles, keyboard, focus, rendered
+contrast in both themes) and `test_gui_layout.py` (no sideways overflow from 320 px up, layout stability).
+Design decisions the tests pin: only sorting uses a view transition (Chromium sends clicks to the page root while
+one runs); column `MIN_WIDTH` is 80; per-table view settings are keyed by column name; disabled menu items use
+`aria-disabled` so they stay focusable.
+
 `tests/test_gui_browser.py`, which runs the page in real headless
 Chromium via Playwright and fails on any uncaught JS error. The cheap
 structural guards in `test_webgui.py` (unterminated string literals,

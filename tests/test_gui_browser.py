@@ -32,81 +32,7 @@ _playwright_sync_api = pytest.importorskip("playwright.sync_api", reason="playwr
 sync_playwright = _playwright_sync_api.sync_playwright
 _PlaywrightError = _playwright_sync_api.Error
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_LOCAL_LIBS = _REPO_ROOT / ".browser-libs" / "root" / "usr" / "lib" / "x86_64-linux-gnu"
-_LOCAL_XKB = _REPO_ROOT / ".browser-libs" / "root" / "usr" / "share" / "X11" / "xkb"
-_LOCAL_FONTS_CONF = _REPO_ROOT / ".browser-libs" / "fonts.conf"
-
-
-def _browser_env() -> dict:
-    """Chromium needs a handful of system libraries. On a machine where
-    they're installed system-wide (CI) the plain environment is fine; on
-    one where they were unpacked locally instead of apt-installed (see
-    scripts/setup-browser-libs.sh), point the loader at them."""
-    env = dict(os.environ)
-    if _LOCAL_LIBS.is_dir():
-        existing = env.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = f"{_LOCAL_LIBS}:{existing}" if existing else str(_LOCAL_LIBS)
-    # Keyboard layouts and fonts unpacked by the same script, if the host
-    # has none of its own (otherwise key input is dropped / text can't render).
-    if _LOCAL_XKB.is_dir():
-        env.setdefault("XKB_CONFIG_ROOT", str(_LOCAL_XKB))
-    if _LOCAL_FONTS_CONF.is_file():
-        env.setdefault("FONTCONFIG_FILE", str(_LOCAL_FONTS_CONF))
-    return env
-
-
-@pytest.fixture(scope="session")
-def browser():
-    with sync_playwright() as pw:
-        try:
-            instance = pw.chromium.launch(env=_browser_env())
-        except _PlaywrightError as e:
-            # Playwright's own exception type for "the browser process
-            # didn't come up" (missing binary, missing system libs, etc).
-            # Deliberately NOT a bare `except Exception`: that would also
-            # swallow bugs in this fixture itself (a bad kwarg, a renamed
-            # API) as a silent, green "skipped" -- which is exactly the
-            # false-confidence failure mode this whole test file exists to
-            # catch for the GUI itself. Let anything else propagate as a
-            # real test error.
-            pytest.skip(f"chromium could not launch: {str(e)[:200]}")
-        yield instance
-        instance.close()
-
-
-@pytest.fixture
-def gui_server():
-    webgui._STATE["parser"] = None
-    webgui._STATE["path"] = None
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), webgui.Handler)
-    host, port = srv.server_address
-    thread = threading.Thread(target=srv.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://{host}:{port}"
-    finally:
-        srv.shutdown()
-        thread.join(timeout=2)
-
-
-@pytest.fixture
-def page(browser, gui_server):
-    """A page on the running GUI, with JS errors recorded on `page.js_errors`."""
-    ctx = browser.new_context()
-    ctx.grant_permissions(["clipboard-read", "clipboard-write"])
-    pg = ctx.new_page()
-    pg.js_errors = []
-    pg.on("pageerror", lambda e: pg.js_errors.append(str(e)))
-    pg.on(
-        "console",
-        lambda msg: pg.js_errors.append(f"console.{msg.type}: {msg.text}")
-        if msg.type == "error"
-        else None,
-    )
-    pg.goto(gui_server)
-    yield pg
-    ctx.close()
+from conftest import new_page  # noqa: F401  (the fixtures themselves live in conftest.py)
 
 
 def _load(page, path):
@@ -138,7 +64,8 @@ def _copy_column(page, column):
     page.keyboard.press("Alt+ArrowDown")
     page.click("#menu >> text=Copy column values")
     page.wait_for_function("() => document.getElementById('status').textContent.startsWith('Copied')", timeout=10_000)
-    return page.evaluate("() => navigator.clipboard.readText()").split("\n")
+    text = page.evaluate("() => navigator.clipboard.readText()")
+    return text.split("\n") if text else []  # a table with no rows copies nothing
 
 
 def _header(page, column):
@@ -806,7 +733,10 @@ def test_column_menu_opens_from_the_keyboard_and_closes_cleanly(page, wenjie_pat
     assert page.evaluate("() => document.activeElement.textContent.trim()") == "Sort ascending"
     page.keyboard.press("ArrowDown")
     assert page.evaluate("() => document.activeElement.textContent.trim()") == "Sort descending"
-    page.keyboard.press("ArrowDown")  # "Clear sort" is disabled, so the next stop is the filter item
+    page.keyboard.press("ArrowDown")  # "Clear sort" is unavailable but stays reachable (aria-disabled)
+    assert page.evaluate("() => document.activeElement.textContent.trim()") == "Clear sort"
+    assert page.evaluate("() => document.activeElement.getAttribute('aria-disabled')") == "true"
+    page.keyboard.press("ArrowDown")
     assert "Filter this column" in page.evaluate("() => document.activeElement.textContent")
     page.keyboard.press("End")
     assert page.evaluate("() => document.activeElement.textContent.trim()") == "Copy column values"
