@@ -23,7 +23,14 @@ import pandas as pd
 from . import __version__
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .parser import TwbParser
-from .rename import _drop_parameters, build_renamed_workbook, default_renamed_path, suggest_field_renames
+from .rename import (
+    KINDS,
+    _drop_parameters,
+    build_renamed_workbook,
+    default_renamed_path,
+    suggest_field_renames,
+    suggest_renames,
+)
 
 _STATE: dict = {"parser": None, "path": None}
 
@@ -97,6 +104,8 @@ def _rename_options(src: dict) -> dict:
     ds = one("datasource")
     if ds:
         opts["datasource"] = ds
+    if one("kinds") == "all":  # the page offers fields only or everything, nothing in between
+        opts["kinds"] = KINDS
     return opts
 
 
@@ -383,6 +392,9 @@ _PAGE = r"""<!doctype html>
           <select id="renameDs" class="field" aria-label="Datasource">
             <option value="">(all datasources)</option>
           </select>
+          <select id="renameKinds" class="field" aria-label="What to rename">
+            <option value="">Fields only</option><option value="all">Everything in the report</option>
+          </select>
           <input id="renameRef" class="field" type="text" spellcheck="false"
                  placeholder="Reference workbook path (optional)" aria-label="Reference workbook path">
           <label class="check"><input type="checkbox" id="renameChanged" checked> Only changes</label>
@@ -647,6 +659,7 @@ async function showTable() {
 function renameOptions() {
   const opts = {style: $('renameStyle').value};
   if ($('renameDs').value) opts.datasource = $('renameDs').value;
+  if ($('renameKinds').value) opts.kinds = $('renameKinds').value;
   const ref = $('renameRef').value.trim();
   if (ref) opts.reference = ref;
   return opts;
@@ -802,7 +815,7 @@ $('includeParams').addEventListener('change', showTable);
 $('includeInferred').addEventListener('change', showTable);
 $('copyBtn').addEventListener('click', copyDot);
 $('filter').addEventListener('input', renderTable);
-['renameStyle', 'renameDs', 'renameRef', 'renameChanged'].forEach((id) =>
+['renameStyle', 'renameDs', 'renameKinds', 'renameRef', 'renameChanged'].forEach((id) =>
   $(id).addEventListener('change', showTable));
 $('createBtn').addEventListener('click', createWorkbook);
 $('filter').addEventListener('keydown', (e) => {
@@ -977,7 +990,7 @@ class Handler(BaseHTTPRequestHandler):
     @staticmethod
     def _renamed_workbook(opts: dict):
         parser = _STATE["parser"]
-        renames = suggest_field_renames(parser, **opts)
+        renames = (suggest_renames if "kinds" in opts else suggest_field_renames)(parser, **opts)
         filename = os.path.basename(default_renamed_path(parser))
         report: dict = {}
         data = build_renamed_workbook(parser, renames, report)

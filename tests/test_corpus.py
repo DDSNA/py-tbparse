@@ -1,0 +1,84 @@
+"""Every feature over a corpus of 200 real workbooks (tests/corpus).
+
+The files are not in git; fetch them with `python scripts/fetch_corpus.py`. Without
+them these tests skip, so the normal suite is unaffected.
+"""
+
+import csv
+import hashlib
+import shutil
+from pathlib import Path
+
+import pytest
+
+from py_tbparse import (
+    TwbParser,
+    apply_template,
+    field_usage,
+    load_template,
+    make_template,
+    suggest_mapping,
+    suggest_renames,
+)
+from py_tbparse._tables import TABLE_SPECS
+from py_tbparse.rename import build_renamed_workbook
+from py_tbparse.templates import read_data
+
+CORPUS = Path(__file__).parent / "corpus"
+FILES = sorted((CORPUS / "files").glob("*.twb")) if (CORPUS / "files").is_dir() else []
+
+pytestmark = pytest.mark.skipif(not FILES, reason="corpus not fetched: python scripts/fetch_corpus.py")
+
+
+def test_corpus_is_the_one_in_the_manifest():
+    rows = list(csv.DictReader(open(CORPUS / "manifest.csv", encoding="utf-8")))
+    present = {p.name: p for p in FILES}
+    assert set(present) <= {r["file"] for r in rows}
+    for r in rows:
+        if r["file"] in present:
+            assert hashlib.sha256(present[r["file"]].read_bytes()).hexdigest() == r["sha256"], r["file"]
+
+
+def test_every_table_extracts_from_every_workbook():
+    for path in FILES:
+        parser = TwbParser(str(path))
+        for name, spec in TABLE_SPECS.items():
+            spec(parser)  # must not raise
+
+
+def test_rename_everything_keeps_every_report_consistent(tmp_path):
+    for path in FILES:
+        parser = TwbParser(str(path))
+        report = {}
+        data = build_renamed_workbook(parser, suggest_renames(parser), report)
+        assert report["skipped"] == 0, path.name
+        out = tmp_path / "r.twb"
+        out.write_bytes(data)
+        again = TwbParser(str(out))
+        sheets = set(again.xml_doc.xpath("/workbook/worksheets/worksheet/@name"))
+        assert len(sheets) == len(set(parser.xml_doc.xpath("/workbook/worksheets/worksheet/@name"))), path.name
+        known = sheets | set(again.xml_doc.xpath("/workbook/dashboards/dashboard/@name"))
+        assert set(again.get_dashboard_sheets()["sheet"]) <= known, path.name
+
+
+def test_template_round_trip_on_every_workbook(tmp_path):
+    for n, path in enumerate(FILES):
+        work = tmp_path / f"w{n}"
+        work.mkdir()
+        book = work / "book.twb"
+        shutil.copy(path, book)
+        field_usage(TwbParser(str(book)))
+        template = load_template(make_template(str(book)))
+        for i, entry in enumerate(template.manifest["datasources"]):
+            if not entry["fields"]:
+                continue
+            csv_path = work / f"d{i}.csv"
+            with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+                csv.writer(fh).writerow([f["remote"] for f in entry["fields"]])
+            mapping = suggest_mapping(template, read_data(str(csv_path)), datasource=entry["name"])
+            # a field always finds its own column again, unless a joined source
+            # has the same column name in two tables and one CSV can only feed one
+            lost = mapping[mapping["required"] & (mapping["mapped_to"] == "")]
+            assert all("already used by" in s for s in lost["status"]), (path.name, list(lost["field"]))
+            apply_template(template, str(csv_path), datasource=entry["name"], allow_missing=True,
+                           output_path=str(work / f"o{i}.twbx"))

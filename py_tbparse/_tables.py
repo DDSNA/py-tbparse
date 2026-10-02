@@ -39,10 +39,26 @@ def _calculated_fields(p: TwbParser, include_parameters: bool = False, **_kw) ->
 
 
 def _field_renames(p: TwbParser, style: str = "title", reference=None, only_changed: bool = False,
-                  datasource=None, **_kw) -> pd.DataFrame:
+                  datasource=None, kinds=None, **_kw) -> pd.DataFrame:
+    if kinds:  # the GUI's "everything in the report" switch
+        return p.get_renames(
+            reference=reference, style=style, only_changed=only_changed, datasource=datasource, kinds=kinds
+        )
     return p.get_field_renames(
         reference=reference, style=style, only_changed=only_changed, datasource=datasource
     )
+
+
+def _report_renames(p: TwbParser, style: str = "title", reference=None, only_changed: bool = False,
+                    datasource=None, **_kw) -> pd.DataFrame:
+    return p.get_renames(reference=reference, style=style, only_changed=only_changed, datasource=datasource)
+
+
+def _field_usage(p: TwbParser, **_kw) -> pd.DataFrame:
+    df = p.get_field_usage()
+    for col in ("sheets", "dashboards", "calculations"):
+        df[col] = df[col].map("; ".join)
+    return df
 
 
 def _joins(p: TwbParser, **_kw) -> pd.DataFrame:
@@ -91,6 +107,8 @@ TABLE_SPECS: dict[str, Callable[..., pd.DataFrame]] = {
     "raw-fields": _raw_fields,
     "calculated-fields": _calculated_fields,
     "field-renames": _field_renames,
+    "report-renames": _report_renames,
+    "field-usage": _field_usage,
     "joins": _joins,
     "relations": _relations,
     "relationships": _relationships,

@@ -14,14 +14,15 @@ type="join">` and 2020.2+ `<relationships>`), inferred relationships,
 dashboards/dashboard-sheets, `validate_relationships`, custom/initial SQL,
 and published-source detection. **Not yet ported** (v2): formatting,
 tooltips, colors, axes, sorts, dashboard layout/actions, analytics
-helpers (calc complexity, field usage, replication brief), and the
+helpers (calc complexity, replication brief), and the
 Shiny-inspector equivalent.
 
 Also added, with no R equivalent (Python-native extras -- see "Non-R
 modules" below): Graphviz DOT export of the relationship graph
 (replaces the R package's igraph/ggraph-based plotting with a
 dependency-free alternative), workbook-to-workbook diff, folder/batch
-analysis across many workbooks, and Jupyter rich display.
+analysis across many workbooks, field renaming, field usage, workbook
+templates, and Jupyter rich display.
 
 ## Setup
 
@@ -120,11 +121,13 @@ beyond the R package's scope:
 | Python module | What it is |
 |---|---|
 | `_tables.py` | Name → `TwbParser`-accessor registry shared by `cli.py`, `webgui.py`, `diff.py`, and `batch.py`. Adding a new extractor to `TwbParser`? Add it here too so it's automatically available everywhere else. |
-| `cli.py` | `py-tbparse` command-line entry point, plus the `diff`/`batch`/`rename` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
+| `cli.py` | `py-tbparse` command-line entry point, plus the `diff`/`batch`/`rename`/`template` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
 | `webgui.py` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
 | `graph.py` | `to_dot()`: Graphviz DOT export of joins/relationships (+ optional inferred, as dashed edges). Replaces the R package's igraph/ggraph-based `plot_dependency_graph`/`plot_relationship_graph` with a dependency-free text format any Graphviz-compatible tool can render. |
 | `diff.py` | `diff_tables()`/`diff_workbooks()`: row-level added/removed diff between two workbooks' same-named table, via `_tables.TABLE_SPECS`. No "changed" classification without a natural key — a changed row shows as one removed + one added row. |
-| `rename.py` | `suggest_field_renames()` (clean-name suggestions, optionally matched against a "before" reference), `load_rename_mapping()` (read an edited CSV back), `compare_field_schemas()` (fields with no counterpart across a datasource switch) and `apply_field_renames()`/`build_renamed_workbook()` (write a copy with captions set; never overwrites). Also the `field-renames` table in `_tables.py`. |
+| `rename.py` | `suggest_field_renames()` (clean-name suggestions, optionally matched against a "before" reference), `suggest_renames()` (the same for every kind of object: field, parameter, worksheet, dashboard, datasource, folder, hierarchy; adds a `kind` column), `load_rename_mapping()` (read an edited CSV back), `compare_field_schemas()` (fields with no counterpart across a datasource switch) and `apply_field_renames()`/`build_renamed_workbook()` (write a copy with captions set; never overwrites). Also the `field-renames` and `report-renames` tables in `_tables.py`. A worksheet/dashboard rename must rewrite every reference (`_SHEET_REFERENCES`); if you learn of another place Tableau writes a sheet name, add it there. |
+| `usage.py` | `field_usage()`: for every field, the worksheets, dashboards and calculations that use it, followed through calculations, groups/sets and bins (the `field-usage` table). Python-native rather than a port of the R package's field-usage helper. |
+| `templates.py` | Workbook templates. `make_template()` writes a `.twbx` with a `template.json` manifest (required fields from `usage.py`, parameters, connections; data, extracts and credentials stripped); `read_data()` describes new data (CSV, or a `.twb`/`.twbx`/`.tds`); `suggest_mapping()` pairs fields with columns (reuses `rename._match_key`, type checks against the field's *physical* type, `datatype-customized` fields keep their type); `apply_template()` replaces the datasource's connection, keeping every field's local name, sets parameters and stores `template-answers.json`. A CSV connection is written in the 2020.2+ object-model shape (both `_.fcp.ObjectModelEncapsulateLegacy` relations, object graph, table column, `object-id` per record) when the template uses it -- keep those in step if you touch one. Untested in Tableau itself. |
 | `batch.py` | `scan_folder()`: runs one table across every `.twb`/`.twbx` in a directory, concatenated with a `workbook` column. Skips (with a warning) any file that fails to load/extract rather than aborting the batch. |
 
 ## Porting conventions (read before adding/modifying a function)
@@ -174,6 +177,12 @@ beyond the R package's scope:
   synthetic XML snippet (see `tests/test_joins.py`,
   `tests/test_dashboards.py` for the pattern — many are lifted from the R
   functions' own `@examples` roxygen blocks).
+- `tests/corpus/` is 200 real workbooks (permissive licences, pinned by blob sha in
+  `manifest.csv`, licence texts in `licenses/`). The files are gitignored; fetch with
+  `python scripts/fetch_corpus.py`. `tests/test_corpus.py` skips without them. Run it when you
+  change anything that reads workbook XML: it found a Unicode matching bug the hand-made
+  fixtures could not. Add to the corpus only from repositories whose licence permits
+  redistribution, and record the licence text.
 - `tests/conftest.py` provides `wenjie_xml`, `wenjie_path`,
   `zip_twbx_path` fixtures and an `xml_from_string()` helper. Tests import
   it with `from conftest import xml_from_string` (no `tests/__init__.py`,

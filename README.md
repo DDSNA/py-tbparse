@@ -65,6 +65,24 @@ With a `reference` (a workbook, a fields table or a plain list of names), fields
 
 `p.get_field_renames()` does the same from a parser.
 
+**Rename everything in the report, not just fields.** Pass `kinds` (or `--all` / `--kinds` on the command line) and worksheets, dashboards, datasources, parameters, folders and hierarchies are covered too:
+
+```python
+from py_tbparse import TwbParser, suggest_renames, apply_field_renames
+
+p = TwbParser("report.twb")
+suggest_renames(p, only_changed=True)                    # kind, datasource, name, current, suggested, ...
+suggest_renames(p, kinds=["worksheet", "dashboard"])     # just the sheets
+apply_field_renames(p, kinds="all")                      # writes report_renamed.twb
+```
+
+```bash
+py-tbparse rename report.twb --all --only-changed
+py-tbparse rename report.twb --kinds worksheet,dashboard --write-workbook
+```
+
+Each kind is renamed the way Tableau does it: fields, parameters and datasources get a caption (their internal names stay, so formulas and sheets keep working); a worksheet or dashboard is renamed in every place its name is written (the sheet, its window and thumbnail, the zones of dashboards that show it, actions, story points); a folder or hierarchy gets its new name. Worksheets and dashboards share one namespace, as they do in Tableau, so two of them never end up with the same name. A `reference` workbook lends its spelling to objects of the same kind. Datasources that Tableau named itself (`federated.0grg...`) and nobody captioned are left out. The `kind` column also appears in the CSV, so **Edit the suggestions yourself** works for sheets too. The `report-renames` table lists all of it, and the GUI's Field renames view has an "Everything in the report" switch. As with fields, none of this has been opened in Tableau itself.
+
 **Edit the suggestions yourself.** Export them, change the `suggested` column in a spreadsheet (blank means leave the field alone), then apply your version to a copy of the workbook:
 
 ```bash
@@ -79,6 +97,37 @@ Your edits are applied as written, including rows the tool had marked `conflict`
 To save the result, `p.write_renamed_workbook()` (or `apply_field_renames(p, ...)`) writes `<name>_renamed.twb` / `.twbx` next to the original. It sets each field's caption, which is how Tableau renames a field; the internal names that formulas and sheets use are not touched, and a `.twbx` keeps all its other contents. A field that only exists as a physical column (typical right after a datasource switch) gets a new minimal `<column>` element carrying the caption; that shape follows what Tableau writes but I have not opened such files in Tableau itself. It never modifies the original and refuses to overwrite an existing file unless you pass `overwrite=True`.
 
 **When to run it.** Add the new datasource to a *copy* of the workbook first, then run this with the old workbook as `reference` and `datasource=` set to the new source, so only its fields are renamed. Open the fixed copy and use Replace Data Source; fields with matching names should re-link on their own. It also works after references have already broken, but it only fixes names: sheets that point at missing fields stay broken until you replace the source again. (Check this on a copy first; I have not tested the re-linking in Tableau itself.)
+
+### Templates
+
+Turn a finished workbook into a template, then make new workbooks from it with other data. Every sheet, dashboard, calculation and format comes along; only the data changes. The idea comes from Tableau's Accelerators and Power BI's `.pbit` files.
+
+```bash
+py-tbparse template make sales.twbx                         # writes sales.template.twbx
+py-tbparse template show sales.template.twbx                # the fields it needs, and its parameters
+py-tbparse template apply sales.template.twbx --data q3.csv # suggested mapping + what would break; writes nothing
+py-tbparse template apply sales.template.twbx --data q3.csv --mapping-out map.csv   # save the mapping to edit
+py-tbparse template apply sales.template.twbx --data q3.csv --mapping map.csv -p "Top N=10" --write
+```
+
+```python
+from py_tbparse import make_template, load_template, read_data, suggest_mapping, apply_template
+
+t = load_template(make_template("sales.twbx"))
+data = read_data("q3.csv")                      # or a .twb / .twbx / .tds already connected to the new data
+suggest_mapping(t, data)                        # field, required, used_by, mapped_to, status, ...
+apply_template(t, data, params={"Top N": "10"}) # writes sales_q3.twbx
+```
+
+**What a template is.** An ordinary `.twbx` (Tableau still opens it) with a `template.json` manifest inside. The manifest lists the fields the workbook takes from its data, marking a field `required` when a sheet uses it, directly or through calculations, groups and sets. It also lists the parameters and where the data came from. Extracts, packaged data and cached query results are left out (`--keep-data` keeps them as sample data), and user names and passwords are blanked.
+
+**Mapping.** Each required field is matched to a column of the new data by name, ignoring case and separators (`ORDER_DATE` → `Order Date`), with close spellings accepted above `--cutoff`. Types are checked like Tableau's Accelerator mapper: a text column is never offered for a number or a date, while integer vs decimal and date vs date-time map with a warning. A field whose type the author changed in Tableau keeps that type, and Tableau converts the column. Before anything is written you see which sheets would break for each field left without a column; writing then needs `--allow-missing`. Edit the mapping as a CSV, as with renames.
+
+**What gets written.** The template's connection is replaced by one to the new data (a CSV file, or the connection of the workbook / `.tds` you pass). Every field keeps the local name its sheets and formulas use; only the physical column behind it changes. Parameter values are set with `-p NAME=VALUE`, checked against the parameter's type and its list of allowed values. The output (`<template>_<data>.twbx` beside the template, never overwritten) also stores `template-answers.json`: which template, data, mapping and parameters made it, so it can be re-made or checked later.
+
+**Limits.** A CSV feeds one table. A template whose datasource joins several tables needs a workbook or `.tds` as its data, so the joins come along. Excel files are not read directly yet; save as CSV or pass a workbook connected to the sheet. As with renames, I have not opened the generated workbooks in Tableau itself, so check one before relying on it.
+
+`p.get_field_usage()` (or `field_usage(p)`, the `field-usage` table) is the analysis behind `required`: for every field, the sheets, dashboards and calculations that use it.
 
 ### `.twbx` files
 
@@ -105,11 +154,14 @@ py-tbparse diff old.twb new.twb datasources
 py-tbparse batch ./workbooks datasources
 py-tbparse rename new.twb --reference old.twb --only-changed   # suggested clean field names
 py-tbparse rename new.twb -r old.twb --datasource federated.abc123 --write-workbook   # and save new_renamed.twb
+py-tbparse rename report.twb --all --write-workbook       # sheets, dashboards, datasources, ... too
+py-tbparse template make sales.twbx                        # see Templates above
+py-tbparse template apply sales.template.twbx --data q3.csv --write
 ```
 
-Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calculated-fields`, `joins`, `relations`, `relationships`, `inferred-relationships`, `dashboards`, `dashboard-sheets`, `custom-sql`, `initial-sql`, `published-refs`.
+Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calculated-fields`, `joins`, `relations`, `relationships`, `inferred-relationships`, `dashboards`, `dashboard-sheets`, `custom-sql`, `initial-sql`, `published-refs`, `field-usage`, `field-renames`, `report-renames`.
 
-`--format` takes `table` (default), `csv` or `json`. `graph` always prints Graphviz text. `rename` takes `--reference`, `--datasource`, `--write-workbook [PATH]`, `--style`, `--cutoff`, `--only-changed`, `--apply MAPPING.csv`, `--missing`, `--format` and `--output`. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
+`--format` takes `table` (default), `csv` or `json`. `graph` always prints Graphviz text. `rename` takes `--reference`, `--datasource`, `--write-workbook [PATH]`, `--style`, `--cutoff`, `--only-changed`, `--all`, `--kinds`, `--apply MAPPING.csv`, `--missing`, `--format` and `--output`. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
 
 ## GUI
 
@@ -135,6 +187,8 @@ pytest
 ```
 
 The sample workbooks in `tests/fixtures/` come from the R package. `tests/fixtures/public/` holds real workbooks from Tableau's own [document-api-python](https://github.com/tableau/document-api-python) (MIT), used by the smoke tests.
+
+`tests/corpus/` lists 200 more real workbooks from public repositories with MIT, Apache-2.0, ISC or CC0 licences, for integration tests and as examples (manifest, licence texts and where each file came from are in its README). The files themselves are not in git (about 26 MB): run `python scripts/fetch_corpus.py` to download them, checked against the manifest. `tests/test_corpus.py` then runs every feature over all of them; it skips when they are not fetched.
 
 The GUI tests run the page in headless Chromium through Playwright and fail on any JavaScript error. They skip if the browser isn't installed. To run them:
 

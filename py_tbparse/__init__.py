@@ -21,8 +21,20 @@ from .rename import (
     load_rename_mapping,
     normalize_name,
     suggest_field_renames,
+    suggest_renames,
 )
 from .sql import extract_custom_sql, extract_initial_sql
+from .templates import (
+    Template,
+    TemplateError,
+    apply_template,
+    load_mapping,
+    load_template,
+    make_template,
+    read_data,
+    suggest_mapping,
+)
+from .usage import field_usage
 from .validators import validate_relationships
 from ._xml import extract_twb_from_twbx, twbx_extract_files, twbx_list
 
@@ -56,6 +68,16 @@ __all__ = [
     "load_rename_mapping",
     "normalize_name",
     "suggest_field_renames",
+    "suggest_renames",
+    "field_usage",
+    "Template",
+    "TemplateError",
+    "make_template",
+    "load_template",
+    "read_data",
+    "suggest_mapping",
+    "load_mapping",
+    "apply_template",
 ]
 
 try:

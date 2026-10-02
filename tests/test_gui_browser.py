@@ -450,3 +450,26 @@ def test_rename_tools_only_show_on_the_field_renames_view(page, wenjie_path):
     assert page.is_visible("#renameTools")
     _open(page, "fields")
     assert not page.is_visible("#renameTools")
+
+
+def test_rename_everything_switch(page, tmp_path):
+    from test_rename_all import WORKBOOK
+
+    book = tmp_path / "report.twb"
+    book.write_text(WORKBOOK, encoding="utf-8")
+    _load(page, str(book))
+    _open(page, "field-renames")
+    assert not page.inner_text("body").count("My Dashboard")  # fields only until switched
+
+    page.select_option("#renameKinds", "all")
+    page.wait_for_function(
+        "() => document.getElementById('downloadBtn').href.includes('kinds=all')", timeout=10_000
+    )
+    page.wait_for_function("() => document.body.innerText.includes('My Dashboard')", timeout=10_000)
+    page.click("#createBtn")
+    page.wait_for_function(
+        "() => document.getElementById('status').textContent.startsWith('Saved')", timeout=10_000
+    )
+    text = (tmp_path / "report_renamed.twb").read_text(encoding="utf-8")
+    assert "my dashboard" not in text and "My Dashboard" in text
+    assert page.js_errors == []

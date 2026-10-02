@@ -41,7 +41,7 @@ _IDENTIFIER_SEPARATORS = re.compile(r"[_\-.\s]+")
 _PHRASE_SEPARATORS = re.compile(r"[_\s]+")
 _CAMEL_LOWER_UPPER = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _CAMEL_ACRONYM = re.compile(r"(?<=[A-Z])(?=[A-Z][a-z])")
-_NON_ALNUM = re.compile(r"[^0-9a-z]+")
+_NON_ALNUM = re.compile(r"[\W_]+")  # keeps letters and digits of any script (赛前排名, über), drops the rest
 
 
 def _words(name: str) -> list[str]:
@@ -306,6 +306,149 @@ def suggest_field_renames(
     return out
 
 
+KINDS = ("field", "parameter", "worksheet", "dashboard", "datasource", "folder", "hierarchy")
+OBJECT_COLUMNS = ["kind"] + RENAME_COLUMNS
+
+# A datasource Tableau names itself (`federated.0grg...`) and nobody captioned:
+# not something a person sees, so not worth a suggestion.
+_OPAQUE_DATASOURCE = re.compile(r"^[a-z]+\.[0-9a-z]{20,}$")
+# Worksheets and dashboards share one namespace in Tableau.
+_SHEET_SCOPE = ""
+
+
+def _inventory(parser: TwbParser) -> dict[str, list[dict]]:
+    """Every renameable object of each non-field kind, straight from the XML.
+
+    Records are `{datasource, name, current}`: `name` is what the XML calls
+    it (a sheet's name, a datasource's internal name), `current` what the
+    person sees (a caption when there is one)."""
+    doc = parser.xml_doc
+    inv: dict[str, list[dict]] = {k: [] for k in KINDS if k != "field"}
+    for kind, path in (("worksheet", "/workbook/worksheets/worksheet"), ("dashboard", "/workbook/dashboards/dashboard")):
+        for el in doc.xpath(f"{path}[@name]"):
+            inv[kind].append({"datasource": _SHEET_SCOPE, "name": el.get("name"), "current": el.get("name")})
+    for ds in doc.xpath("/workbook/datasources/datasource[@name]"):
+        dsname, caption = ds.get("name"), ds.get("caption")
+        if dsname == "Parameters":
+            for col in ds.xpath("./column[@name]"):
+                inv["parameter"].append({
+                    "datasource": dsname, "name": col.get("name"),
+                    "current": col.get("caption") or col.get("name").strip("[]"),
+                })
+            continue
+        if caption or not _OPAQUE_DATASOURCE.match(dsname):
+            inv["datasource"].append({"datasource": _SHEET_SCOPE, "name": dsname, "current": caption or dsname})
+        for kind, path in (
+            ("folder", "./folder[@name]|./folders-common/folder[@name]"),
+            ("hierarchy", "./drill-paths/drill-path[@name]"),
+        ):
+            seen = set()
+            for el in ds.xpath(path):
+                if el.get("name") not in seen:
+                    seen.add(el.get("name"))
+                    inv[kind].append({"datasource": dsname, "name": el.get("name"), "current": el.get("name")})
+    return inv
+
+
+def _reference_inventory(reference) -> Optional[dict[str, list[dict]]]:
+    """Per-kind names of the reference workbook, or None when it can only
+    speak for fields (a name list or a fields frame)."""
+    if isinstance(reference, (str, os.PathLike)):
+        reference = TwbParser(str(reference))
+    return _inventory(reference) if isinstance(reference, TwbParser) else None
+
+
+def suggest_renames(
+    parser: TwbParser,
+    reference: Union[pd.DataFrame, TwbParser, str, Iterable[str], None] = None,
+    kinds: Union[str, Iterable[str]] = KINDS,
+    style: str = "title",
+    fuzzy_cutoff: float = 0.85,
+    acronyms: Iterable[str] = DEFAULT_ACRONYMS,
+    only_changed: bool = False,
+    datasource: Union[str, Iterable[str], None] = None,
+) -> pd.DataFrame:
+    """Suggest clean names for everything in a report, not just fields.
+
+    `kinds` picks what to cover (default all): `field`, `parameter`,
+    `worksheet`, `dashboard`, `datasource`, `folder`, `hierarchy`. Each kind
+    is treated like `suggest_field_renames` treats fields: a `reference`
+    workbook (a `TwbParser` or a path) lends its spelling to objects of the
+    same kind that match it, everything else is tidied by `normalize_name`,
+    and two objects in one namespace never get the same name (worksheets and
+    dashboards share one namespace; folders and hierarchies are per
+    datasource). A reference that is only a name list or fields frame applies
+    to fields alone.
+
+    `datasource` limits the datasource-scoped kinds (field, folder,
+    hierarchy and the datasource itself) to that internal name or names.
+
+    Returns `kind, datasource, name, current, suggested, reason, score,
+    changed`; `datasource` is blank for worksheets, dashboards and
+    datasources.
+    """
+    wanted = (kinds,) if isinstance(kinds, str) else tuple(kinds)
+    unknown = [k for k in wanted if k not in KINDS]
+    if unknown:
+        raise ValueError(f"unknown kind(s) {', '.join(map(repr, unknown))}; choose from {', '.join(KINDS)}")
+    opts = dict(style=style, fuzzy_cutoff=fuzzy_cutoff, acronyms=acronyms)
+    frames, extra = [], []
+    if "field" in wanted:
+        fr = suggest_field_renames(parser, reference=reference, datasource=datasource, **opts)
+        # Parameters are their own kind, however the extractor flags them.
+        frames.append(fr[fr["datasource"] != "Parameters"].assign(kind="field"))
+
+    inv = _inventory(parser)
+    ref_inv = _reference_inventory(reference)
+    only_ds = None if datasource is None else ({datasource} if isinstance(datasource, str) else set(datasource))
+
+    def run(kind_group: tuple, scope_of=lambda r: r["datasource"]):
+        records = []
+        for k in kind_group:
+            for r in inv[k]:
+                if only_ds is not None and k in ("folder", "hierarchy") and r["datasource"] not in only_ds:
+                    continue
+                if only_ds is not None and k == "datasource" and r["name"] not in only_ds:
+                    continue
+                records.append({**r, "kind": k})
+        if not records:
+            return
+        frame = pd.DataFrame([
+            {"datasource": scope_of(r), "name": f"[{r['name']}]", "caption": r["current"], "is_parameter": False}
+            for r in records
+        ])
+        ref_names = None
+        if ref_inv is not None:
+            ref_names = [r["current"] for k in kind_group for r in ref_inv[k]]
+        sugg = suggest_field_renames(frame, reference=ref_names, **opts)
+        kind_of = {(scope_of(r), r["name"]): r for r in records}
+        for row in sugg.to_dict("records"):
+            rec = kind_of[(row["datasource"], row["name"][1:-1])]
+            extra.append({**row, "kind": rec["kind"], "datasource": rec["datasource"], "name": rec["name"]})
+
+    if "parameter" in wanted:
+        run(("parameter",))
+    sheets = tuple(k for k in ("worksheet", "dashboard") if k in wanted)
+    if sheets:
+        run(sheets, scope_of=lambda r: _SHEET_SCOPE)
+    if "datasource" in wanted:
+        run(("datasource",), scope_of=lambda r: _SHEET_SCOPE)
+    for k in ("folder", "hierarchy"):
+        if k in wanted:
+            run((k,))
+
+    if extra:
+        frames.append(pd.DataFrame(extra))
+    frames = [f for f in frames if not f.empty]
+    out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=OBJECT_COLUMNS)
+    out = out[OBJECT_COLUMNS]
+    order = {k: i for i, k in enumerate(KINDS)}
+    out = out.sort_values("kind", key=lambda s: s.map(order), kind="stable").reset_index(drop=True)
+    if only_changed:
+        out = out[out["changed"].astype(bool)].reset_index(drop=True)
+    return out
+
+
 def load_rename_mapping(source: Union[str, os.PathLike, pd.DataFrame]) -> pd.DataFrame:
     """Read an edited rename mapping (a CSV path or a frame) back in.
 
@@ -325,30 +468,38 @@ def load_rename_mapping(source: Union[str, os.PathLike, pd.DataFrame]) -> pd.Dat
     missing = [c for c in ("datasource", "name", "suggested") if c not in df.columns]
     if missing:
         raise ValueError(f"mapping is missing column(s): {', '.join(missing)}")
-    for col in ("current", "reason"):
+    for col, default in (("current", ""), ("reason", ""), ("kind", "field")):
         if col not in df.columns:
-            df[col] = ""
+            df[col] = default
     rows = []
     for rec in df.to_dict("records"):
+        kind = "field" if is_missing(rec["kind"]) or not str(rec["kind"]).strip() else str(rec["kind"]).strip()
+        if kind not in KINDS:
+            raise ValueError(f"unknown kind {kind!r} in mapping; choose from {', '.join(KINDS)}")
         ds, name = rec["datasource"], rec["name"]
         suggested = "" if is_missing(rec["suggested"]) else str(rec["suggested"]).strip()
-        if is_missing(ds) or is_missing(name) or not str(name).strip():
+        if is_missing(name) or not str(name).strip():
+            continue
+        ds = "" if is_missing(ds) else str(ds)
+        if not ds and kind in ("field", "parameter", "folder", "hierarchy"):
             continue
         current = "" if is_missing(rec["current"]) else str(rec["current"])
         changed = bool(suggested) and suggested != current
         if not suggested:
             suggested = current
         rows.append({
-            "datasource": ds, "name": name, "current": current, "suggested": suggested,
+            "kind": kind, "datasource": ds, "name": name, "current": current, "suggested": suggested,
             "reason": "from mapping" if changed else "unchanged", "score": None, "changed": changed,
         })
-    out = pd.DataFrame(rows, columns=RENAME_COLUMNS)
+    out = pd.DataFrame(rows, columns=OBJECT_COLUMNS)
     taken: dict = {}
     for r in out[out["changed"]].to_dict("records"):
-        slot = (r["datasource"], r["suggested"].lower())
+        group = "sheet" if r["kind"] in ("worksheet", "dashboard") else r["kind"]
+        slot = (group, r["datasource"], r["suggested"].lower())
         if slot in taken and taken[slot] != r["name"]:
+            where = f" in {r['datasource']}" if r["datasource"] else ""
             raise ValueError(
-                f"{r['suggested']!r} is the new name of both {taken[slot]} and {r['name']} in {r['datasource']}"
+                f"{r['suggested']!r} is the new name of both {taken[slot]} and {r['name']}{where}"
             )
         taken[slot] = r["name"]
     return out
@@ -435,44 +586,130 @@ def _new_column(ds_el, name: str, caption: str):
     return col
 
 
+def _caption_column(doc, ds: str, name: str, caption: str) -> bool:
+    """Set the caption of a field or parameter, creating the column when the
+    field only exists physically, and update the captions worksheets cache."""
+    ds_els = doc.xpath("/workbook/datasources/datasource[@name=$ds]", ds=ds)
+    if not ds_els:
+        return False
+    cols = ds_els[0].xpath("./column[@name=$n]", n=name)
+    if not cols:
+        cols = [_new_column(ds_els[0], name, caption)]
+    for col in cols:
+        col.set("caption", caption)
+    for col in doc.xpath(
+        "//datasource-dependencies[@datasource=$ds]/column[@name=$n and @caption]", ds=ds, n=name
+    ):
+        col.set("caption", caption)
+    return True
+
+
+def _rename_datasource(doc, name: str, caption: str) -> bool:
+    """A datasource is renamed by its caption; the internal name that fields,
+    sheets and dependencies refer to stays."""
+    els = doc.xpath("/workbook/datasources/datasource[@name=$n]", n=name)
+    if not els:
+        return False
+    els[0].set("caption", caption)
+    # Sheets list the datasources they use, with the caption once it has one.
+    for el in doc.xpath("/workbook/worksheets//datasources/datasource[@name=$n]", n=name):
+        el.set("caption", caption)
+    return True
+
+
+def _rename_in_datasource(doc, kind: str, ds: str, name: str, new: str) -> bool:
+    """Rename a folder or hierarchy (drill path) of one datasource, including
+    the copies of a hierarchy that worksheets keep in their dependencies."""
+    if kind == "folder":
+        paths = ["./folder[@name=$n]", "./folders-common/folder[@name=$n]"]
+    else:
+        paths = ["./drill-paths/drill-path[@name=$n]"]
+    ds_els = doc.xpath("/workbook/datasources/datasource[@name=$ds]", ds=ds)
+    if not ds_els:
+        return False
+    hits = [el for p in paths for el in ds_els[0].xpath(p, n=name)]
+    if kind == "hierarchy":
+        hits += doc.xpath(
+            "//datasource-dependencies[@datasource=$ds]/drill-paths/drill-path[@name=$n]", ds=ds, n=name
+        )
+    for el in hits:
+        el.set("name", new)
+    return bool(hits)
+
+
+# Every place a worksheet or dashboard name is written. Sheet names are unique
+# across both kinds, so matching on the value is safe.
+_SHEET_REFERENCES = (
+    ("worksheet", "name"), ("dashboard", "name"), ("window", "name"), ("thumbnail", "name"),
+    ("zone", "name"), ("zone", "worksheet"), ("viewpoint", "name"), ("exclude-sheet", "name"),
+    ("source", "worksheet"), ("source", "dashboard"), ("story-point", "captured-sheet"),
+)
+_SHEET_PARAMS = ("target", "sheet", "worksheet")  # <param name=...> of goto-sheet actions
+
+
+def _rename_sheet_references(doc, sheet_map: dict[str, str]) -> None:
+    if not sheet_map:
+        return
+    for el in doc.iter():
+        if not isinstance(el.tag, str):
+            continue
+        for attr in [a for t, a in _SHEET_REFERENCES if t == el.tag]:
+            value = el.get(attr)
+            if value in sheet_map:
+                el.set(attr, sheet_map[value])
+        if el.tag == "param" and el.get("name") in _SHEET_PARAMS and el.get("value") in sheet_map:
+            el.set("value", sheet_map[el.get("value")])
+
+
 def build_renamed_workbook(parser: TwbParser, renames: pd.DataFrame, report: Optional[dict] = None) -> bytes:
     """Bytes of a copy of `parser`'s workbook with `renames` applied.
 
-    Each changed row of `renames` (as returned by `suggest_field_renames`;
-    conflicts are skipped) sets the `caption` of the matching Tableau column
-    in its datasource, which is how Tableau itself renames a field. Formulas
+    Each changed row of `renames` (as returned by `suggest_field_renames` or
+    `suggest_renames`; conflicts are skipped) is applied by its `kind`
+    (default `field`). A field or parameter gets the `caption` of its Tableau
+    column, which is how Tableau itself renames one; a datasource gets a
+    caption too; a worksheet or dashboard is renamed everywhere it is
+    written (the sheet, its window, thumbnail, dashboard zones, actions and
+    story points); a folder or hierarchy gets its new name. Formulas
     and sheets refer to the internal `name`, so nothing breaks. A field that
     only exists as a physical column gets a new minimal `<column>` element.
     Captions that worksheets cache in `datasource-dependencies` are updated
     too. A `.twb` gives `.twb` bytes; a `.twbx` gives a `.twbx` with every
     other member copied across untouched.
 
-    If `report` is a dict it receives `applied` (fields renamed) and
-    `skipped` (rows whose datasource or column was not found).
+    If `report` is a dict it receives `applied` (objects renamed, with
+    `by_kind` counts) and `skipped` (rows whose target was not found).
     """
     doc = copy.deepcopy(parser.xml_doc)
     applied = skipped = 0
+    by_kind: dict[str, int] = {}
+    sheet_map: dict[str, str] = {}
     for r in applicable_renames(renames).to_dict("records"):
-        ds, name, caption = r["datasource"], r["name"], r["suggested"]
-        if is_missing(name) or is_missing(ds):
+        kind = r.get("kind")
+        kind = "field" if is_missing(kind) or not kind else kind
+        ds, name, new = r["datasource"], r["name"], r["suggested"]
+        ds = "" if is_missing(ds) else ds
+        if is_missing(name):
+            ok = False
+        elif kind in ("worksheet", "dashboard"):
+            tag = "worksheets/worksheet" if kind == "worksheet" else "dashboards/dashboard"
+            ok = bool(doc.xpath(f"/workbook/{tag}[@name=$n]", n=name))
+            if ok:
+                sheet_map[name] = new
+        elif kind == "datasource":
+            ok = _rename_datasource(doc, name, new)
+        elif kind in ("folder", "hierarchy"):
+            ok = _rename_in_datasource(doc, kind, ds, name, new)
+        else:  # field, parameter
+            ok = bool(ds) and _caption_column(doc, ds, name, new)
+        if ok:
+            applied += 1
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+        else:
             skipped += 1
-            continue
-        ds_els = doc.xpath("/workbook/datasources/datasource[@name=$ds]", ds=ds)
-        if not ds_els:
-            skipped += 1
-            continue
-        cols = ds_els[0].xpath("./column[@name=$n]", n=name)
-        if not cols:
-            cols = [_new_column(ds_els[0], name, caption)]
-        for col in cols:
-            col.set("caption", caption)
-        for col in doc.xpath(
-            "//datasource-dependencies[@datasource=$ds]/column[@name=$n and @caption]", ds=ds, n=name
-        ):
-            col.set("caption", caption)
-        applied += 1
+    _rename_sheet_references(doc, sheet_map)
     if report is not None:
-        report.update(applied=applied, skipped=skipped)
+        report.update(applied=applied, skipped=skipped, by_kind=by_kind)
     twb = etree.tostring(doc, xml_declaration=True, encoding="utf-8")
 
     if not parser.twbx_path:
@@ -501,12 +738,14 @@ def apply_field_renames(
     """Write a new workbook with the suggested renames applied; return its path.
 
     `renames` defaults to `suggest_field_renames(parser, **kwargs)`
-    (`reference`, `style`, ...). The original is never modified: the output
+    (`reference`, `style`, ...), or to `suggest_renames` when `kinds` is given. The original is never modified: the output
     defaults to `<name>_renamed.<ext>` beside it, must keep the source's
     extension, and an existing file is only replaced with `overwrite=True`.
     """
     if renames is None:
-        renames = suggest_field_renames(parser, **kwargs)
+        # `kinds=` widens the rename from fields to everything in the report.
+        suggest = suggest_renames if "kinds" in kwargs else suggest_field_renames
+        renames = suggest(parser, **kwargs)
     source = Path(parser.twbx_path or parser.path)
     out = Path(output_path) if output_path else Path(default_renamed_path(parser))
     if out.suffix.lower() != source.suffix.lower():
