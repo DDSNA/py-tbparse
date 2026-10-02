@@ -308,7 +308,7 @@ def test_the_graph_follows_the_theme(page, wenjie_path):
     fill = "() => getComputedStyle(document.querySelector('#tableWrap .node rect')).fill"
     before = page.evaluate(fill)
     page.click("#themeBtn")
-    page.click('#menu [role="menuitemradio"]:has-text("Neon")')
+    page.click('#menu [role="menuitemradio"]:has-text("Harbor")')
     page.click('#menu [role="menuitemradio"]:has-text("Dark")')
     page.keyboard.press("Escape")
     page.wait_for_timeout(150)

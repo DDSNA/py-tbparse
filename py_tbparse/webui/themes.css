@@ -5,10 +5,10 @@
    tests/test_webui_tokens.py checks every theme in both modes: WCAG AA 4.5:1 for text (7:1 for
    High contrast) and 3:1 for the focus ring. Never fade text with opacity. */
 
-/* Matcha: sage green and oat cream, earthy and soft */
+/* Matcha: sage green, earthy and soft */
 [data-theme="matcha"] {
   --bg: #f3f4ec;
-  --panel: #fbfbf6;
+  --panel: #f8fbf5;
   --text: #262b22;
   --muted: #5c6455;
   --faint: #666e5e;
@@ -19,8 +19,8 @@
   --primary-text: #ffffff;
   --primary-soft: #e6f0df;
   --primary-on-soft: #2f5a2b;
-  --accent: #8f5328;
-  --accent-soft: #f3e6d8;
+  --accent: #7c660e;
+  --accent-soft: #f3f0e2;
   --success: #2f6b3d;
   --success-soft: #e1efe3;
   --warning: #835400;
@@ -41,8 +41,8 @@
   --primary-text: #14260f;
   --primary-soft: #26361f;
   --primary-on-soft: #b8dcac;
-  --accent: #e0a070;
-  --accent-soft: #342a1e;
+  --accent: #e9cf67;
+  --accent-soft: #3d361a;
   --success: #86d09a;
   --success-soft: #1d3324;
   --warning: #e6b34d;
@@ -97,99 +97,6 @@
   --shadow-color: 0 0 0;
 }
 
-/* Pastel: lavender and peach, light and friendly */
-[data-theme="pastel"] {
-  --bg: #f6f3fb;
-  --panel: #fffdff;
-  --text: #2a2640;
-  --muted: #5f5a7a;
-  --faint: #6a6585;
-  --border: #e5e0f1;
-  --hover: #f0ecf9;
-  --code-bg: #ece8f6;
-  --primary: #5b54c7;
-  --primary-text: #ffffff;
-  --primary-soft: #ebe9fc;
-  --primary-on-soft: #46409f;
-  --accent: #a94626;
-  --accent-soft: #fde8df;
-  --success: #2a6b48;
-  --success-soft: #e0f1e8;
-  --warning: #855400;
-  --danger: #b3334f;
-  --danger-soft: #fce6ea;
-  --shadow-color: 42 38 64;
-}
-[data-theme="pastel"][data-mode="dark"] {
-  --bg: #1b1830;
-  --panel: #231f3b;
-  --text: #ece8fb;
-  --muted: #b4aed3;
-  --faint: #a8a2c8;
-  --border: #38325a;
-  --hover: #2b2648;
-  --code-bg: #1e1b34;
-  --primary: #b3adff;
-  --primary-text: #1b1740;
-  --primary-soft: #302b5c;
-  --primary-on-soft: #cdc9ff;
-  --accent: #ffb08f;
-  --accent-soft: #3d2a2c;
-  --success: #86d6a4;
-  --success-soft: #1f3a2c;
-  --warning: #ecbc5c;
-  --danger: #ff93a8;
-  --danger-soft: #402230;
-  --shadow-color: 0 0 0;
-}
-
-/* Neon: electric violet and cyan, synthwave, the loud one */
-[data-theme="neon"] {
-  --bg: #f4f0ff;
-  --panel: #fdfcff;
-  --text: #1a1233;
-  --muted: #55497a;
-  --faint: #61568a;
-  --border: #ddd3f5;
-  --hover: #ece6fc;
-  --code-bg: #e8e1fa;
-  --primary: #6a1fd6;
-  --primary-text: #ffffff;
-  --primary-soft: #e8dcff;
-  --primary-on-soft: #5516ad;
-  --accent: #006c7e;
-  --accent-soft: #d5f3f8;
-  --success: #1b6b43;
-  --success-soft: #ddf2e7;
-  --warning: #835200;
-  --danger: #c0123f;
-  --danger-soft: #fde4eb;
-  --shadow-color: 26 18 51;
-}
-[data-theme="neon"][data-mode="dark"] {
-  --bg: #0b0820;
-  --panel: #130f2e;
-  --text: #eee9ff;
-  --muted: #b5a9e0;
-  --faint: #a99dd6;
-  --border: #2d2562;
-  --hover: #1b1640;
-  --code-bg: #0f0b26;
-  --primary: #a98bff;
-  --primary-text: #120a33;
-  --primary-soft: #2a1f66;
-  --primary-on-soft: #cbb8ff;
-  --accent: #3ee6ff;
-  --accent-soft: #0f3040;
-  --success: #5ff0a0;
-  --success-soft: #0f3a2a;
-  --warning: #ffd24a;
-  --danger: #ff6b8f;
-  --danger-soft: #430f2a;
-  --shadow-color: 0 0 0;
-  --glow: 0 0 14px rgb(169 139 255 / 0.55);
-}
-
 /* High contrast: black, white and one strong colour; 7:1 text contrast everywhere */
 [data-theme="contrast"] {
   --bg: #ffffff;
@@ -204,8 +111,8 @@
   --primary-text: #ffffff;
   --primary-soft: #d9e4ff;
   --primary-on-soft: #062a80;
-  --accent: #8a2a00;
-  --accent-soft: #ffe6d6;
+  --accent: #00574f;
+  --accent-soft: #e2f8f6;
   --success: #0a5a1c;
   --success-soft: #d9f5df;
   --warning: #6b4300;

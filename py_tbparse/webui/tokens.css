@@ -1,32 +1,31 @@
 /* Design tokens: "cozy corporate meets small shop".
-   Warm paper-and-ink neutrals, a calm teal primary, a terracotta accent used sparingly.
+   Cool paper-and-ink neutrals, a calm teal primary, a raspberry accent used sparingly.
    Every text/UI pair is checked against WCAG AA by tests/test_webui_tokens.py; change a colour
    here and that test tells you if you broke contrast. Never fade text with `opacity`: use --faint. */
 :root, [data-theme="shop"] {
   color-scheme: light;
 
   /* colour */
-  --bg: #f7f3ee;
-  --panel: #fffdfa;
-  --text: #2b2622;
-  --muted: #6b625a;
-  --faint: #736a61;
-  --border: #e6dfd5;
-  --hover: #f4eee6;
-  --code-bg: #f3ede4;
-  --primary: #1d6b73;
+  --bg: #f3f6f6;
+  --panel: #fcfdfd;
+  --text: #182225;
+  --muted: #4d636a;
+  --faint: #516970;
+  --border: #d4dbde;
+  --hover: #ebeef0;
+  --code-bg: #e5eaeb;
+  --primary: #1e6d76;
   --primary-text: #ffffff;
-  --primary-soft: #e3f0f0;
-  --primary-on-soft: #17575e;
-  --accent: #a9482a;
-  --accent-soft: #f8e8df;
-  --success: #2f6b3d;
-  --success-soft: #e4f1e7;
-  --warning: #8a5a00;
-  --danger: #b3382c;
-  --danger-soft: #fbe9e6;
-  --shadow-color: 43 38 34;
-  --glow: 0 0 0 0 transparent;  /* only the Neon theme glows */
+  --primary-soft: #e3f0f2;
+  --primary-on-soft: #1b626a;
+  --accent: #7a294b;
+  --accent-soft: #f1e4ea;
+  --success: #227745;
+  --success-soft: #e2f3e9;
+  --warning: #885907;
+  --danger: #b62d20;
+  --danger-soft: #fbebe9;
+  --shadow-color: 24 34 37;
 
   /* space (4 px scale) */
   --space-1: 4px;
@@ -70,25 +69,25 @@
 
 :root[data-mode="dark"], [data-theme="shop"][data-mode="dark"] {
   color-scheme: dark;
-  --bg: #1a1714;
-  --panel: #231f1b;
-  --text: #efe9e1;
-  --muted: #b3a99d;
-  --faint: #a79d91;
-  --border: #3a342d;
-  --hover: #2c2722;
-  --code-bg: #1e1a17;
-  --primary: #6cc0c8;
-  --primary-text: #10282b;
-  --primary-soft: #203638;
-  --primary-on-soft: #8fd3d9;
-  --accent: #eb9a76;
-  --accent-soft: #3a2a22;
-  --success: #7fcf93;
-  --success-soft: #1f3326;
-  --warning: #e6b34d;
-  --danger: #ff8b7c;
-  --danger-soft: #3d2420;
+  --bg: #12191c;
+  --panel: #1b2427;
+  --text: #e9eff1;
+  --muted: #acbdc3;
+  --faint: #a0b4ba;
+  --border: #2f3d41;
+  --hover: #242f33;
+  --code-bg: #0e1415;
+  --primary: #85d7e0;
+  --primary-text: #0a1d1f;
+  --primary-soft: #243f42;
+  --primary-on-soft: #ade4eb;
+  --accent: #d98cac;
+  --accent-soft: #39222c;
+  --success: #88ddab;
+  --success-soft: #1c3b29;
+  --warning: #f6bb55;
+  --danger: #e8867d;
+  --danger-soft: #4a211c;
   --shadow-color: 0 0 0;
 }
 

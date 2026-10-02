@@ -234,7 +234,7 @@ def _read_webui(name: str) -> str:
 
 
 THEMES = [
-    "shop", "matcha", "fjord", "pastel", "neon", "contrast",
+    "shop", "matcha", "fjord", "contrast",
     "harbor", "meadow", "lagoon", "slate", "graphite", "paper",
     "glacier", "pine", "olive", "citrus", "ocean", "cobalt",
     "navy", "midnight", "rose", "berry", "mint", "jade",

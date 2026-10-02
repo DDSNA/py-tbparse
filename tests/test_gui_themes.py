@@ -10,9 +10,9 @@ from test_gui_browser import _load, _open, _open_column_menu, _wait_meta, new_pa
 from py_tbparse import webgui
 
 ALL_THEMES = list(webgui.THEMES)
-# The heavy per-theme browser tests run on the original six plus a spread of the later ones; the contrast of every
+# The heavy per-theme browser tests run on the first four plus a spread of the later ones; the contrast of every
 # theme, in both modes, is checked from the stylesheet itself in test_webui_tokens.py.
-THEMES = ["shop", "matcha", "fjord", "pastel", "neon", "contrast", "harbor", "graphite", "rose", "peacock"]
+THEMES = ["shop", "matcha", "fjord", "contrast", "harbor", "graphite", "rose", "peacock"]
 LABELS = {"contrast": "High contrast"}
 
 
@@ -57,7 +57,7 @@ def test_the_theme_menu_lists_every_theme_and_mode_as_radios(page):
     assert names == [label(t) for t in ALL_THEMES] + ["Auto (follow my system)", "Light", "Dark"]
     checked = page.locator('#menu [aria-checked="true"]').evaluate_all("els => els.map(e => e.textContent.replace('✓', '').trim())")
     assert checked == ["Shop", "Auto (follow my system)"]
-    assert page.locator("#menu .menu-swatch").count() == len(ALL_THEMES) == 36
+    assert page.locator("#menu .menu-swatch").count() == len(ALL_THEMES) == 34
     page.keyboard.press("Escape")
     assert page.get_attribute("#themeBtn", "aria-expanded") == "false"
     assert page.evaluate("() => document.activeElement.id") == "themeBtn"
@@ -110,7 +110,7 @@ def test_the_saved_theme_is_on_the_page_before_it_first_paints(browser, gui_serv
     ctx = browser.new_context()
     try:
         ctx.add_init_script(
-            "localStorage.setItem('py-tbparse:theme', 'neon'); localStorage.setItem('py-tbparse:mode', 'dark');"
+            "localStorage.setItem('py-tbparse:theme', 'harbor'); localStorage.setItem('py-tbparse:mode', 'dark');"
             "window.__seen = null;"
             "new MutationObserver(() => { if (document.body && window.__seen === null)"
             " window.__seen = document.documentElement.dataset.theme + '/' + document.documentElement.dataset.mode; })"
@@ -118,7 +118,7 @@ def test_the_saved_theme_is_on_the_page_before_it_first_paints(browser, gui_serv
         )
         pg = ctx.new_page()
         pg.goto(gui_server)
-        assert pg.evaluate("() => window.__seen") == "neon/dark"
+        assert pg.evaluate("() => window.__seen") == "harbor/dark"
     finally:
         ctx.close()
 
@@ -153,21 +153,6 @@ def test_a_blocked_localstorage_does_not_break_the_page(browser, gui_server):
         ctx.close()
 
 
-def test_only_neon_in_the_dark_glows(page):
-    # the button eases its shadow (--dur-fast), so wait for the transition before reading it
-    def glow():
-        page.wait_for_timeout(300)
-        return page.evaluate("() => getComputedStyle(document.querySelector('#loadBtn')).boxShadow")
-
-    _pick(page, "Neon")
-    _pick(page, "Light")
-    assert "169, 139, 255" not in glow()
-    _pick(page, "Dark")
-    assert "169, 139, 255" in glow()
-    _pick(page, "Shop")
-    assert "169, 139, 255" not in glow()
-
-
 def test_the_keyboard_can_drive_the_theme_menu(page):
     page.focus("#themeBtn")
     page.keyboard.press("Enter")
@@ -187,7 +172,7 @@ def test_a_theme_choice_does_not_reload_or_reset_the_open_workbook(page, wenjie_
     page.fill("#filter", "string")
     page.wait_for_function("() => /of 55/.test(document.getElementById('meta').textContent) && !/^55 of/.test(document.getElementById('meta').textContent)")
     meta = page.inner_text("#meta")
-    _pick(page, "Pastel")
+    _pick(page, "Harbor")
     page.keyboard.press("Escape")
     assert page.input_value("#filter") == "string"
     assert page.inner_text("#meta") == meta, "the table was redrawn or reloaded"

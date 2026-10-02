@@ -105,11 +105,8 @@ def test_graph_lines_and_node_outlines_are_visible(name, mode, palette):
     assert contrast(palette["primary"], palette["primary-soft"]) >= 3.0, "highlighted outline on its fill"
 
 
-ORIGINAL_THEMES = {"shop", "matcha", "fjord", "pastel", "neon", "contrast"}
-
-
-def test_there_are_thirty_five_extra_themes_and_each_has_both_modes():
-    assert len(THEMES) == 35 and ORIGINAL_THEMES - {"shop"} <= set(THEMES)   # Shop is the default in tokens.css
+def test_there_are_thirty_three_extra_themes_and_each_has_both_modes():
+    assert len(THEMES) == 33 and {"matcha", "fjord", "contrast"} <= set(THEMES)   # Shop is the default in tokens.css
     for name, modes in THEMES.items():
         assert set(modes) == {"light", "dark"}, name
 
@@ -121,21 +118,20 @@ def _hue_sat(hex_colour: str):
     return h * 360, s
 
 
-@pytest.mark.parametrize("name", sorted(set(THEMES) - ORIGINAL_THEMES))
-def test_added_themes_avoid_the_clay_orange_and_ai_violet_looks(name):
-    # The themes added after the first six keep clear of two looks that read as someone else's brand:
+@pytest.mark.parametrize("name,mode,palette", ALL_PALETTES, ids=[f"{n}-{m}" for n, m, _ in ALL_PALETTES])
+def test_no_theme_uses_the_clay_orange_or_ai_violet_looks(name, mode, palette):
+    # No theme, Shop included, uses two looks that read as someone else's brand:
     # clay / terracotta / orange (hue 5 to 38 degrees) and the violet-to-indigo of "AI assistant" palettes
     # (255 to 320). Greys are exempt, and so are the red --danger and amber --warning, which carry meaning.
     # Page and panel backgrounds also stay out of cream (hue 20 to 65).
-    for mode, palette in THEMES[name].items():
-        for token in ("primary", "accent", "primary-on-soft", "primary-soft", "accent-soft"):
-            hue, sat = _hue_sat(palette[token])
-            if sat > 0.12:
-                assert not (5 <= hue <= 38 or 255 <= hue <= 320), f"{name}/{mode} --{token} hue {hue:.0f}"
-        for token in ("bg", "panel", "hover", "code-bg"):
-            hue, sat = _hue_sat(palette[token])
-            if sat > 0.08:
-                assert not (20 <= hue <= 65), f"{name}/{mode} --{token} is cream-like (hue {hue:.0f})"
+    for token in ("primary", "accent", "primary-on-soft", "primary-soft", "accent-soft"):
+        hue, sat = _hue_sat(palette[token])
+        if sat > 0.12:
+            assert not (5 <= hue <= 38 or 255 <= hue <= 320), f"{name}/{mode} --{token} hue {hue:.0f}"
+    for token in ("bg", "panel", "hover", "code-bg"):
+        hue, sat = _hue_sat(palette[token])
+        if sat > 0.08:
+            assert not (20 <= hue <= 65), f"{name}/{mode} --{token} is cream-like (hue {hue:.0f})"
 
 
 @pytest.mark.parametrize("name", sorted(THEMES))
@@ -143,12 +139,6 @@ def test_a_theme_defines_every_colour_in_both_modes(name):
     # a theme never inherits a colour from Shop, or switching themes would leave stray warm colours behind
     for mode, palette in THEMES[name].items():
         assert set(palette) == set(LIGHT), f"{name}/{mode}: {sorted(set(LIGHT) ^ set(palette))}"
-
-
-def test_only_neon_glows_and_only_in_the_dark():
-    assert "--glow: 0 0 0 0 transparent" in TOKENS
-    glowing = re.findall(r'\[data-theme="([a-z]+)"\](\[data-mode="dark"\])?\s*\{[^}]*--glow:', THEMES_CSS)
-    assert glowing == [("neon", '[data-mode="dark"]')]
 
 
 def test_themes_are_picked_up_by_the_server():

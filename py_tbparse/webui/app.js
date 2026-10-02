@@ -1276,7 +1276,7 @@ function openColumnsMenu() {
 // ---- themes -------------------------------------------------------------------------------------------
 
 const THEME_LABELS = {
-  shop: 'Shop', matcha: 'Matcha', fjord: 'Fjord', pastel: 'Pastel', neon: 'Neon', contrast: 'High contrast',
+  shop: 'Shop', matcha: 'Matcha', fjord: 'Fjord', contrast: 'High contrast',
   harbor: 'Harbor', meadow: 'Meadow', lagoon: 'Lagoon', slate: 'Slate', graphite: 'Graphite',
   paper: 'Paper', glacier: 'Glacier', pine: 'Pine', olive: 'Olive', citrus: 'Citrus',
   ocean: 'Ocean', cobalt: 'Cobalt', navy: 'Navy', midnight: 'Midnight', rose: 'Rose',
