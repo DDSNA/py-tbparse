@@ -30,3 +30,5 @@ apply_template(t, data, params={"Top N": "10"}) # writes sales_q3.twbx
 **Limits.** A CSV feeds one table. A template whose datasource joins several tables needs a workbook or `.tds` as its data, so the joins come along. Excel files are not read directly yet; save as CSV or pass a workbook connected to the sheet. As with renames, I have not opened the generated workbooks in Tableau itself, so check one before relying on it.
 
 `p.get_field_usage()` (or `field_usage(p)`, the `field-usage` table) is the analysis behind `required`: for every field, the sheets, dashboards and calculations that use it.
+
+**Checks.** Output is checked against Tableau's published schema and for dangling references (`py_tbparse.verify.validate_workbook`) on every workbook of the corpus; how to check it in Tableau yourself is in [verify-in-tableau.md](verify-in-tableau.md).

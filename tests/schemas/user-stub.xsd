@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Stand-in for the schema of Tableau's `user:` namespace. twb_2026.2.0.xsd imports
+  http://www.tableausoftware.com/xml/user without a schemaLocation and refers to
+  user:UserAttributes-AG, so an XML parser cannot load it alone. Written for
+  py-tbparse (not part of the Tableau schemas): it lets any attribute in that namespace through.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://www.tableausoftware.com/xml/user">
+  <xs:attributeGroup name="UserAttributes-AG">
+    <xs:anyAttribute namespace="http://www.tableausoftware.com/xml/user" processContents="skip"/>
+  </xs:attributeGroup>
+</xs:schema>
