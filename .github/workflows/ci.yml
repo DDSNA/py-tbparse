@@ -37,6 +37,7 @@ jobs:
     # tests can't see the page's JavaScript, so this is the only job that
     # would catch a broken <script>.
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -52,7 +53,7 @@ jobs:
         run: playwright install --with-deps chromium
 
       - name: Run browser GUI tests
-        run: pytest -q tests/test_gui_browser.py
+        run: pytest -q tests/test_gui_*.py
 
   build:
     runs-on: ubuntu-latest
