@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>py-tbparse</title>
 <link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/themes.css">
 <link rel="stylesheet" href="/static/app.css">
-
+<!--APP_CONFIG-->
 </head>
 <body>
 <a class="skip" href="#main">Skip to the table</a>
@@ -21,6 +22,7 @@
              aria-label="Workbook path" spellcheck="false" autocomplete="off">
       <button id="loadBtn" class="btn primary" type="button">Load</button>
       <button id="pickBtn" class="btn" type="button">Open file&hellip;</button>
+      <button id="themeBtn" class="btn" type="button" aria-haspopup="menu" aria-expanded="false">Theme</button>
       <input id="filePick" type="file" accept=".twb,.twbx" hidden tabindex="-1" aria-hidden="true">
     </div>
   </div>
@@ -128,7 +130,6 @@
 <div id="status" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="announce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<!--APP_CONFIG-->
 <script src="/static/table.js"></script>
 <script src="/static/app.js"></script>
 

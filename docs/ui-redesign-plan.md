@@ -255,7 +255,7 @@ Every text/background pair the stylesheet uses (22 per theme) passes 4.5:1, and 
 
 ## 11. Plan: phase 3 (open, overview, graph) and colour themes
 
-Drafted 2026-10-02, not started. Same branch (`ui-redesign`), same rules: every page change gets a browser
+Drafted 2026-10-02. **3a (open) and 3d (themes) are built and ship as 0.4.3** (see the status note at the end of this section); 3b and 3c follow as 0.4.4. Same branch (`ui-redesign`), same rules: every page change gets a browser
 test, colours stay tokens, nothing is pushed or released without the user saying so. Before any code, re-capture
 the screenshot baseline (phase 2 changed the table).
 
@@ -343,6 +343,11 @@ step with what is in fashion now but kept calm enough to work in all day:
 - **Exports:** DOT stays; add SVG download.
 - **Tests:** layout unit tests in the browser (no overlaps, every edge drawn, same input gives same output),
   DOT unchanged, keyboard navigation, pan/zoom without JS errors, reduced motion has no animated fit.
+
+### Status of phase 3 (updated as it lands)
+- **3a done:** `POST /upload` (streamed to a private temp dir, 200 MB cap, content must match the extension, one upload kept), Open file button, drop overlay (counted dragenter/dragleave, only for drags that carry files), recent paths in localStorage, plain-language open errors, download-only for uploaded workbooks. 13 endpoint tests and 14 browser tests.
+- **3d done, with one change from the plan:** Auto is resolved to light or dark by the head script (and `app.js` follows the system setting), so dark colours exist once, under `[data-mode="dark"]`, instead of twice (media query plus attribute). The config script moved to `<head>` so the theme is set before first paint. Six themes, each in light and dark; every one passes 4.5:1 (High contrast 7:1) in `test_webui_tokens.py`, and the rendered-text audit runs all 12 theme/mode combinations on six states. Palettes were checked by script before being written, and five light variants needed a second pass (a pale soft background under the faint text, accent text on its soft fill).
+- **Tested once, not shipped:** Neon's glow is a `--glow` token, empty everywhere except Neon dark.
 
 ### Version, size and risks
 - **Version:** 3a+3d could ship as **0.5.0** (new endpoint, new feature) and 3b+3c as 0.5.1, or all of phase 3 as

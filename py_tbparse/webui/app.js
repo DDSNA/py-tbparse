@@ -862,11 +862,21 @@ function fillMenu(items, focusItem) {
     if (item.sep) { const sep = el('div', 'menu-sep'); sep.setAttribute('role', 'separator'); menu.appendChild(sep); return; }
     const btn = el('button', 'menu-item');
     btn.type = 'button';
-    btn.setAttribute('role', item.checkbox ? 'menuitemcheckbox' : 'menuitem');
-    if (item.checkbox) btn.setAttribute('aria-checked', item.checked ? 'true' : 'false');
+    btn.setAttribute('role', item.radio ? 'menuitemradio' : item.checkbox ? 'menuitemcheckbox' : 'menuitem');
+    if (item.checkbox || item.radio) btn.setAttribute('aria-checked', item.checked ? 'true' : 'false');
     if (item.disabled) btn.setAttribute('aria-disabled', 'true');
     byItem.set(at, btn);
-    btn.append(el('span', 'menu-check', item.checkbox ? (item.checked ? '✓' : '') : ''), el('span', '', item.label));
+    btn.append(el('span', 'menu-check', (item.checkbox || item.radio) ? (item.checked ? '✓' : '') : ''));
+    if (item.swatch) {
+      // a swatch scopes the theme to itself, so it shows the real colours of that theme in the current mode
+      const sw = el('span', 'menu-swatch');
+      sw.dataset.theme = item.swatch;
+      sw.dataset.mode = document.documentElement.dataset.mode || 'light';
+      sw.setAttribute('aria-hidden', 'true');
+      sw.append(el('i'), el('i'), el('i'));
+      btn.appendChild(sw);
+    }
+    btn.appendChild(el('span', '', item.label));
     btn.addEventListener('click', () => {
       if (item.disabled) return;
       if (item.keep) {
@@ -1047,6 +1057,48 @@ function openColumnsMenu() {
   });
 }
 
+// ---- themes -------------------------------------------------------------------------------------------
+
+const THEME_LABELS = {shop: 'Shop', matcha: 'Matcha', fjord: 'Fjord', pastel: 'Pastel', neon: 'Neon', contrast: 'High contrast'};
+const MODE_LABELS = {auto: 'Auto (follow my system)', light: 'Light', dark: 'Dark'};
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+function applyTheme(theme, pref) {
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  root.dataset.pref = pref;
+  root.dataset.mode = pref === 'auto' ? (systemDark.matches ? 'dark' : 'light') : pref;
+  try {
+    localStorage.setItem('py-tbparse:theme', theme);
+    localStorage.setItem('py-tbparse:mode', pref);
+  } catch (e) { /* private window: the choice lasts until the page closes */ }
+  $('themeBtn').title = 'Theme: ' + THEME_LABELS[theme] + ', ' + MODE_LABELS[pref];
+  $('announce').textContent = 'Theme ' + THEME_LABELS[theme] + ', ' + root.dataset.mode + ' mode';
+}
+
+systemDark.addEventListener('change', () => {
+  const root = document.documentElement;
+  if ((root.dataset.pref || 'auto') === 'auto') root.dataset.mode = systemDark.matches ? 'dark' : 'light';
+});
+
+function openThemeMenu() {
+  showMenu($('themeBtn'), 'Theme', () => {
+    const root = document.documentElement;
+    const theme = root.dataset.theme || 'shop';
+    const pref = root.dataset.pref || 'auto';
+    const items = (window.THEMES || []).map((id) => ({
+      label: THEME_LABELS[id] || id, radio: true, checked: id === theme, keep: true, swatch: id,
+      run: () => applyTheme(id, root.dataset.pref || 'auto'),
+    }));
+    items.push({sep: true});
+    ['auto', 'light', 'dark'].forEach((m) => items.push({
+      label: MODE_LABELS[m], radio: true, checked: m === pref, keep: true,
+      run: () => applyTheme(root.dataset.theme || 'shop', m),
+    }));
+    return items;
+  });
+}
+
 function updateColumnsButton() {
   const hidden = hiddenCount(viewFor(state.table));
   $('colsBtn').textContent = hidden ? 'Columns (' + hidden + ' hidden)' : 'Columns';
@@ -1132,6 +1184,8 @@ window.addEventListener('drop', (e) => {
   if (files.length) uploadFile(files[0]);
 });
 renderRecent();
+$('themeBtn').title = 'Theme: ' + THEME_LABELS[document.documentElement.dataset.theme || 'shop'] + ', ' +
+  MODE_LABELS[document.documentElement.dataset.pref || 'auto'];
 $('path').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadWorkbook(); });
 $('tableSel').addEventListener('change', () => selectTable($('tableSel').value));
 $('dashboardSel').addEventListener('change', showTable);
@@ -1145,6 +1199,10 @@ $('filter').addEventListener('input', () => {
 ['renameStyle', 'renameDs', 'renameKinds', 'renameRef', 'renameChanged'].forEach((id) =>
   $(id).addEventListener('change', showTable));
 $('createBtn').addEventListener('click', createWorkbook);
+$('themeBtn').addEventListener('click', () => {
+  if (menuState && menuState.anchor === $('themeBtn')) closeMenu(true);
+  else openThemeMenu();
+});
 $('colsBtn').addEventListener('click', () => {
   if (menuState && menuState.anchor === $('colsBtn')) closeMenu(true);
   else openColumnsMenu();

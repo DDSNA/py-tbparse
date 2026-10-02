@@ -23,7 +23,7 @@ body { font: var(--text-md)/var(--leading) var(--font); background: var(--bg); c
 .brand svg { color: var(--primary); }
 .wordmark { box-shadow: inset 0 -6px 0 var(--accent-soft); }
 .brand .ver { font: 400 var(--text-xs)/1 var(--font); color: var(--muted); }
-.open { flex: 1; display: flex; gap: var(--space-2); min-width: 260px; }
+.open { flex: 1; display: flex; flex-wrap: wrap; gap: var(--space-2); min-width: 260px; }
 
 /* toast: the live region for results and errors */
 .toast { position: fixed; left: 50%; bottom: var(--space-6); z-index: 50; display: flex; gap: 10px;
@@ -44,7 +44,7 @@ body { font: var(--text-md)/var(--leading) var(--font); background: var(--bg); c
 .field:hover { border-color: var(--faint); }
 .field:focus-visible { outline-offset: 0; border-color: var(--primary); }
 ::placeholder { color: var(--muted); opacity: 1; }  /* opacity:1 undoes Firefox's built-in fade */
-.open .field { flex: 1; font-family: var(--mono); font-size: var(--text-sm); }
+.open .field { flex: 1 1 200px; min-width: 0; font-family: var(--mono); font-size: var(--text-sm); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: var(--target);
        padding: 0 var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md);
        background: var(--panel); color: inherit; font: inherit; text-decoration: none; cursor: pointer;
@@ -54,7 +54,7 @@ body { font: var(--text-md)/var(--leading) var(--font); background: var(--bg); c
 .btn:hover { background: var(--hover); border-color: var(--faint); }
 .btn:active { transform: translateY(1px); }
 .btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text);
-               font-weight: 600; box-shadow: var(--shadow-1); }
+               font-weight: 600; box-shadow: var(--shadow-1), var(--glow); }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn:disabled { opacity: .6; cursor: progress; }
 .btn.small { height: 32px; padding: 0 10px; font-size: var(--text-sm); }
@@ -85,6 +85,12 @@ select.field { padding-right: 4px; }
 .recent .forget { border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: var(--radius-sm);
                   min-width: 32px; min-height: 32px; font-size: 16px; }
 .recent .forget:hover { background: var(--hover); color: var(--text); }
+.menu-swatch { display: inline-grid; grid-auto-flow: column; gap: 2px; padding: 3px; margin-right: 8px; flex: none;
+               background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.menu-swatch i { width: 10px; height: 16px; border-radius: 3px; background: var(--primary); }
+.menu-swatch i + i { background: var(--accent); }
+.menu-swatch i + i + i { background: var(--panel); border: 1px solid var(--border); }
+.menu-note { padding: 4px 12px 6px; color: var(--muted); font-size: var(--text-xs); max-width: 260px; }
 .note { color: var(--muted); font-size: var(--text-sm); max-width: 340px; }
 .dropzone { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
             background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(2px);

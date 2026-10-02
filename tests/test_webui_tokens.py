@@ -11,6 +11,7 @@ import pytest
 
 WEBUI = Path(__file__).resolve().parent.parent / "py_tbparse" / "webui"
 TOKENS = (WEBUI / "tokens.css").read_text(encoding="utf-8")
+THEMES_CSS = (WEBUI / "themes.css").read_text(encoding="utf-8")
 APP_CSS = (WEBUI / "app.css").read_text(encoding="utf-8")
 
 _HEX = re.compile(r"--([a-z0-9-]+):\s*(#[0-9a-fA-F]{6})\s*;")
@@ -20,10 +21,16 @@ def _colours(block: str) -> dict:
     return dict(_HEX.findall(block))
 
 
-_LIGHT_BLOCK, _, _REST = TOKENS.partition("@media (prefers-color-scheme: dark)")
+_LIGHT_BLOCK, _, _REST = TOKENS.partition(':root[data-mode="dark"]')
 _DARK_BLOCK, _, _REDUCED_BLOCK = _REST.partition("@media (prefers-reduced-motion")
 LIGHT = _colours(_LIGHT_BLOCK)
 DARK = {**LIGHT, **_colours(_DARK_BLOCK)}
+
+# every theme in themes.css, light and dark, as complete palettes (a theme never inherits colours)
+_THEME_RULE = re.compile(r'\[data-theme="([a-z]+)"\](\[data-mode="dark"\])?\s*\{([^}]*)\}')
+THEMES = {}
+for _name, _dark, _body in _THEME_RULE.findall(THEMES_CSS):
+    THEMES.setdefault(_name, {})["dark" if _dark else "light"] = _colours(_body)
 
 
 def _lum(hex_colour: str) -> float:
@@ -64,27 +71,58 @@ TEXT_PAIRS = [
 ]
 
 
-@pytest.mark.parametrize("theme", ["light", "dark"])
-def test_every_text_pair_meets_wcag_aa(theme):
-    palette = LIGHT if theme == "light" else DARK
+ALL_PALETTES = [("shop", "light", LIGHT), ("shop", "dark", DARK)] + [
+    (name, mode, pal) for name, modes in THEMES.items() for mode, pal in modes.items()
+]
+MIN_TEXT = {"contrast": 7.0}   # the High contrast theme promises AAA
+
+
+@pytest.mark.parametrize("name,mode,palette", ALL_PALETTES, ids=[f"{n}-{m}" for n, m, _ in ALL_PALETTES])
+def test_every_text_pair_meets_wcag_aa(name, mode, palette):
+    need = MIN_TEXT.get(name, 4.5)
     failures = []
     for fg, bg, where in TEXT_PAIRS:
         ratio = contrast(palette[fg], palette[bg])
-        if ratio < 4.5:
+        if ratio < need:
             failures.append(f"{fg} on {bg} = {ratio:.2f}:1 ({where})")
-    assert not failures, f"{theme} theme fails AA 4.5:1: {failures}"
+    assert not failures, f"{name} {mode} fails {need}:1: {failures}"
 
 
-@pytest.mark.parametrize("theme", ["light", "dark"])
-def test_focus_ring_and_borders_you_must_see_have_3_to_1(theme):
-    palette = LIGHT if theme == "light" else DARK
+@pytest.mark.parametrize("name,mode,palette", ALL_PALETTES, ids=[f"{n}-{m}" for n, m, _ in ALL_PALETTES])
+def test_focus_ring_and_borders_you_must_see_have_3_to_1(name, mode, palette):
     # the focus ring is drawn in --primary against panel and page background
     for bg in ("panel", "bg"):
         assert contrast(palette["primary"], palette[bg]) >= 3.0, bg
 
 
+def test_there_are_five_extra_themes_and_each_has_both_modes():
+    assert set(THEMES) == {"matcha", "fjord", "pastel", "neon", "contrast"}   # Shop is the default in tokens.css
+    for name, modes in THEMES.items():
+        assert set(modes) == {"light", "dark"}, name
+
+
+@pytest.mark.parametrize("name", sorted(THEMES))
+def test_a_theme_defines_every_colour_in_both_modes(name):
+    # a theme never inherits a colour from Shop, or switching themes would leave stray warm colours behind
+    for mode, palette in THEMES[name].items():
+        assert set(palette) == set(LIGHT), f"{name}/{mode}: {sorted(set(LIGHT) ^ set(palette))}"
+
+
+def test_only_neon_glows_and_only_in_the_dark():
+    assert "--glow: 0 0 0 0 transparent" in TOKENS
+    glowing = re.findall(r'\[data-theme="([a-z]+)"\](\[data-mode="dark"\])?\s*\{[^}]*--glow:', THEMES_CSS)
+    assert glowing == [("neon", '[data-mode="dark"]')]
+
+
+def test_themes_are_picked_up_by_the_server():
+    from py_tbparse import webgui
+    assert set(webgui.THEMES) == {"shop"} | set(THEMES)
+    assert "themes.css" in webgui._ASSETS
+
+
 def test_the_dark_theme_defines_every_colour_the_light_one_does():
     assert set(LIGHT) == set(DARK)
+    assert "color-scheme: dark" in _DARK_BLOCK and "color-scheme: light;" in _LIGHT_BLOCK
     overridden = set(_colours(_DARK_BLOCK))
     # every colour except the ones that are the same in both themes is redefined for dark
     assert overridden >= set(LIGHT) - {"shadow-color"}, sorted(set(LIGHT) - overridden)
@@ -103,7 +141,7 @@ def test_comfortable_density_targets():
 
 
 def test_every_variable_the_stylesheet_uses_is_defined():
-    defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", TOKENS + APP_CSS))
+    defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", TOKENS + THEMES_CSS + APP_CSS))
     used = set(re.findall(r"var\((--[a-z0-9-]+)", APP_CSS))
     assert not used - defined, f"undefined CSS variables: {sorted(used - defined)}"
 

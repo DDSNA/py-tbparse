@@ -2,8 +2,8 @@
    Warm paper-and-ink neutrals, a calm teal primary, a terracotta accent used sparingly.
    Every text/UI pair is checked against WCAG AA by tests/test_webui_tokens.py; change a colour
    here and that test tells you if you broke contrast. Never fade text with `opacity`: use --faint. */
-:root {
-  color-scheme: light dark;
+:root, [data-theme="shop"] {
+  color-scheme: light;
 
   /* colour */
   --bg: #f7f3ee;
@@ -26,6 +26,7 @@
   --danger: #b3382c;
   --danger-soft: #fbe9e6;
   --shadow-color: 43 38 34;
+  --glow: 0 0 0 0 transparent;  /* only the Neon theme glows */
 
   /* space (4 px scale) */
   --space-1: 4px;
@@ -67,29 +68,28 @@
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1a1714;
-    --panel: #231f1b;
-    --text: #efe9e1;
-    --muted: #b3a99d;
-    --faint: #a79d91;
-    --border: #3a342d;
-    --hover: #2c2722;
-    --code-bg: #1e1a17;
-    --primary: #6cc0c8;
-    --primary-text: #10282b;
-    --primary-soft: #203638;
-    --primary-on-soft: #8fd3d9;
-    --accent: #eb9a76;
-    --accent-soft: #3a2a22;
-    --success: #7fcf93;
-    --success-soft: #1f3326;
-    --warning: #e6b34d;
-    --danger: #ff8b7c;
-    --danger-soft: #3d2420;
-    --shadow-color: 0 0 0;
-  }
+:root[data-mode="dark"], [data-theme="shop"][data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #1a1714;
+  --panel: #231f1b;
+  --text: #efe9e1;
+  --muted: #b3a99d;
+  --faint: #a79d91;
+  --border: #3a342d;
+  --hover: #2c2722;
+  --code-bg: #1e1a17;
+  --primary: #6cc0c8;
+  --primary-text: #10282b;
+  --primary-soft: #203638;
+  --primary-on-soft: #8fd3d9;
+  --accent: #eb9a76;
+  --accent-soft: #3a2a22;
+  --success: #7fcf93;
+  --success-soft: #1f3326;
+  --warning: #e6b34d;
+  --danger: #ff8b7c;
+  --danger-soft: #3d2420;
+  --shadow-color: 0 0 0;
 }
 
 /* compact rows: set by the Compact rows button on <html data-density> */

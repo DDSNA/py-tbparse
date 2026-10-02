@@ -610,7 +610,8 @@ def test_overview_tiles_sit_two_across_on_a_phone(page, wenjie_path):
 
 def test_start_screen_has_the_friendly_copy(page):
     assert page.text_content("#empty h1") == "Let’s open a workbook"
-    assert "Nothing is uploaded" in page.text_content("#empty")
+    text = page.text_content("#empty")
+    assert "Everything stays on this computer" in text and "Nothing leaves it" in text
 
 
 # --- phase 2 of the redesign: a windowed, column-aware table ----------------------------------------------

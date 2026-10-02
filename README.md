@@ -167,11 +167,13 @@ Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calcul
 
 ```bash
 py-tbparse-gui workbook.twb               # opens your browser with it loaded
-py-tbparse-gui                            # starts empty, paste a path and hit Load
+py-tbparse-gui                            # starts empty: drop a file on the page, pick one, or paste a path
 py-tbparse-gui --no-browser --port 8765   # server only, for a machine with no display
 ```
 
 It uses only the standard library, so there's nothing more to install.
+
+Open a workbook three ways: drop a `.twb`/`.twbx` anywhere on the page, press **Open file...**, or paste a path and Load. A dropped or picked file is copied to a private temporary folder (up to 200 MB, deleted when you open another or quit), so it has no folder to save beside: the Field renames view offers Download instead of Create. Opened paths are listed on the start screen. The **Theme** button switches between six colour themes (Shop, Matcha, Fjord, Pastel, Neon and a High contrast one) and Auto, Light or Dark; every theme passes the same contrast tests as the default.
 
 The sidebar lists every table with its row count. Tables stay fast however big they are: only the rows you can see are drawn, so 50,000 rows filter in about 20 ms. Click a column header to sort, type in the filter box to narrow rows (`/` jumps to it), and click a row (or press Enter on it) to open a drawer with every column in full, the real datasource id, and a button that copies the row as JSON. Each column has an options menu (the `...` button, or Alt+Down on a header) to sort, filter just that column, pin it to the left, hide it, change its width or copy its values; the **Columns** button brings hidden ones back, and **Compact rows** fits more on screen. Datasources show their caption instead of Tableau's internal id (hover for the id). The tiles on the overview open their tables. The graph view lets you copy or download the DOT text. The Field renames view has the buttons for the feature above: pick a style, datasource and optional reference workbook, then **Create fixed workbook** saves `<name>_renamed` beside the original (and says so if that file already exists) or **Download fixed workbook** sends it to your browser without saving anything. Everything else exports as CSV. It has a dark theme and works in a narrow window.
 

@@ -220,6 +220,7 @@ def _host_allowed(host_header, server_address) -> bool:
 _WEBUI = Path(__file__).parent / "webui"
 _ASSETS = {
     "tokens.css": "text/css; charset=utf-8",
+    "themes.css": "text/css; charset=utf-8",
     "app.css": "text/css; charset=utf-8",
     "app.js": "text/javascript; charset=utf-8",
     "table.js": "text/javascript; charset=utf-8",
@@ -228,6 +229,20 @@ _ASSETS = {
 
 def _read_webui(name: str) -> str:
     return (_WEBUI / name).read_text(encoding="utf-8")
+
+
+THEMES = ["shop", "matcha", "fjord", "pastel", "neon", "contrast"]
+
+# Runs in <head>, before anything is painted, so the page never shows the wrong colours first. It reads
+# the saved theme and mode (the localStorage read can throw in a private window), resolves Auto against
+# the system setting, and puts the result on <html>. app.js keeps Auto in step with the system afterwards.
+_THEME_BOOT = (
+    "(function(){var d=document.documentElement,t='shop',m='auto';"
+    "try{t=localStorage.getItem('py-tbparse:theme')||t;m=localStorage.getItem('py-tbparse:mode')||m;}catch(e){}"
+    "if(window.THEMES.indexOf(t)<0)t='shop';if(['auto','light','dark'].indexOf(m)<0)m='auto';"
+    "d.dataset.theme=t;d.dataset.pref=m;"
+    "d.dataset.mode=m==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):m;})();"
+)
 
 
 def _render_index() -> str:
@@ -241,6 +256,8 @@ def _render_index() -> str:
         f"window.TABLE_NAMES = {_json_for_script(TABLE_NAMES)};\n"
         f"window.PRELOAD_PATH = {_json_for_script(_STATE['path'])};\n"
         f"window.APP_VERSION = {_json_for_script(__version__)};\n"
+        f"window.THEMES = {_json_for_script(THEMES)};\n"
+        f"{_THEME_BOOT}\n"
         "</script>"
     )
     return _read_webui("index.html").replace("<!--APP_CONFIG-->", config)

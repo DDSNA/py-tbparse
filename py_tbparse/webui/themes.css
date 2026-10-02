@@ -1,0 +1,237 @@
+/* Colour themes. Shop (the default) lives in tokens.css; each theme here is a complete set of colour
+   tokens in a light and a dark variant, so a theme can never change layout, space, type or motion.
+   <html data-theme data-mode> picks one (set before first paint by the inline script in index.html);
+   the selectors are not :root-only so a swatch in the theme menu can scope a theme to itself.
+   tests/test_webui_tokens.py checks every theme in both modes: WCAG AA 4.5:1 for text (7:1 for
+   High contrast) and 3:1 for the focus ring. Never fade text with opacity. */
+
+/* Matcha: sage green and oat cream, earthy and soft */
+[data-theme="matcha"] {
+  --bg: #f3f4ec;
+  --panel: #fbfbf6;
+  --text: #262b22;
+  --muted: #5c6455;
+  --faint: #666e5e;
+  --border: #dfe2d3;
+  --hover: #eceee2;
+  --code-bg: #e9ecde;
+  --primary: #3f6b3a;
+  --primary-text: #ffffff;
+  --primary-soft: #e6f0df;
+  --primary-on-soft: #2f5a2b;
+  --accent: #8f5328;
+  --accent-soft: #f3e6d8;
+  --success: #2f6b3d;
+  --success-soft: #e1efe3;
+  --warning: #835400;
+  --danger: #b0382c;
+  --danger-soft: #f9e7e3;
+  --shadow-color: 38 43 34;
+}
+[data-theme="matcha"][data-mode="dark"] {
+  --bg: #151a14;
+  --panel: #1d231b;
+  --text: #e6ebdf;
+  --muted: #aab3a0;
+  --faint: #9ea796;
+  --border: #2f372c;
+  --hover: #262e23;
+  --code-bg: #181d16;
+  --primary: #9ccb8f;
+  --primary-text: #14260f;
+  --primary-soft: #26361f;
+  --primary-on-soft: #b8dcac;
+  --accent: #e0a070;
+  --accent-soft: #342a1e;
+  --success: #86d09a;
+  --success-soft: #1d3324;
+  --warning: #e6b34d;
+  --danger: #ff8b7c;
+  --danger-soft: #3d2420;
+  --shadow-color: 0 0 0;
+}
+
+/* Fjord: cool slate and frost, Nordic, easy on the eyes */
+[data-theme="fjord"] {
+  --bg: #eef2f6;
+  --panel: #fafcfe;
+  --text: #1d2733;
+  --muted: #536172;
+  --faint: #5d6b7b;
+  --border: #d8e0e9;
+  --hover: #e6edf4;
+  --code-bg: #e4eaf1;
+  --primary: #2b5f94;
+  --primary-text: #ffffff;
+  --primary-soft: #e3edf8;
+  --primary-on-soft: #1f4a77;
+  --accent: #146a78;
+  --accent-soft: #d9f0f3;
+  --success: #2a6a45;
+  --success-soft: #e0f0e7;
+  --warning: #855300;
+  --danger: #b4372f;
+  --danger-soft: #fbe8e6;
+  --shadow-color: 29 39 51;
+}
+[data-theme="fjord"][data-mode="dark"] {
+  --bg: #11161d;
+  --panel: #18202a;
+  --text: #e3eaf2;
+  --muted: #a3b1c2;
+  --faint: #97a5b6;
+  --border: #2a3543;
+  --hover: #202a36;
+  --code-bg: #131a22;
+  --primary: #7db4ea;
+  --primary-text: #0c2036;
+  --primary-soft: #1d3248;
+  --primary-on-soft: #a3cdf3;
+  --accent: #6fd0de;
+  --accent-soft: #1a3238;
+  --success: #7fd0a0;
+  --success-soft: #1c3326;
+  --warning: #e6b34d;
+  --danger: #ff8f82;
+  --danger-soft: #3b2424;
+  --shadow-color: 0 0 0;
+}
+
+/* Pastel: lavender and peach, light and friendly */
+[data-theme="pastel"] {
+  --bg: #f6f3fb;
+  --panel: #fffdff;
+  --text: #2a2640;
+  --muted: #5f5a7a;
+  --faint: #6a6585;
+  --border: #e5e0f1;
+  --hover: #f0ecf9;
+  --code-bg: #ece8f6;
+  --primary: #5b54c7;
+  --primary-text: #ffffff;
+  --primary-soft: #ebe9fc;
+  --primary-on-soft: #46409f;
+  --accent: #a94626;
+  --accent-soft: #fde8df;
+  --success: #2a6b48;
+  --success-soft: #e0f1e8;
+  --warning: #855400;
+  --danger: #b3334f;
+  --danger-soft: #fce6ea;
+  --shadow-color: 42 38 64;
+}
+[data-theme="pastel"][data-mode="dark"] {
+  --bg: #1b1830;
+  --panel: #231f3b;
+  --text: #ece8fb;
+  --muted: #b4aed3;
+  --faint: #a8a2c8;
+  --border: #38325a;
+  --hover: #2b2648;
+  --code-bg: #1e1b34;
+  --primary: #b3adff;
+  --primary-text: #1b1740;
+  --primary-soft: #302b5c;
+  --primary-on-soft: #cdc9ff;
+  --accent: #ffb08f;
+  --accent-soft: #3d2a2c;
+  --success: #86d6a4;
+  --success-soft: #1f3a2c;
+  --warning: #ecbc5c;
+  --danger: #ff93a8;
+  --danger-soft: #402230;
+  --shadow-color: 0 0 0;
+}
+
+/* Neon: electric violet and cyan, synthwave, the loud one */
+[data-theme="neon"] {
+  --bg: #f4f0ff;
+  --panel: #fdfcff;
+  --text: #1a1233;
+  --muted: #55497a;
+  --faint: #61568a;
+  --border: #ddd3f5;
+  --hover: #ece6fc;
+  --code-bg: #e8e1fa;
+  --primary: #6a1fd6;
+  --primary-text: #ffffff;
+  --primary-soft: #e8dcff;
+  --primary-on-soft: #5516ad;
+  --accent: #006c7e;
+  --accent-soft: #d5f3f8;
+  --success: #1b6b43;
+  --success-soft: #ddf2e7;
+  --warning: #835200;
+  --danger: #c0123f;
+  --danger-soft: #fde4eb;
+  --shadow-color: 26 18 51;
+}
+[data-theme="neon"][data-mode="dark"] {
+  --bg: #0b0820;
+  --panel: #130f2e;
+  --text: #eee9ff;
+  --muted: #b5a9e0;
+  --faint: #a99dd6;
+  --border: #2d2562;
+  --hover: #1b1640;
+  --code-bg: #0f0b26;
+  --primary: #a98bff;
+  --primary-text: #120a33;
+  --primary-soft: #2a1f66;
+  --primary-on-soft: #cbb8ff;
+  --accent: #3ee6ff;
+  --accent-soft: #0f3040;
+  --success: #5ff0a0;
+  --success-soft: #0f3a2a;
+  --warning: #ffd24a;
+  --danger: #ff6b8f;
+  --danger-soft: #430f2a;
+  --shadow-color: 0 0 0;
+  --glow: 0 0 14px rgb(169 139 255 / 0.55);
+}
+
+/* High contrast: black, white and one strong colour; 7:1 text contrast everywhere */
+[data-theme="contrast"] {
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --text: #000000;
+  --muted: #3a3a3a;
+  --faint: #3f3f3f;
+  --border: #000000;
+  --hover: #eeeeee;
+  --code-bg: #eeeeee;
+  --primary: #0a3fb5;
+  --primary-text: #ffffff;
+  --primary-soft: #d9e4ff;
+  --primary-on-soft: #062a80;
+  --accent: #8a2a00;
+  --accent-soft: #ffe6d6;
+  --success: #0a5a1c;
+  --success-soft: #d9f5df;
+  --warning: #6b4300;
+  --danger: #8f0000;
+  --danger-soft: #ffdede;
+  --shadow-color: 0 0 0;
+}
+[data-theme="contrast"][data-mode="dark"] {
+  --bg: #000000;
+  --panel: #0a0a0a;
+  --text: #ffffff;
+  --muted: #e0e0e0;
+  --faint: #d0d0d0;
+  --border: #bdbdbd;
+  --hover: #1f1f1f;
+  --code-bg: #1a1a1a;
+  --primary: #ffe14a;
+  --primary-text: #000000;
+  --primary-soft: #3a3200;
+  --primary-on-soft: #ffe97a;
+  --accent: #7fe0ff;
+  --accent-soft: #00323f;
+  --success: #7dff9b;
+  --success-soft: #003a14;
+  --warning: #ffd24a;
+  --danger: #ff8a8a;
+  --danger-soft: #4a0000;
+  --shadow-color: 0 0 0;
+}
