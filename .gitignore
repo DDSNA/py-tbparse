@@ -11,6 +11,8 @@ dist/
 # scratch/session files only — never tracked
 /HANDOFF.md
 /CHANGELOG.md
+# local agent rules (owner preferences, sandbox notes); AGENTS.md is the tracked version
+/CLAUDE.md
 
 # example-workbook corpus: fetched with scripts/fetch_corpus.py, not tracked
 /tests/corpus/files/
