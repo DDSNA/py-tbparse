@@ -117,3 +117,32 @@ def test_answers_explain_and_checks_on_every_workbook(tmp_path, monkeypatch):
                                output_path=str(work / "first.twbx"))
         again = apply_template(template, answers=first, allow_missing=True, output_path=str(work / "again.twbx"))
         assert Path(first).read_bytes() == Path(again).read_bytes(), path.name
+
+
+def test_a_second_revision_identical_to_the_first_reports_no_change_on_every_workbook(tmp_path):
+    """Revision 2 made from the same workbook: no change in the diff, none in the report against answers a
+    workbook of revision 1 kept, and the update of such a workbook is a clean re-apply."""
+    from py_tbparse import diff_template_revisions, template_update_report, update_from_answers
+
+    for n, path in enumerate(FILES):
+        work = tmp_path / f"w{n}"
+        work.mkdir()
+        book = work / "book.twb"
+        shutil.copy(path, book)
+        v1 = make_template(str(book), output_path=str(work / "v1.twbx"))
+        v2 = make_template(str(book), output_path=str(work / "v2.twbx"), revision_of=v1)
+        assert load_template(v2).id == load_template(v1).id and load_template(v2).revision == 2, path.name
+        diff = diff_template_revisions(v1, v2)
+        assert diff.empty, (path.name, diff.to_dict("records"))
+        entry = next((e for e in load_template(v1).manifest["datasources"] if e["fields"]), None)
+        if entry is None:
+            continue
+        csv_path = work / "d.csv"
+        with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+            csv.writer(fh).writerow([f["remote"] for f in entry["fields"]])
+        first = apply_template(v1, str(csv_path), datasource=entry["name"], allow_missing=True,
+                               output_path=str(work / "first.twbx"))
+        report = template_update_report(v2, first)
+        assert report.empty, (path.name, report.to_dict("records"))
+        out = update_from_answers(v2, first, allow_missing=True, output_path=str(work / "second.twbx"))
+        assert out and Path(out).exists(), path.name

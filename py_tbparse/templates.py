@@ -178,7 +178,7 @@ def _strip_extracts(doc) -> int:
 
 
 def build_manifest(parser: TwbParser, name: Optional[str] = None, description: Optional[str] = None,
-                   template_id: Optional[str] = None) -> dict:
+                   template_id: Optional[str] = None, revision: int = 1) -> dict:
     """The manifest `make_template` writes: what a template needs to be applied."""
     doc = parser.xml_doc
     usage = field_usage(parser)
@@ -221,7 +221,7 @@ def build_manifest(parser: TwbParser, name: Optional[str] = None, description: O
         "format": TEMPLATE_FORMAT,
         "version": MANIFEST_VERSION,
         "id": template_id or _new_id(),
-        "revision": 1,
+        "revision": revision,
         "name": name or src.stem,
         "description": description or "",
         "source": src.name,
@@ -292,6 +292,7 @@ def make_template(
     keep_data: bool = False,
     overwrite: bool = False,
     template_id: Optional[str] = None,
+    revision_of: Union["Template", str, None] = None,
 ) -> str:
     """Save a template made from a finished workbook; return its path.
 
@@ -305,8 +306,19 @@ def make_template(
     sample data). The source is never modified and nothing is overwritten
     unless `overwrite=True`. The manifest carries an `id` (`template_id`, or
     a new UUID) that stays the same across revisions of one template, and a
-    `revision` number.
+    `revision` number. `revision_of` (a template or its path) makes this the
+    next revision of that template: same `id`, `revision` one higher, so
+    workbooks made from the old one can be brought up to date
+    (`template_update.update_from_answers`). The old template has no `id`
+    when it came from 0.4.x; the new one then gets a fresh one.
     """
+    revision = 1
+    if revision_of is not None:
+        previous = revision_of if isinstance(revision_of, Template) else load_template(str(revision_of))
+        if template_id and previous.id and template_id != previous.id:
+            raise TemplateError(f"template_id {template_id!r} contradicts revision_of (id {previous.id!r})")
+        template_id = template_id or previous.id
+        revision = previous.revision + 1
     if not isinstance(parser, TwbParser):
         parser = TwbParser(str(parser))
     out = Path(output_path) if output_path else Path(default_template_path(parser))
@@ -314,7 +326,8 @@ def make_template(
         raise TemplateError(f"a template is a .twbx file, got {out.suffix or 'no extension'}")
     if out.resolve() == Path(parser.twbx_path or parser.path).resolve():
         raise FileExistsError(f"refusing to overwrite the source workbook: {out}")
-    manifest = build_manifest(parser, name=name, description=description, template_id=template_id)
+    manifest = build_manifest(parser, name=name, description=description, template_id=template_id,
+                              revision=revision)
     doc = copy.deepcopy(parser.xml_doc)
     _scrub(doc)
     if not keep_data:
@@ -1276,7 +1289,7 @@ def apply_template(
         "datasource": entry["name"],
         "data": {"file": data.path, "kind": data.kind,
                  "datasource": data.element.get("name") if data.element is not None else None,
-                 "schema_fingerprint": data.fingerprint()},
+                 "schema_fingerprint": data.fingerprint(), "columns": data.names()},
         "mapping": {fld: col for fld, col in chosen.items()},
         "missing": [f["name"] for f in missing],
     }
@@ -1289,7 +1302,9 @@ def apply_template(
         "created": _now(),
         "created_with": f"py-tbparse {_version()}",
         "template": {"id": template.id, "revision": template.revision, "name": template.name,
-                     "file": Path(template.path).name, "manifest_sha256": template.manifest_sha256},
+                     "file": Path(template.path).name, "manifest_sha256": template.manifest_sha256,
+                     # what the template needed then, so `template update` can say what changed since
+                     "manifest": template.manifest},
         # the datasource this run filled, as version 1 kept it; `datasources` has them all
         "data": this["data"], "datasource": this["datasource"], "mapping": this["mapping"], "missing": this["missing"],
         "parameters": applied_params,
