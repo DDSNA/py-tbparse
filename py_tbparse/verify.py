@@ -32,6 +32,7 @@ _TEXT_REMOTE_TYPES = {
     "date": ("133", "7"),
     "datetime": ("135", "7"),
 }
+_AUTO_COLUMN = "{http://www.tableausoftware.com/xml/user}auto-column"
 # Zones of these kinds are named after the worksheet they show or control.
 _SHEET_ZONE_TYPES = {None, "filter", "color", "size", "shape", "highlighter", "map", "legend"}
 
@@ -105,6 +106,19 @@ def _local_types(ds) -> list[dict]:
     return rows
 
 
+def _built_in_counts(ds) -> list[dict]:
+    """Tableau's own [Number of Records] needs a formula (`1`) or a data column of that name behind
+    it; with neither, a worksheet that sums it has nothing to sum. All 42 built-ins of the corpus
+    carry the formula."""
+    rows = []
+    records = {r.findtext("local-name") for r in ds.xpath("./connection//metadata-record[@class='column']")}
+    for col in ds.xpath("./column[@name]"):
+        if col.get(_AUTO_COLUMN) == "numrec" and col.find("calculation") is None and col.get("name") not in records:
+            rows.append(_row("built-in-count", "error", ds.get("name"), col.get("name"),
+                             "the built-in record count has no formula and no data column behind it"))
+    return rows
+
+
 def _text_file_columns(ds) -> list[dict]:
     """Columns read from a text file: each metadata record must name a column the relation
     lists, with the remote-type Tableau writes for its type."""
@@ -129,14 +143,15 @@ def validate_workbook(source: Union[str, os.PathLike, TwbParser]) -> pd.DataFram
     Checks, with their severity: `sheet-field` (a worksheet uses a field its datasource lacks),
     `calc-reference` (a calculation names a missing field; a warning, since a bracketed word in a
     string literal counts), `dashboard-sheet` and `window-name` (they name a sheet that is not
-    there), `local-type` (a column's type disagrees with its data's; a warning) and, for text-file
-    data, `remote-name` and `remote-type`."""
+    there), `local-type` (a column's type disagrees with its data's; a warning), `built-in-count`
+    (Number of Records with no formula and no data column) and, for text-file data, `remote-name`
+    and `remote-type`."""
     parser = source if isinstance(source, TwbParser) else TwbParser(str(source))
     doc = parser.xml_doc
     by_ds = {ds.get("name"): _fields_with_tables(ds) for ds in doc.xpath("/workbook/datasources/datasource[@name]")}
     rows = _sheet_fields(doc, by_ds) + _dashboard_sheets(doc) + _windows(doc)
     for ds in doc.xpath("/workbook/datasources/datasource[@name]"):
-        rows += _local_types(ds) + _text_file_columns(ds)
+        rows += _local_types(ds) + _built_in_counts(ds) + _text_file_columns(ds)
     for r in missing_references(doc).itertuples():
         rows.append(_row("calc-reference", "warning", r.datasource, r.calculation,
                          f"the formula names {r.missing}, which does not exist"))

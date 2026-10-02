@@ -49,6 +49,7 @@ MAPPING_COLUMNS = [
     "mapped_to", "data_type", "status", "score",
 ]
 
+_AUTO_COLUMN = "{http://www.tableausoftware.com/xml/user}auto-column"
 _SECRET_ATTRS = ("username", "password")
 _CONNECTION_ATTRS = ("class", "server", "dbname", "schema", "port", "directory", "filename",
                      "warehouse", "service", "authentication")
@@ -176,7 +177,7 @@ def build_manifest(parser: TwbParser, name: Optional[str] = None, description: O
         for f in _physical_fields(ds):
             col = cols.get(f["name"])
             if col is not None and col.get("{http://www.tableausoftware.com/xml/user}auto-column"):
-                continue  # Tableau's own [Number of Records] etc.
+                continue  # Tableau's own [Number of Records] etc.; apply gives it its formula back
             u = used.get((dsname, f["name"]))
             fields.append({
                 "name": f["name"],
@@ -837,6 +838,13 @@ def apply_template(
         for c in ds_el.xpath("./column[@name=$n]", n=fld):
             if new_type and c.get("datatype") != new_type and c.get("datatype-customized") != "true":
                 c.set("datatype", new_type)
+    # Tableau's own record count is a formula (`1`) with no data column, as in all 42 built-ins of the
+    # corpus. A template leaves out a data column that shared its name, so without the formula a worksheet
+    # that sums it has nothing to sum.
+    fed = {r.findtext("local-name") for r in ds_el.xpath("./connection//metadata-record[@class='column']")}
+    for c in ds_el.xpath("./column[@name]"):
+        if c.get(_AUTO_COLUMN) == "numrec" and c.find("calculation") is None and c.get("name") not in fed:
+            etree.SubElement(c, "calculation", {"class": "tableau", "formula": "1"})
 
     applied_params = _set_parameters(doc, params or {}, template)
     answers = {

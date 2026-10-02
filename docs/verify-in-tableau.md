@@ -14,7 +14,10 @@ against two things, and **never against Tableau itself**:
 Both automated layers run over every workbook in the 200-workbook corpus (`python scripts/fetch_corpus.py`).
 They found three real defects so far, all fixed: a template applied to a CSV dropped the object model of
 workbooks that write it in the newer, unprefixed form; it gave the table column a new id the worksheets did not
-use; and it could put the table column ahead of `<aliases>`.
+use; and it could put the table column ahead of `<aliases>`. Opening the first pack in Tableau found a fourth that
+neither check could see at the time: a worksheet summing `[Number of Records]` errored, because the template left out the
+data column of that name and the built-in had no formula; apply now gives it the formula `1`, and
+`validate_workbook` reports a `built-in-count` finding for the same state.
 
 ## Make the three files
 
@@ -29,8 +32,8 @@ It refuses a folder that is not empty and prints the schema and reference result
 
 | File | What it is |
 |---|---|
-| `0-original.twb` | The workbook as it was. The baseline: if this does not open, the rest says nothing. The default one reads a SQL Server database that does not exist for you, so Tableau will report a connection error; the workbook itself should still open and list its sheets. |
-| `1-renamed.twb` | Every rename py-tbparse suggests, applied (field and dashboard captions). |
+| `0-original.twb` | The workbook as it was. The baseline: if this does not open, the rest says nothing. The default one reads a SQL Server database that does not exist for you, so Tableau asks for a server connection; the workbook itself should still open and list its sheets, and its sheets cannot draw. |
+| `1-renamed.twb` | Every rename py-tbparse suggests, applied (field and dashboard captions). Renaming does not touch the connection, so it asks for the same server as file 0. |
 | `2-template-on-csv.twbx` | A template made from the original, applied to `data/*-sample.csv` (made-up values, every column the template needs). |
 | `3-template-on-workbook.twbx` | The same template applied to file 2, so the connection is borrowed from a workbook instead of written from a CSV. |
 
@@ -38,8 +41,8 @@ It refuses a folder that is not empty and prints the schema and reference result
 
 For each of 1, 2 and 3, in this order. Stop at the first thing that is wrong and keep the message word for word.
 
-1. **Does it open?** No error dialog, no "repair" or "unsupported feature" message. A connection error on
-   file 0 and nothing else is expected.
+1. **Does it open?** No error dialog, no "repair" or "unsupported feature" message. A server-connection prompt on
+   files 0 and 1 is expected; on files 2 and 3 it is not (they read the CSV and contain no server).
 2. **The data pane.** The datasource is listed with the name you expect. Fields have the captions the rename
    gave (file 1) and the types the template says (files 2 and 3: a date column shows the calendar icon,
    numbers the `#` icon). Look for a red `!` beside any field: that is a field Tableau cannot find.

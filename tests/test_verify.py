@@ -156,3 +156,29 @@ def test_applying_to_a_csv_writes_the_remote_types_tableau_writes(tmp_path):
     types = {r.findtext("local-type"): r.findtext("remote-type")
              for r in TwbParser(out).xml_doc.xpath("//metadata-record[@class='column']")}
     assert types and all(code in ("129", "20", "5", "11", "133", "135") for code in types.values())
+
+
+def test_the_built_in_record_count_needs_a_formula_or_a_data_column(tmp_path):
+    ns = "xmlns:user='http://www.tableausoftware.com/xml/user'"
+    column = ("<column name='[Number of Records]' datatype='real' role='measure' type='quantitative' "
+              "user:auto-column='numrec'{}")
+    path = book(tmp_path)
+    text = Path(path).read_text(encoding="utf-8").replace("<workbook ", f"<workbook {ns} ")
+    bare = text.replace("<column name='[Double]'", column.format("/>") + "<column name='[Double]'", 1)
+    Path(path).write_text(bare, encoding="utf-8")
+    assert findings(validate_workbook(path)) == {("built-in-count", "error")}
+    formula = column.format("><calculation class='tableau' formula='1'/></column>")
+    Path(path).write_text(text.replace("<column name='[Double]'", formula + "<column name='[Double]'", 1),
+                          encoding="utf-8")
+    assert validate_workbook(path).empty
+
+
+def test_apply_gives_the_record_count_its_formula_back(tmp_path):
+    """filtering.twb has a data column named like the built-in; a template leaves that column out, so a
+    sheet summing [Number of Records] would have nothing behind it (seen in Tableau: the sum errors)."""
+    src = tmp_path / "filtering.twb"
+    shutil.copy(PUBLIC / "filtering.twb", src)
+    out = _apply(src, _csv(tmp_path))
+    [col] = TwbParser(out).xml_doc.xpath("//datasource/column[@name='[Number of Records]']")
+    assert [c.get("formula") for c in col.findall("calculation")] == ["1"]
+    assert validate_workbook(out).query("check == 'built-in-count'").empty
