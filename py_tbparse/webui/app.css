@@ -85,6 +85,26 @@ select.field { padding-right: 4px; }
 .recent .forget { border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: var(--radius-sm);
                   min-width: 32px; min-height: 32px; font-size: 16px; }
 .recent .forget:hover { background: var(--hover); color: var(--text); }
+.lead { font: 600 var(--text-lg)/1.4 var(--font-display); margin: var(--space-5) var(--space-5) 0; max-width: 60ch; }
+.section-title { font: 600 var(--text-md)/1.4 var(--font-display); margin: var(--space-4) var(--space-5) var(--space-2); }
+.health { list-style: none; margin: 0 var(--space-5); padding: 0; display: grid; gap: var(--space-2); max-width: 760px; }
+.health-item { display: flex; align-items: center; gap: var(--space-3); background: var(--panel); border: 1px solid var(--border);
+               border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+.health-item .sev { flex: none; width: 24px; text-align: center; font-weight: 700; }
+.health-item.problem .sev { color: var(--danger); }
+.health-item.warning .sev { color: var(--warning); }
+.health-item.info .sev { color: var(--muted); }
+.health-item.ok .sev { color: var(--success); }
+.health-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.health-detail { color: var(--muted); font-size: var(--text-sm); }
+.health-go { flex: none; }
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: var(--space-3); max-width: 960px; margin: 0 var(--space-5) var(--space-5); }
+.dash-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3); }
+.dash-card h3 { font: 600 var(--text-md)/1.3 var(--font-display); margin: 0; overflow-wrap: anywhere; }
+.dash-count { color: var(--muted); font-size: var(--text-sm); margin-bottom: var(--space-2); }
+.dash-sheets { list-style: none; margin: 0; padding: 0; font-size: var(--text-sm); display: grid; gap: 2px; }
+.dash-sheets li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-sheets .more, .quiet { color: var(--muted); }
 .menu-swatch { display: inline-grid; grid-auto-flow: column; gap: 2px; padding: 3px; margin-right: 8px; flex: none;
                background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .menu-swatch i { width: 10px; height: 16px; border-radius: 3px; background: var(--primary); }

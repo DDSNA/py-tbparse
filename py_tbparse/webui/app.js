@@ -5,7 +5,7 @@ const statusEl = $('status');
 // still show up, under "Other", so the registry stays the source of truth.
 const GROUPS = [
   ['Workbook', ['overview', 'published-refs']],
-  ['Data', ['datasources', 'parameters', 'fields', 'raw-fields', 'calculated-fields', 'field-renames']],
+  ['Data', ['datasources', 'parameters', 'fields', 'raw-fields', 'calculated-fields', 'field-usage', 'missing-references', 'field-renames']],
   ['Data model', ['relationships', 'joins', 'relations', 'inferred-relationships', 'graph']],
   ['Dashboards', ['dashboards', 'dashboard-sheets']],
   ['SQL', ['custom-sql', 'initial-sql']],
@@ -18,6 +18,8 @@ const INFO = {
   'fields': ['Fields', 'Every column across all datasources.'],
   'raw-fields': ['Raw fields', 'Columns that come straight from the source.'],
   'calculated-fields': ['Calculated fields', 'Calculations and their formulas.'],
+  'field-usage': ['Field usage', 'Which worksheets, dashboards and calculations use each field.'],
+  'missing-references': ['Missing references', 'Calculations that name a field the workbook does not have.'],
   'field-renames': ['Field renames', 'Suggested clean names. Create a copy of the workbook with them applied.'],
   'joins': ['Joins', 'Join clauses from the physical layer.'],
   'relations': ['Relations', 'Physical tables and custom SQL relations.'],
@@ -451,6 +453,82 @@ function renderOverview() {
     cards.appendChild(card);
   });
   wrap.appendChild(cards);
+  fillReport(wrap, cards);
+}
+
+// ---- the report card: a sentence about the workbook, what deserves a look, what is on the dashboards ------
+
+const SEVERITY = {
+  problem: ['\u2716', 'Problem'],
+  warning: ['\u25B2', 'Needs a look'],
+  info: ['\u2022', 'Worth knowing'],
+};
+
+// Open a table with column filters already on, so a count on the card lands on exactly its rows.
+function openWithFilters(table, filters) {
+  const v = viewFor(table);
+  v.filters = (filters || []).map((f) => ({col: f.col, text: f.text}));
+  if (state.table === table) { showTable(); return; }
+  selectTable(table);
+}
+
+async function fillReport(wrap, cards) {
+  let rep;
+  try { rep = await fetchJSON('/overview'); } catch (e) { return; }
+  if (state.table !== 'overview' || !cards.isConnected) return;
+  const lead = el('p', 'lead', rep.summary);
+  wrap.insertBefore(lead, cards);
+
+  const heading = el('h2', 'section-title', 'Worth a look');
+  heading.id = 'healthTitle';
+  const list = el('ul', 'health');
+  list.setAttribute('aria-labelledby', 'healthTitle');
+  const serious = rep.health.filter((h) => h.severity !== 'info');
+  if (!serious.length) {
+    const ok = el('li', 'health-item ok');
+    ok.append(el('span', 'sev', '\u2713'), el('div', 'health-text', 'All clear. No broken relationships, missing references or unused calculations.'));
+    list.appendChild(ok);
+  }
+  rep.health.forEach((h) => {
+    const [icon, word] = SEVERITY[h.severity] || SEVERITY.info;
+    const li = el('li', 'health-item ' + h.severity);
+    const sev = el('span', 'sev', icon);
+    sev.setAttribute('aria-hidden', 'true');
+    const text = el('div', 'health-text');
+    text.append(el('span', 'sr-only', word + ': '), el('strong', '', h.title));
+    if (h.detail) text.append(el('span', 'health-detail', h.detail));
+    li.append(sev, text);
+    if (h.table) {
+      const go = el('button', 'btn small health-go', 'Show');
+      go.type = 'button';
+      go.dataset.health = h.id;
+      go.setAttribute('aria-label', 'Show the rows: ' + h.title);
+      go.addEventListener('click', () => openWithFilters(h.table, h.filters));
+      li.appendChild(go);
+    }
+    list.appendChild(li);
+  });
+  wrap.append(heading, list);
+
+  if (rep.dashboards.length || rep.worksheets.length) {
+    const title = el('h2', 'section-title', 'On the dashboards');
+    title.id = 'dashTitle';
+    const grid = el('div', 'dash-grid');
+    grid.setAttribute('role', 'list');
+    grid.setAttribute('aria-labelledby', 'dashTitle');
+    rep.dashboards.forEach((d) => {
+      const card = el('div', 'dash-card');
+      card.setAttribute('role', 'listitem');
+      card.append(el('h3', '', d.name), el('div', 'dash-count', plural(d.sheets.length, 'worksheet')));
+      const ul = el('ul', 'dash-sheets');
+      d.sheets.slice(0, 6).forEach((s) => ul.appendChild(el('li', '', s)));
+      if (d.sheets.length > 6) ul.appendChild(el('li', 'more', 'and ' + (d.sheets.length - 6) + ' more'));
+      card.appendChild(ul);
+      grid.appendChild(card);
+    });
+    if (!rep.dashboards.length) grid.appendChild(el('p', 'quiet', 'No dashboards. ' + plural(rep.worksheets.length, 'worksheet') + ' on their own.'));
+    wrap.append(title, grid);
+  }
 }
 
 // ---- the table: filtering, sorting and windowed rendering ---------------------------------------------

@@ -215,6 +215,19 @@ class TwbParser:
 
         return field_usage(self)
 
+    def get_missing_references(self) -> pd.DataFrame:
+        """Calculations that name a field the workbook does not have; see
+        `usage.missing_references`."""
+        from .usage import missing_references
+
+        return missing_references(self)
+
+    def get_report(self) -> dict:
+        """The workbook report card (summary, health checks); see `report.workbook_report`."""
+        from .report import workbook_report
+
+        return workbook_report(self)
+
     def get_renames(self, reference=None, **kwargs) -> pd.DataFrame:
         """Suggested clean names for everything in the report (fields,
         parameters, worksheets, dashboards, datasources, folders,

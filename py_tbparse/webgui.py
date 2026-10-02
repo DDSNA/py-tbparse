@@ -36,7 +36,7 @@ from .rename import (
     suggest_renames,
 )
 
-_STATE: dict = {"parser": None, "path": None, "uploaded": False}
+_STATE: dict = {"parser": None, "path": None, "uploaded": False, "report": None}
 
 # An uploaded workbook (drag and drop, file picker) has no path the user can name, so it is written to a
 # private temp directory, kept only until the next upload or exit.
@@ -268,6 +268,7 @@ def _open_response(parser: TwbParser, path: str, uploaded: bool = False, name: s
     _STATE["parser"] = parser
     _STATE["path"] = path
     _STATE["uploaded"] = uploaded
+    _STATE["report"] = None
     dashboards_df = parser.get_dashboards()
     return {
         "ok": True,
@@ -375,6 +376,20 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             self._send_json({"dot": dot})
+            return
+
+        if parsed.path == "/overview":
+            if _STATE["parser"] is None:
+                self._send_json({"error": "No workbook loaded"}, 400)
+                return
+            # computed on first request, so opening a workbook is no slower, then kept until the next one
+            if _STATE["report"] is None:
+                try:
+                    _STATE["report"] = _STATE["parser"].get_report()
+                except Exception as e:
+                    self._send_json({"error": f"could not build the report: {e}"}, 500)
+                    return
+            self._send_json(_STATE["report"])
             return
 
         if parsed.path == "/dashboards":
