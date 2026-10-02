@@ -82,3 +82,38 @@ def test_template_round_trip_on_every_workbook(tmp_path):
             assert all("already used by" in s for s in lost["status"]), (path.name, list(lost["field"]))
             apply_template(template, str(csv_path), datasource=entry["name"], allow_missing=True,
                            output_path=str(work / f"o{i}.twbx"))
+
+
+def test_answers_explain_and_checks_on_every_workbook(tmp_path, monkeypatch):
+    """Version 2 on real workbooks: ids are unique, nothing raises, and the answers a workbook keeps make
+    that same workbook again, byte for byte."""
+    import py_tbparse.templates as templates
+    from py_tbparse import broken_sheets, check_data, explain
+
+    monkeypatch.setattr(templates, "_now", lambda: "2026-10-02T00:00:00+00:00")
+    for n, path in enumerate(FILES):
+        work = tmp_path / f"w{n}"
+        work.mkdir()
+        book = work / "book.twb"
+        shutil.copy(path, book)
+        template = load_template(make_template(str(book)))
+        assert template.id and template.manifest["version"] == 2, path.name
+        for entry in template.manifest["datasources"]:
+            uids = [f["uid"] for f in entry["fields"]]
+            assert len(uids) == len(set(uids)), path.name
+        entry = next((e for e in template.manifest["datasources"] if e["fields"]), None)
+        if entry is None:
+            continue
+        csv_path = work / "d.csv"
+        with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+            csv.writer(fh).writerow([f["remote"] for f in entry["fields"]])
+        data = read_data(str(csv_path))
+        mapping = suggest_mapping(template, data, datasource=entry["name"])
+        for frame in (broken_sheets(template, mapping, datasource=entry["name"]),
+                      explain(template, data, mapping, datasource=entry["name"]),
+                      check_data(template, data, mapping, datasource=entry["name"])):
+            assert frame is not None, path.name
+        first = apply_template(template, str(csv_path), datasource=entry["name"], allow_missing=True,
+                               output_path=str(work / "first.twbx"))
+        again = apply_template(template, answers=first, allow_missing=True, output_path=str(work / "again.twbx"))
+        assert Path(first).read_bytes() == Path(again).read_bytes(), path.name

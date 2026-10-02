@@ -26,6 +26,7 @@ import io
 import json
 import os
 import re
+import uuid
 import zipfile
 from dataclasses import dataclass, field as _field
 from pathlib import Path
@@ -36,13 +37,13 @@ from lxml import etree
 
 from ._clean import is_missing
 from .parser import TwbParser
-from .rename import _match_key
+from .rename import _match_key, _words
 from .usage import field_usage
 
 MANIFEST_NAME = "template.json"
 ANSWERS_NAME = "template-answers.json"
 TEMPLATE_FORMAT = "py-tbparse-template"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2   # 2 adds template id/revision and a uid per field; version 1 still loads
 
 MAPPING_COLUMNS = [
     "datasource", "field", "caption", "datatype", "required", "used_by",
@@ -80,6 +81,17 @@ def _version() -> str:
     return __version__
 
 
+def _new_id() -> str:
+    return str(uuid.uuid4())
+
+
+def field_uid(datasource: str, name: str, role: str, datatype: str) -> str:
+    """A field's identity across template revisions: it survives a caption change, not a change of
+    the field's local name, role or type."""
+    raw = "\x1f".join((datasource or "", name or "", role or "", datatype or ""))
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
 def _endswith_tag(el, name: str) -> bool:
     # Tableau prefixes some tags with feature flags: `_.fcp.Flag.true...object-graph`.
     return isinstance(el.tag, str) and (el.tag == name or el.tag.endswith("..." + name))
@@ -111,6 +123,7 @@ def _physical_fields(ds) -> list[dict]:
             "remote": rec.findtext("remote-name") or local.strip("[]"),
             "table": rec.findtext("parent-name"),
             "datatype": rec.findtext("local-type") or "string",
+            "alias": rec.findtext("remote-alias"),
         })
     return out
 
@@ -164,7 +177,8 @@ def _strip_extracts(doc) -> int:
     return n
 
 
-def build_manifest(parser: TwbParser, name: Optional[str] = None, description: Optional[str] = None) -> dict:
+def build_manifest(parser: TwbParser, name: Optional[str] = None, description: Optional[str] = None,
+                   template_id: Optional[str] = None) -> dict:
     """The manifest `make_template` writes: what a template needs to be applied."""
     doc = parser.xml_doc
     usage = field_usage(parser)
@@ -179,15 +193,19 @@ def build_manifest(parser: TwbParser, name: Optional[str] = None, description: O
             if col is not None and col.get("{http://www.tableausoftware.com/xml/user}auto-column"):
                 continue  # Tableau's own [Number of Records] etc.; apply gives it its formula back
             u = used.get((dsname, f["name"]))
+            datatype = (col.get("datatype") if col is not None else None) or f["datatype"]
+            role = (col.get("role") if col is not None else None) or _role(f["datatype"])
             fields.append({
                 "name": f["name"],
+                "uid": field_uid(dsname, f["name"], role, datatype),
                 "caption": col.get("caption") if col is not None else None,
                 "remote": f["remote"],
-                "datatype": (col.get("datatype") if col is not None else None) or f["datatype"],
+                "alias": f.get("alias"),
+                "datatype": datatype,
                 # what the data delivered; differs from `datatype` when the author retyped the field
                 "physical_type": f["datatype"],
                 "customized": bool(col is not None and col.get("datatype-customized") == "true"),
-                "role": (col.get("role") if col is not None else None) or _role(f["datatype"]),
+                "role": role,
                 "required": bool(u and u.used),
                 "used_by": list(u.sheets) if u else [],
                 "description": _text_of(col.find("desc")) if col is not None and col.find("desc") is not None else None,
@@ -202,6 +220,8 @@ def build_manifest(parser: TwbParser, name: Optional[str] = None, description: O
     return {
         "format": TEMPLATE_FORMAT,
         "version": MANIFEST_VERSION,
+        "id": template_id or _new_id(),
+        "revision": 1,
         "name": name or src.stem,
         "description": description or "",
         "source": src.name,
@@ -245,10 +265,18 @@ def _package(parser: TwbParser, twb: bytes, extra: dict[str, bytes], keep_data: 
                     else:
                         dst.writestr(info, src.read(info.filename), compress_type=info.compress_type)
         else:
-            dst.writestr(Path(parser.path).name, twb)
+            dst.writestr(_member(Path(parser.path).name), twb)
         for name, data in extra.items():
-            dst.writestr(name, data)
+            dst.writestr(_member(name), data)
     return out.getvalue()
+
+
+def _member(name: str) -> zipfile.ZipInfo:
+    """A zip entry with a fixed timestamp, so the same inputs always make the same bytes."""
+    info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o644 << 16
+    return info
 
 
 def default_template_path(parser: TwbParser) -> str:
@@ -263,6 +291,7 @@ def make_template(
     description: Optional[str] = None,
     keep_data: bool = False,
     overwrite: bool = False,
+    template_id: Optional[str] = None,
 ) -> str:
     """Save a template made from a finished workbook; return its path.
 
@@ -274,7 +303,9 @@ def make_template(
     blanked. Extracts and packaged data files are left out unless
     `keep_data` (handy for an Accelerator-style template that opens with
     sample data). The source is never modified and nothing is overwritten
-    unless `overwrite=True`.
+    unless `overwrite=True`. The manifest carries an `id` (`template_id`, or
+    a new UUID) that stays the same across revisions of one template, and a
+    `revision` number.
     """
     if not isinstance(parser, TwbParser):
         parser = TwbParser(str(parser))
@@ -283,7 +314,7 @@ def make_template(
         raise TemplateError(f"a template is a .twbx file, got {out.suffix or 'no extension'}")
     if out.resolve() == Path(parser.twbx_path or parser.path).resolve():
         raise FileExistsError(f"refusing to overwrite the source workbook: {out}")
-    manifest = build_manifest(parser, name=name, description=description)
+    manifest = build_manifest(parser, name=name, description=description, template_id=template_id)
     doc = copy.deepcopy(parser.xml_doc)
     _scrub(doc)
     if not keep_data:
@@ -303,10 +334,20 @@ class Template:
     parser: TwbParser
     manifest: dict
     manifest_sha256: str = ""
+    _cache: dict = _field(default_factory=dict, repr=False, compare=False)
 
     @property
     def name(self) -> str:
         return self.manifest.get("name") or Path(self.path).stem
+
+    @property
+    def id(self) -> Optional[str]:
+        """Identity of the template across revisions; None for a version 1 manifest, which had none."""
+        return self.manifest.get("id")
+
+    @property
+    def revision(self) -> int:
+        return int(self.manifest.get("revision") or 1)
 
     def datasource(self, which: Optional[str] = None) -> dict:
         """The manifest entry of one template datasource, by internal name or
@@ -342,6 +383,17 @@ class Template:
         return pd.DataFrame(rows, columns=["parameter", "datatype", "value", "allowed"])
 
 
+def _fill_version_1(manifest: dict) -> None:
+    """What a version 1 manifest lacks, worked out the way `make` would have: a uid per field and a
+    revision. The `id` stays absent (None): there is nothing to derive a stable one from. The manifest's
+    `version` is left as read, so the file on disk is never rewritten."""
+    manifest.setdefault("revision", 1)
+    for ds in manifest.get("datasources", []):
+        for f in ds.get("fields", []):
+            f.setdefault("uid", field_uid(ds["name"], f["name"], f.get("role"), f.get("datatype")))
+            f.setdefault("alias", None)
+
+
 def load_template(path: str) -> Template:
     """Open a template made by `make_template`."""
     if not str(path).lower().endswith(".twbx"):
@@ -355,6 +407,7 @@ def load_template(path: str) -> Template:
         raise TemplateError(f"{path}: unknown template format {manifest.get('format')!r}")
     if int(manifest.get("version", 0)) > MANIFEST_VERSION:
         raise TemplateError(f"{path} was made by a newer py-tbparse (manifest v{manifest['version']})")
+    _fill_version_1(manifest)
     return Template(path=str(path), parser=TwbParser(str(path)), manifest=manifest,
                     manifest_sha256=hashlib.sha256(raw).hexdigest())
 
@@ -372,6 +425,28 @@ class DataSource:
 
     def names(self) -> list[str]:
         return [f["name"] for f in self.fields]
+
+    def column(self, name: str) -> str:
+        """The data's column a mapping means by `name`. `load_mapping` trims the spaces around what a person
+        typed, so a header such as `'Date of Birth '` comes back as `'Date of Birth'`: take the exact column
+        if there is one, else the only column that trims to `name`, else `name` itself."""
+        names = self.names()
+        if name in names:
+            return name
+        trimmed = [n for n in names if n.strip() == name]
+        return trimmed[0] if len(trimmed) == 1 else name
+
+    def fingerprint(self) -> str:
+        """A hash of the column names and types: when it changes between two runs, the data's shape did."""
+        raw = "\x1e".join(f"{f['name']}\x1f{f['datatype'] or ''}" for f in self.fields)
+        return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def role(self, name: str) -> Optional[str]:
+        """`dimension` or `measure` when the data says so (a Tableau data source does; a CSV does not)."""
+        for f in self.fields:
+            if f["name"] == name:
+                return f.get("role")
+        return None
 
     def datatype(self, name: str) -> Optional[str]:
         for f in self.fields:
@@ -430,7 +505,9 @@ def read_data(path: str, datasource: Optional[str] = None) -> DataSource:
         raise TemplateError(f"{p.name}: expected one datasource with a connection, found {len(candidates)}"
                             + (f" ({', '.join(names)}); pick one" if names else ""))
     ds = candidates[0]
-    fields = [{"name": f["remote"], "datatype": f["datatype"], "local": f["name"]} for f in _physical_fields(ds)]
+    roles = {c.get("name"): c.get("role") for c in ds.xpath("./column[@name][@role]")}
+    fields = [{"name": f["remote"], "datatype": f["datatype"], "local": f["name"], "role": roles.get(f["name"])}
+              for f in _physical_fields(ds)]
     if not fields:
         raise TemplateError(f"{p.name}: the datasource lists no columns (open it in Tableau once and save)")
     return DataSource(path=str(p.resolve()), kind="tableau", fields=fields, element=ds)
@@ -463,9 +540,14 @@ def suggest_mapping(
     (`close match`, never across a different number). Types are checked like
     Tableau's Accelerator mapper: a string column is never offered for a
     number or a date (`type mismatch`, left unmapped); integer vs real and
-    date vs datetime map with a warning status. Each column is used once,
-    required fields first. Unmapped fields have `status` `missing`
-    (required) or `unused` (not used by any sheet).
+    date vs datetime map with a warning status, and so does a column that
+    Tableau says is a dimension where the template has a measure, or the
+    reverse (`role differs`; only a Tableau data source states a role, a
+    CSV does not). The field's alias is tried after its caption, name and
+    original column name. Each column is used once, required fields first;
+    between equally close columns the one that comes first wins. Unmapped
+    fields have `status` `missing` (required) or `unused` (not used by any
+    sheet).
 
     Returns `datasource, field, caption, datatype, required, used_by,
     mapped_to, data_type, status, score`.
@@ -477,13 +559,14 @@ def suggest_mapping(
     for n in data.names():
         by_key.setdefault(_match_key(n), n)
     keys = list(by_key)
+    position = {n: i for i, n in enumerate(data.names())}   # ties go to the column that comes first
     taken: set = set()
     taken_by: dict = {}
     rows = []
     fields = sorted(entry["fields"], key=lambda f: not f["required"])
     for f in fields:
-        names = [f.get("caption"), f["name"].strip("[]"), f.get("remote")]
-        names = [n for n in names if n]
+        names = [f.get("caption"), f["name"].strip("[]"), f.get("remote"), f.get("alias")]
+        names = list(dict.fromkeys(n for n in names if n))
         pick, status, score = None, None, None
         for n in names:
             k = _match_key(n)
@@ -501,10 +584,11 @@ def suggest_mapping(
                     if re.findall(r"\d+", cand) != digits or by_key[cand] in taken:
                         continue
                     ratio = difflib.SequenceMatcher(None, k, cand).ratio()
-                    if best is None or ratio > best[1]:
-                        best = (by_key[cand], ratio)
+                    rank = (ratio, -position[by_key[cand]])
+                    if best is None or rank > best[1]:
+                        best = (by_key[cand], rank)
             if best:
-                pick, status, score = best[0], "close match", round(best[1], 3)
+                pick, status, score = best[0], "close match", round(best[1][0], 3)
         if pick is not None:
             # Compare like with like: the column the template was built on vs the new one.
             # A field the author retyped keeps that type; Tableau converts the new column.
@@ -517,6 +601,8 @@ def suggest_mapping(
                 pick, status, score = None, f"type mismatch ({data.datatype(pick)} column {pick!r})", None
             elif problem:
                 status = problem
+            elif data.role(pick) and f.get("role") and data.role(pick) != f["role"]:
+                status = "role differs"   # a dimension where the template has a measure, or the reverse; still mapped
         if pick is not None:
             taken.add(pick)
             taken_by[pick] = f["name"]
@@ -555,13 +641,168 @@ def load_mapping(source: Union[str, os.PathLike, pd.DataFrame]) -> pd.DataFrame:
     return df
 
 
+BROKEN_COLUMNS = ["field", "caption", "sheets", "dashboards", "calculations", "filters"]
+
+
+def _usage_of(template: Template) -> dict:
+    """`field_usage` of the template's workbook by (datasource, field), and which worksheets filter on
+    each field. Worked out once per template."""
+    cached = template._cache.get("usage")
+    if cached is None:
+        usage = {(r.datasource, r.field): r for r in field_usage(template.parser).itertuples(index=False)}
+        filters: dict[tuple, set] = {}
+        for ws in template.parser.xml_doc.xpath("/workbook/worksheets/worksheet[@name]"):
+            for flt in ws.xpath(".//filter[@column]"):
+                m = re.match(r"\[([^\]]+)\]\.\[([^\]]+)\]", flt.get("column"))
+                if not m:
+                    continue
+                ds, inst = m.groups()
+                base = ws.xpath(".//datasource-dependencies[@datasource=$d]/column-instance[@name=$i]/@column",
+                                d=ds, i=f"[{inst}]")
+                filters.setdefault((ds, base[0] if base else f"[{inst}]"), set()).add(ws.get("name"))
+        cached = template._cache["usage"] = (usage, filters)
+    return cached
+
+
 def broken_sheets(template: Template, mapping: pd.DataFrame, datasource: Optional[str] = None) -> pd.DataFrame:
-    """Required fields with no column, and the sheets that will not work."""
+    """Required fields with no column, and what will not work without them: the worksheets and dashboards
+    that use the field, the calculations, sets and groups built on it, and the worksheets that filter on it.
+    Parameters are not followed. Returns `field, caption, sheets, dashboards, calculations, filters`, the
+    last four as `; `-joined names."""
     entry = template.datasource(datasource)
+    usage, filters = _usage_of(template)
     mapped = {r["field"] for r in mapping.to_dict("records") if r.get("mapped_to")}
-    rows = [{"field": f["name"], "caption": f.get("caption"), "sheets": "; ".join(f.get("used_by") or [])}
-            for f in entry["fields"] if f["required"] and f["name"] not in mapped]
-    return pd.DataFrame(rows, columns=["field", "caption", "sheets"])
+    rows = []
+    for f in entry["fields"]:
+        if not f["required"] or f["name"] in mapped:
+            continue
+        u = usage.get((entry["name"], f["name"]))
+        rows.append({"field": f["name"], "caption": f.get("caption"), "sheets": "; ".join(f.get("used_by") or []),
+                     "dashboards": "; ".join(u.dashboards) if u else "",
+                     "calculations": "; ".join(u.calculations) if u else "",
+                     "filters": "; ".join(sorted(filters.get((entry["name"], f["name"]), ())))})
+    return pd.DataFrame(rows, columns=BROKEN_COLUMNS)
+
+
+# ------------------------------------------------------- checks and explain --
+
+CHECK_COLUMNS = ["check", "severity", "field", "column", "detail"]
+EXPLAIN_COLUMNS = ["change", "severity", "kind", "object", "detail"]
+_SEVERITY = {"error": 0, "warning": 1, "info": 2}
+_KEY_WORDS = {"id", "key", "code", "uuid", "guid", "number", "no", "num"}
+_SAMPLE_ROWS = 2000
+
+
+def _label(f: dict) -> str:
+    return f.get("caption") or f["name"].strip("[]")
+
+
+def _chosen(mapping: pd.DataFrame, data: DataSource) -> dict[str, str]:
+    return {r["field"]: data.column(r["mapped_to"])
+            for r in load_mapping(mapping).to_dict("records") if r.get("mapped_to")}
+
+
+def check_data(
+    template: Template,
+    data: DataSource,
+    mapping: pd.DataFrame,
+    datasource: Optional[str] = None,
+    deep: bool = False,
+) -> pd.DataFrame:
+    """What about the new data may make the workbook misleading even though it opens: findings only, never
+    a reason to refuse an apply. Returns `check, severity, field, column, detail`.
+
+    `dimension-missing`: a dimension the template's sheets use has no column, so the data may be at another
+    grain. For a CSV also `empty-column` (a required field's column has no values) and `duplicate-key`
+    (a column that looks like a key, `*_id`, `*_key`, `*_code`..., repeats a value). A CSV is judged on its
+    first 2000 rows unless `deep`, which reads all of it."""
+    entry = template.datasource(datasource)
+    chosen = _chosen(mapping, data)
+    by_field = {f["name"]: f for f in entry["fields"]}
+    rows = []
+    for f in entry["fields"]:
+        if f["required"] and f.get("role") == "dimension" and f["name"] not in chosen:
+            rows.append({"check": "dimension-missing", "severity": "warning", "field": f["name"], "column": "",
+                         "detail": f"{', '.join(f.get('used_by') or [])} group or filter by {_label(f)}, "
+                                   "which the data has no column for; its rows may be at a different grain"})
+    if data.kind == "csv":
+        sep = "\t" if Path(data.path).suffix.lower() == ".tsv" else ","
+        frame = pd.read_csv(data.path, sep=sep, dtype=str, keep_default_na=False, encoding="utf-8-sig",
+                            nrows=None if deep else _SAMPLE_ROWS)
+        scope = f"in all {len(frame)} rows" if deep or len(frame) < _SAMPLE_ROWS else f"in the first {_SAMPLE_ROWS} rows"
+        for field, column in chosen.items():
+            values = frame[column].str.strip()
+            filled = values[values != ""]
+            if by_field[field]["required"] and filled.empty:
+                rows.append({"check": "empty-column", "severity": "warning", "field": field, "column": column,
+                             "detail": f"{column!r} has no values {scope}, and {', '.join(by_field[field].get('used_by') or [])} use it"})
+            words = _words(column)
+            if words and words[-1].lower() in _KEY_WORDS and not filled.empty and filled.duplicated().any():
+                repeated = int(filled.duplicated(keep=False).sum())
+                rows.append({"check": "duplicate-key", "severity": "info", "field": field, "column": column,
+                             "detail": f"{column!r} looks like a key but {repeated} of {len(filled)} values repeat {scope}"})
+    return pd.DataFrame(rows, columns=CHECK_COLUMNS).sort_values(
+        ["severity", "check", "field"], key=lambda s: s.map(_SEVERITY) if s.name == "severity" else s,
+        kind="stable", ignore_index=True)
+
+
+def explain(template: Template, data: DataSource, mapping: pd.DataFrame,
+            datasource: Optional[str] = None) -> pd.DataFrame:
+    """Everything an apply changes besides the connection, so nothing is a surprise. Returns `change,
+    severity, kind, object, detail` (errors first).
+
+    `type-changed`: a field takes the type of the column that now feeds it. `field-dropped`: a field has no
+    column. `affected`: what that breaks, one row per worksheet, dashboard, calculation, set or group and
+    filter that uses the dropped field, directly or through others. `mapping-note`: a field mapped by a close
+    match or to a column of another role."""
+    entry = template.datasource(datasource)
+    mapping = load_mapping(mapping)
+    chosen = _chosen(mapping, data)
+    status = {r["field"]: r.get("status", "") for r in mapping.to_dict("records")}
+    usage, filters = _usage_of(template)
+    kind_of = {(u.datasource, u.caption or u.field.strip("[]")): u.kind for u in usage.values()}
+    rows = []
+    unused_dropped: list[str] = []
+
+    def add(change, severity, kind, obj, detail):
+        rows.append({"change": change, "severity": severity, "kind": kind, "object": obj, "detail": detail})
+
+    for f in entry["fields"]:
+        label = _label(f)
+        if f["name"] in chosen:
+            column = chosen[f["name"]]
+            new = data.datatype(column)
+            if new and new != f["datatype"] and not f.get("customized"):
+                bad = _type_status(f.get("physical_type") or f["datatype"], new) == "type mismatch"
+                add("type-changed", "warning" if bad else "info", "field", label,
+                    f"{f['datatype']} -> {new}, from column {column!r}")
+            if status.get(f["name"]) in ("close match", "role differs"):
+                add("mapping-note", "info" if status[f["name"]] == "close match" else "warning", "field", label,
+                    f"{status[f['name']]}: column {column!r}")
+            continue
+        used = f.get("used_by") or []
+        if not f["required"] and not used:
+            unused_dropped.append(label)       # one row for all of these: they change nothing a sheet shows
+            continue
+        add("field-dropped", "error" if f["required"] else "info", "field", label,
+            "no column in the data" + (f"; used by {', '.join(used)}" if used else "; no sheet uses it"))
+        u = usage.get((entry["name"], f["name"]))
+        for sheet in used:
+            add("affected", "error", "sheet", sheet, f"uses {label}")
+        for dash in (u.dashboards if u else []):
+            add("affected", "warning", "dashboard", dash, f"shows a sheet that uses {label}")
+        for calc in (u.calculations if u else []):
+            kind = "calculation" if kind_of.get((entry["name"], calc), "calculated") == "calculated" else "set or group"
+            add("affected", "error", kind, calc, f"is built on {label}")
+        for sheet in sorted(filters.get((entry["name"], f["name"]), ())):
+            add("affected", "error", "filter", sheet, f"filters on {label}")
+    if unused_dropped:
+        shown = ", ".join(unused_dropped[:8]) + (f", and {len(unused_dropped) - 8} more" if len(unused_dropped) > 8 else "")
+        add("field-dropped", "info", "fields", f"{len(unused_dropped)} fields no sheet uses",
+            f"no column in the data: {shown}")
+    return pd.DataFrame(rows, columns=EXPLAIN_COLUMNS).sort_values(
+        ["severity", "change", "kind", "object"], key=lambda s: s.map(_SEVERITY) if s.name == "severity" else s,
+        kind="stable", ignore_index=True)
 
 
 # ----------------------------------------------------------------- apply --
@@ -720,6 +961,109 @@ def _tableau_connection(data: DataSource, local_of: dict[str, str]):
     return conn, extras
 
 
+# --------------------------------------------------------------- answers --
+
+ANSWERS_FORMAT = TEMPLATE_FORMAT + "-answers"
+ANSWERS_VERSION = 2   # 2 adds the template id/revision, per-datasource entries, profiles and a schema fingerprint
+_CREDENTIAL_KEYS = ("password", "username", "token", "secret")
+# Keys under these hold names the user chose (parameter captions, field names): not part of the format.
+_FREE_KEYS = ("parameters", "mapping")
+
+
+def _reject_credentials(node, path: str = "") -> None:
+    """An answers file is shared and kept in version control: it never holds credentials. Credentials are
+    entered in Tableau on opening the workbook, as with a Power BI template."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if str(key).lower() in _CREDENTIAL_KEYS:
+                raise TemplateError(f"answers must not hold credentials, but have {path}{key!r}; "
+                                    "enter them in Tableau when you open the workbook")
+            if key not in _FREE_KEYS:
+                _reject_credentials(value, f"{path}{key}.")
+    elif isinstance(node, list):
+        for i, item in enumerate(node):
+            _reject_credentials(item, f"{path}{i}.")
+
+
+def load_answers(source: Union[str, os.PathLike, dict]) -> dict:
+    """Answers for `apply_template`: a dict, a standalone `*.answers.json`, or a workbook made by
+    `apply_template` (its `template-answers.json`). Version 1 answers load too."""
+    if isinstance(source, dict):
+        answers = copy.deepcopy(source)
+    else:
+        path = Path(source)
+        if path.suffix.lower() == ".twbx":
+            answers = read_answers(str(path))
+            if answers is None:
+                raise TemplateError(f"{path.name} has no {ANSWERS_NAME}; it was not made by `template apply`")
+        else:
+            try:
+                answers = json.loads(path.read_text(encoding="utf-8-sig"))
+            except FileNotFoundError:
+                raise
+            except json.JSONDecodeError as e:
+                raise TemplateError(f"{path.name} is not valid JSON: {e}") from None
+        if isinstance(answers, dict):
+            answers.setdefault("_base_dir", str(path.resolve().parent))
+    if not isinstance(answers, dict) or answers.get("format") != ANSWERS_FORMAT:
+        raise TemplateError(f"not an answers file (format {ANSWERS_FORMAT!r} expected)")
+    if int(answers.get("version", 0)) > ANSWERS_VERSION:
+        raise TemplateError(f"answers were made by a newer py-tbparse (answers v{answers['version']})")
+    _reject_credentials(answers)
+    return answers
+
+
+def _answers_entries(answers: dict) -> list[dict]:
+    """The per-datasource entries (`datasource`, `data`, `mapping`, `missing`) of answers. Version 1
+    answers held one datasource at the top level."""
+    if answers.get("datasources"):
+        return [copy.deepcopy(e) for e in answers["datasources"]]
+    if answers.get("datasource"):
+        return [{"datasource": answers["datasource"], "data": answers.get("data") or {},
+                 "mapping": answers.get("mapping") or {}, "missing": answers.get("missing") or []}]
+    return []
+
+
+def _answers_entry(answers: dict, datasource: str) -> dict:
+    """What the answers say about one template datasource, or {}."""
+    return next((e for e in _answers_entries(answers) if e.get("datasource") == datasource), {})
+
+
+def _raw_value(datatype: str, literal: str) -> str:
+    """The inverse of `_param_literal`: `"East"` -> `East`, `#2026-01-31#` -> `2026-01-31`."""
+    literal = str(literal)
+    if datatype in _DATES and literal.startswith("#") and literal.endswith("#"):
+        return literal[1:-1]
+    if datatype not in _NUMERIC and datatype != "boolean" and literal.startswith('"') and literal.endswith('"'):
+        return literal[1:-1].replace('""', '"')
+    return literal
+
+
+def _answers_parameters(answers: dict, template: Template) -> dict[str, str]:
+    """The parameter values saved in answers (stored as Tableau literals), as the values a caller passes."""
+    types = {p["caption"]: p["datatype"] for p in template.manifest.get("parameters", [])}
+    return {k: _raw_value(types.get(k, "string"), v) for k, v in (answers.get("parameters") or {}).items()}
+
+
+def _overlay_mapping(mapping: pd.DataFrame, saved: dict, data: DataSource, entry: dict) -> tuple[pd.DataFrame, list]:
+    """The suggested mapping with the saved choices put back. A saved column the data no longer has, or a
+    field the template no longer has, is left to the suggestion and reported as stale."""
+    mapping = mapping.copy()
+    fields = {f["name"] for f in entry["fields"]}
+    columns = set(data.names())
+    stale = []
+    for field, column in saved.items():
+        if field not in fields or column not in columns:
+            stale.append(field)
+            continue
+        for i in mapping.index[(mapping["mapped_to"] == column) & (mapping["field"] != field)]:
+            mapping.loc[i, ["mapped_to", "data_type", "score"]] = ["", "", None]    # the column now feeds another field
+            mapping.loc[i, "status"] = "missing" if mapping.loc[i, "required"] else "unused"
+        row = mapping["field"] == field
+        mapping.loc[row, ["mapped_to", "data_type", "status", "score"]] = [column, data.datatype(column), "from answers", 1.0]
+    return mapping, sorted(stale)
+
+
 def default_output_path(template: Template, data: DataSource) -> str:
     stem = Path(template.path).name
     for suffix in (".template.twbx", ".twbx"):
@@ -729,9 +1073,82 @@ def default_output_path(template: Template, data: DataSource) -> str:
     return str(Path(template.path).with_name(f"{stem}_{Path(data.path).stem}.twbx"))
 
 
+@dataclass
+class ApplyPlan:
+    """Everything `apply_template` has settled before it writes: the template and its datasource entry, the
+    data, the mapping (suggested, edited or from answers) and the parameter values to set."""
+
+    template: Template
+    entry: dict
+    data: DataSource
+    mapping: pd.DataFrame
+    params: dict
+    saved: Optional[dict] = None       # the answers, if any
+    stale: list = _field(default_factory=list)    # saved mapping entries that no longer fit
+    changed: bool = False              # the data's columns differ from the answers' last run
+
+
+def resolve_apply(
+    template: Union[Template, str],
+    data: Union[DataSource, str, None] = None,
+    mapping: Optional[pd.DataFrame] = None,
+    params: Optional[dict[str, str]] = None,
+    datasource: Optional[str] = None,
+    data_datasource: Optional[str] = None,
+    answers: Union[str, os.PathLike, dict, None] = None,
+    profile: Optional[str] = None,
+    fuzzy_cutoff: float = 0.85,
+) -> ApplyPlan:
+    """What `apply_template` would do, without writing: the same arguments, the same precedence (explicit
+    argument, then profile, then saved answers), the same errors."""
+    if not isinstance(template, Template):
+        template = load_template(template)
+    saved = load_answers(answers) if answers is not None else None
+    chosen_profile: dict = {}
+    if profile is not None:
+        if saved is None:
+            raise TemplateError("a profile is a named set inside an answers file; pass answers= too")
+        profiles = saved.get("profiles") or {}
+        if profile not in profiles:
+            raise TemplateError(f"answers have no profile {profile!r}; they have: "
+                                + (", ".join(sorted(profiles)) or "none"))
+        chosen_profile = profiles[profile]
+    if saved is not None and template.id and saved.get("template", {}).get("id") not in (None, template.id):
+        raise TemplateError("these answers were made for another template "
+                            f"(id {saved['template']['id']}, this one is {template.id})")
+    if datasource is None and saved is not None and saved.get("datasource"):
+        datasource = saved["datasource"]
+    entry = template.datasource(datasource)
+    prior = _answers_entry(saved, entry["name"]) if saved is not None else {}
+    if data is None:
+        file = chosen_profile.get("data") or (prior.get("data") or {}).get("file")
+        if not file:
+            raise TemplateError("no data: pass data=, or answers/profile that name a data file")
+        if not Path(file).is_absolute() and saved and saved.get("_base_dir"):
+            file = str(Path(saved["_base_dir"]) / file)
+        if data_datasource is None and not chosen_profile.get("data"):
+            data_datasource = (prior.get("data") or {}).get("datasource")
+        data = file
+    if not isinstance(data, DataSource):
+        data = read_data(data, datasource=data_datasource)
+    stale: list = []
+    if mapping is None:
+        mapping = suggest_mapping(template, data, datasource=entry["name"], fuzzy_cutoff=fuzzy_cutoff)
+        if prior.get("mapping"):
+            mapping, stale = _overlay_mapping(mapping, prior["mapping"], data, entry)
+    else:
+        mapping = load_mapping(mapping)
+    changed = bool(prior.get("data", {}).get("schema_fingerprint")) and \
+        prior["data"]["schema_fingerprint"] != data.fingerprint()
+    merged = {**(_answers_parameters(saved, template) if saved is not None else {}),
+              **(chosen_profile.get("parameters") or {}), **(params or {})}
+    return ApplyPlan(template=template, entry=entry, data=data, mapping=mapping, params=merged,
+                     saved=saved, stale=stale, changed=changed)
+
+
 def apply_template(
     template: Union[Template, str],
-    data: Union[DataSource, str],
+    data: Union[DataSource, str, None] = None,
     mapping: Optional[pd.DataFrame] = None,
     params: Optional[dict[str, str]] = None,
     output_path: Optional[str] = None,
@@ -740,6 +1157,8 @@ def apply_template(
     allow_missing: bool = False,
     overwrite: bool = False,
     report: Optional[dict] = None,
+    answers: Union[str, os.PathLike, dict, None] = None,
+    profile: Optional[str] = None,
 ) -> str:
     """Make a new workbook from a template and new data; return its path.
 
@@ -750,6 +1169,16 @@ def apply_template(
     parameter values by caption (`{"Top N": "10"}`), checked against the
     parameter's type and allowed values.
 
+    `answers` runs this without asking: a `*.answers.json`, a workbook made
+    by an earlier `apply_template`, or a dict (see `load_answers`). Its saved
+    mapping is put over the suggestion (a saved column the data no longer
+    has is reported as `report["stale_mapping"]`, and `report["schema_changed"]`
+    says whether the data's columns differ from last time), its parameters
+    are set, and `data` may be left out to use the file it names. `profile`
+    picks a named set from the answers' `profiles` (`{"prod": {"parameters":
+    {...}, "data": "prod.csv"}}`). An explicit argument beats the profile,
+    which beats the saved answers. Answers never hold credentials.
+
     The template datasource's connection is replaced by one to the new data
     (a CSV file, or the connection of the given workbook / .tds); every
     field keeps the local name its sheets and formulas use. The answers
@@ -758,24 +1187,20 @@ def apply_template(
     `<template>_<data>.twbx` beside the template) and is never overwritten
     unless `overwrite=True`.
     """
-    if not isinstance(template, Template):
-        template = load_template(template)
-    if not isinstance(data, DataSource):
-        data = read_data(data, datasource=data_datasource)
-    entry = template.datasource(datasource)
-    if mapping is None:
-        mapping = suggest_mapping(template, data, datasource=entry["name"])
-    else:
-        mapping = load_mapping(mapping)
+    plan = resolve_apply(template, data, mapping=mapping, params=params, datasource=datasource,
+                         data_datasource=data_datasource, answers=answers, profile=profile)
+    template, data, entry, mapping, params = plan.template, plan.data, plan.entry, plan.mapping, plan.params
+    saved, stale, changed = plan.saved, plan.stale, plan.changed
     by_field = {f["name"]: f for f in entry["fields"]}
     chosen: dict[str, str] = {}
     for r in mapping.to_dict("records"):
         if r["field"] not in by_field:
             raise TemplateError(f"mapping names {r['field']!r}, which the template does not have")
         if r.get("mapped_to"):
-            if r["mapped_to"] not in data.names():
+            column = data.column(r["mapped_to"])
+            if column not in data.names():
                 raise TemplateError(f"mapping uses column {r['mapped_to']!r}, which {Path(data.path).name} does not have")
-            chosen[r["field"]] = r["mapped_to"]
+            chosen[r["field"]] = column
     missing = [f for f in entry["fields"] if f["required"] and f["name"] not in chosen]
     if missing and not allow_missing:
         sheets = sorted({s for f in missing for s in f.get("used_by") or []})
@@ -846,32 +1271,47 @@ def apply_template(
         if c.get(_AUTO_COLUMN) == "numrec" and c.find("calculation") is None and c.get("name") not in fed:
             etree.SubElement(c, "calculation", {"class": "tableau", "formula": "1"})
 
-    applied_params = _set_parameters(doc, params or {}, template)
-    answers = {
-        "format": TEMPLATE_FORMAT + "-answers",
-        "version": MANIFEST_VERSION,
-        "created": _now(),
-        "created_with": f"py-tbparse {_version()}",
-        "template": {"name": template.name, "file": Path(template.path).name,
-                     "manifest_sha256": template.manifest_sha256},
-        "data": {"file": data.path, "kind": data.kind,
-                 "datasource": data.element.get("name") if data.element is not None else None},
+    applied_params = _set_parameters(doc, params, template)
+    this = {
         "datasource": entry["name"],
+        "data": {"file": data.path, "kind": data.kind,
+                 "datasource": data.element.get("name") if data.element is not None else None,
+                 "schema_fingerprint": data.fingerprint()},
         "mapping": {fld: col for fld, col in chosen.items()},
         "missing": [f["name"] for f in missing],
-        "parameters": applied_params,
     }
+    order = [e["name"] for e in template.manifest.get("datasources", [])]
+    others = [e for e in _answers_entries(saved) if e.get("datasource") != entry["name"]] if saved is not None else []
+    entries = sorted(others + [this], key=lambda e: order.index(e["datasource"]) if e["datasource"] in order else len(order))
+    out_answers = {
+        "format": ANSWERS_FORMAT,
+        "version": ANSWERS_VERSION,
+        "created": _now(),
+        "created_with": f"py-tbparse {_version()}",
+        "template": {"id": template.id, "revision": template.revision, "name": template.name,
+                     "file": Path(template.path).name, "manifest_sha256": template.manifest_sha256},
+        # the datasource this run filled, as version 1 kept it; `datasources` has them all
+        "data": this["data"], "datasource": this["datasource"], "mapping": this["mapping"], "missing": this["missing"],
+        "parameters": applied_params,
+        "datasources": entries,
+        "profiles": copy.deepcopy((saved or {}).get("profiles") or {}),
+    }
+    if profile is not None:
+        out_answers["profile"] = profile
+    _reject_credentials(out_answers)
     twb = etree.tostring(doc, xml_declaration=True, encoding="utf-8")
     out = Path(output_path) if output_path else Path(default_output_path(template, data))
     if out.suffix.lower() != ".twbx":
         raise TemplateError(f"output must be a .twbx file, got {out.suffix or 'no extension'}")
     if out.resolve() in (Path(template.path).resolve(), Path(data.path).resolve()):
         raise FileExistsError(f"refusing to overwrite an input: {out}")
-    packed = _package(template.parser, twb, {ANSWERS_NAME: json.dumps(answers, indent=2).encode("utf-8")},
+    packed = _package(template.parser, twb, {ANSWERS_NAME: json.dumps(out_answers, indent=2).encode("utf-8")},
                       keep_data=False, drop=[MANIFEST_NAME])
     _write_new(out, packed, overwrite)
     if report is not None:
         report.update(mapped=len(chosen), missing=len(missing), parameters=len(applied_params))
+        if saved is not None:
+            report.update(stale_mapping=stale, schema_changed=changed)
     return str(out)
 
 
