@@ -301,6 +301,7 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     up.add_argument("--old", metavar="TEMPLATE", help="the revision the workbook was made from "
                                                       "(needed only if its answers do not keep that)")
     up.add_argument("--data", "-d", help="use this data file instead of the one the answers name")
+    up.add_argument("--sheet", help="the worksheet of an Excel --data file, by name or by index from 0")
     up.add_argument("--datasource", help="which template datasource to update (when it has several)")
     up.add_argument("--mapping", "-m", help="use this edited mapping CSV instead of the saved one")
     up.add_argument("--allow-missing", action="store_true",
@@ -314,8 +315,11 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
         description="Without --write this only prints the suggested mapping and what would break.",
     )
     ap_.add_argument("template")
-    ap_.add_argument("--data", "-d", help="the new data: a .csv, or a .twb/.twbx/.tds connected to it "
+    ap_.add_argument("--data", "-d", help="the new data: a .csv, an .xlsx/.xlsm (see --sheet; needs "
+                                          "py-tbparse[excel]), or a .twb/.twbx/.tds connected to it "
                                           "(leave out when --answers or --profile name the data)")
+    ap_.add_argument("--sheet", help="the worksheet of an Excel --data file, by name or by index from 0 "
+                                     "(needed when several are visible)")
     ap_.add_argument("--answers", "-a", metavar="PATH",
                      help="an answers file (*.answers.json) or a workbook made by 'template apply': "
                           "its saved mapping and parameters are the starting point")
@@ -342,6 +346,11 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _sheet_arg(value):
+    """`--sheet 2` is an index, `--sheet Orders` a name (a sheet really named `2` can be reached by index)."""
+    return int(value) if value is not None and value.lstrip("-").isdigit() else value
+
+
 def _run_template_update(args) -> int:
     t = load_template(args.template)
     report: dict = {}
@@ -361,7 +370,7 @@ def _run_template_update(args) -> int:
         out = update_from_answers(
             t, args.workbook, output_path=args.write or None, report=report, allow_missing=args.allow_missing,
             mapping=load_mapping(args.mapping) if args.mapping else None, old=args.old, data=args.data,
-            datasource=args.datasource)
+            datasource=args.datasource, sheet=_sheet_arg(args.sheet))
     except TemplateError:
         if report.get("changes") is not None and len(report["changes"]):
             _write(_df_text(report["changes"], args.format), None, stream=sys.stderr)
@@ -413,7 +422,8 @@ def _run_template(argv: list[str]) -> int:
             params[k.strip()] = v
         plan = resolve_apply(t, args.data, mapping=load_mapping(args.mapping) if args.mapping else None,
                              params=params, datasource=args.datasource, data_datasource=args.data_datasource,
-                             answers=args.answers, profile=args.profile, fuzzy_cutoff=args.cutoff)
+                             answers=args.answers, profile=args.profile, fuzzy_cutoff=args.cutoff,
+                             sheet=_sheet_arg(args.sheet))
         data, mapping = plan.data, plan.mapping
         datasource = plan.entry["name"]
         _write(_df_text(mapping, args.format), None)

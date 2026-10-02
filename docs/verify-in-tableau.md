@@ -26,7 +26,7 @@ SQL Server connection (expected); files 2 and 3 opened without a prompt and drew
 as verified for the template path of that workbook shape (prefixed object model, one CSV table). Not yet looked at:
 the plain object-model form, templates over several tables, and the renamed captions of file 1 with its data reachable.
 
-## Make the three files
+## Make the files
 
 On the machine that has Tableau Desktop (the CSV connection stores the CSV's absolute path):
 
@@ -43,6 +43,7 @@ It refuses a folder that is not empty and prints the schema and reference result
 | `1-renamed.twb` | Every rename py-tbparse suggests, applied (field and dashboard captions). Renaming does not touch the connection, so it asks for the same server as file 0. |
 | `2-template-on-csv.twbx` | A template made from the original, applied to `data/*-sample.csv` (made-up values, every column the template needs). |
 | `3-template-on-workbook.twbx` | The same template applied to file 2, so the connection is borrowed from a workbook instead of written from a CSV. |
+| `4-template-on-excel.twbx` | The same template applied to `data/*-sample.xlsx` (the CSV's rows in one sheet called `Data`, with real Excel dates and booleans); only made when `openpyxl` is installed. Not yet opened in Tableau: check that it opens without a prompt, that the sheets draw, and that date fields are dates. |
 
 ## What to look at
 

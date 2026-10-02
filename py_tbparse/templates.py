@@ -27,6 +27,7 @@ import json
 import os
 import re
 import uuid
+import warnings
 import zipfile
 from dataclasses import dataclass, field as _field
 from pathlib import Path
@@ -61,6 +62,10 @@ _DATA_SUFFIXES = (".hyper", ".tde", ".csv", ".txt", ".tsv", ".xlsx", ".xls", ".x
 # Tableau's remote-type codes for the file connections we write. In the 200-workbook corpus a text
 # file's date column is 133 (62 records, 28 workbooks) far more often than 7 (7 records, 5 workbooks).
 _REMOTE_TYPE = {"string": 129, "integer": 20, "real": 5, "boolean": 11, "date": 133, "datetime": 135}
+# The Excel driver's, measured over the 88 `excel-direct` workbooks of the corpus (1,770 columns): the code, and
+# the `DebugRemoteType` attribute Tableau writes with it. Dates and date-times are both DATE (7).
+_EXCEL_REMOTE_TYPE = {"string": (130, "WSTR"), "integer": (20, "I8"), "real": (5, "R8"), "boolean": (11, "WINBOOL"),
+                      "date": (7, "DATE"), "datetime": (7, "DATE")}
 _NUMERIC = {"integer", "real"}
 _DATES = {"date", "datetime"}
 
@@ -432,9 +437,11 @@ class DataSource:
     """New data for a template: its fields, and how to connect to it."""
 
     path: str
-    kind: str  # "csv" or "tableau"
+    kind: str  # "csv", "excel" or "tableau"
     fields: list[dict] = _field(default_factory=list)  # {name, datatype}
     element: object = None  # the Tableau <datasource> for kind "tableau"
+    sheet: Optional[str] = None  # the worksheet, for kind "excel"
+    grid: Optional[str] = None   # where the header and data sit on that sheet, as Excel writes it: "A1:D11"
 
     def names(self) -> list[str]:
         return [f["name"] for f in self.fields]
@@ -489,14 +496,111 @@ def _infer_csv_type(series: pd.Series) -> Optional[str]:
     return "string"
 
 
-def read_data(path: str, datasource: Optional[str] = None) -> DataSource:
-    """Describe new data for `apply_template`: a CSV file, or a Tableau
-    workbook (`.twb`/`.twbx`) or data source (`.tds`) already connected to
-    it (pick one of several datasources with `datasource=`)."""
+def _excel_type(values: list) -> Optional[str]:
+    """Tableau's type for an Excel column, from the Python values openpyxl read; None when it has none."""
+    vals = [v for v in values if v is not None and not (isinstance(v, str) and not v.strip())]
+    if not vals:
+        return None
+    if all(isinstance(v, bool) for v in vals):
+        return "boolean"
+    if any(isinstance(v, bool) for v in vals):
+        return "string"
+    if all(isinstance(v, (_dt.datetime, _dt.date)) for v in vals):
+        timed = any(isinstance(v, _dt.datetime) and (v.hour, v.minute, v.second) != (0, 0, 0) for v in vals)
+        return "datetime" if timed else "date"
+    if all(isinstance(v, (int, float)) for v in vals):
+        # Excel keeps one kind of number; a column of whole numbers is an integer to Tableau
+        return "integer" if all(isinstance(v, int) or float(v).is_integer() for v in vals) else "real"
+    return "string"
+
+
+def _read_excel(p: Path, sheet: Union[str, int, None]) -> DataSource:
+    """The columns of one worksheet of an `.xlsx`/`.xlsm` file: the first non-empty row is the header, the
+    next `_SAMPLE_ROWS` rows decide each column's type."""
+    if p.suffix.lower() in (".xls", ".xlsb"):
+        raise TemplateError(f"{p.name}: old Excel formats ({p.suffix}) are not read; save it as .xlsx or .csv")
+    try:
+        import openpyxl
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        raise TemplateError(f"reading {p.name} needs openpyxl: pip install 'py-tbparse[excel]'") from None
+    try:
+        book = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
+    except (zipfile.BadZipFile, KeyError, openpyxl.utils.exceptions.InvalidFileException) as e:
+        raise TemplateError(f"{p.name} is not a readable Excel file: {e}") from None
+    try:
+        sheets = {ws.title: ws for ws in book.worksheets}
+        names = list(sheets)
+        if sheet is None:
+            visible = [n for n in names if sheets[n].sheet_state == "visible"]
+            if len(visible) != 1:
+                raise TemplateError(f"{p.name}: " + (
+                    f"{len(visible)} visible sheets ({', '.join(visible)}); pick one with sheet=" if visible
+                    else "no visible sheet; name one with sheet="))
+            chosen = visible[0]
+        elif isinstance(sheet, int):
+            if not -len(names) <= sheet < len(names):
+                raise TemplateError(f"{p.name} has {len(names)} sheet(s), none at index {sheet}")
+            chosen = names[sheet]
+        elif sheet in sheets:
+            chosen = sheet
+        else:
+            raise TemplateError(f"{p.name} has no sheet {sheet!r}; it has: {', '.join(names)}")
+        ws = sheets[chosen]
+        header = None
+        rows: list = []
+        last = 0
+        more = False
+        for number, row in enumerate(ws.iter_rows(values_only=True), start=1):
+            filled = any(v is not None and (not isinstance(v, str) or v.strip()) for v in row)
+            if header is None:
+                if filled:
+                    header = (number, row)
+                continue
+            if len(rows) >= _SAMPLE_ROWS:
+                more = True
+                break
+            rows.append(row)
+            if filled:
+                last = number
+        if header is None:
+            raise TemplateError(f"{p.name}: sheet {chosen!r} is empty")
+        top, cells = header
+        used = [i for i, v in enumerate(cells) if v is not None and (not isinstance(v, str) or v.strip())]
+        first, end = used[0], used[-1] + 1
+        names_out: list[str] = []
+        for i in range(first, end):
+            v = cells[i]
+            blank = v is None or not str(v).strip()
+            name = f"F{i - first + 1}" if blank else str(v)
+            base, k = name, 0
+            while name in names_out:
+                k += 1
+                name = f"{base}{k}"
+            if name != base and not blank:
+                warnings.warn(f"{p.name}: sheet {chosen!r} repeats the header {base!r}; the later column is {name!r}")
+            names_out.append(name)
+        fields = [{"name": name, "datatype": _excel_type([r[first + j] if len(r) > first + j else None for r in rows])}
+                  for j, name in enumerate(names_out)]
+        bottom = (ws.max_row or last or top) if more else max(last, top)
+        grid = f"{get_column_letter(first + 1)}{top}:{get_column_letter(end)}{bottom}"
+        return DataSource(path=str(p.resolve()), kind="excel", fields=fields, sheet=chosen, grid=grid)
+    finally:
+        book.close()
+
+
+def read_data(path: str, datasource: Optional[str] = None, sheet: Union[str, int, None] = None) -> DataSource:
+    """Describe new data for `apply_template`: a CSV file, an Excel file
+    (`.xlsx`/`.xlsm`, needs `py-tbparse[excel]`; `sheet=` picks a worksheet by
+    name or by index from 0, and is required when several are visible), or a
+    Tableau workbook (`.twb`/`.twbx`) or data source (`.tds`) already
+    connected to it (pick one of several datasources with `datasource=`)."""
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"no such file: {path}")
     suffix = p.suffix.lower()
+    if suffix in (".xlsx", ".xlsm", ".xls", ".xlsb"):
+        return _read_excel(p, sheet)
     if suffix in (".csv", ".txt", ".tsv"):
         sep = "\t" if suffix == ".tsv" else ","
         df = pd.read_csv(p, sep=sep, nrows=2000, encoding="utf-8-sig")
@@ -509,7 +613,7 @@ def read_data(path: str, datasource: Optional[str] = None) -> DataSource:
         root = etree.parse(str(p)).getroot()
         candidates = [root] if root.tag == "datasource" else root.xpath("//datasource[@name]")
     else:
-        raise TemplateError(f"unsupported data file {p.name}: use a .csv, .twb, .twbx or .tds")
+        raise TemplateError(f"unsupported data file {p.name}: use a .csv, .xlsx, .twb, .twbx or .tds")
     if datasource:
         candidates = [d for d in candidates if datasource in (d.get("name"), d.get("caption"), d.get("formatted-name"))]
     candidates = [d for d in candidates if d.find("connection") is not None]
@@ -899,29 +1003,67 @@ def _csv_connection(data: DataSource, local_of: dict[str, str], model: Optional[
     the datasource needs; the prefixed form writes the legacy and
     object-model relations side by side, as Tableau does, the plain form
     one relation."""
-    modern = model is not None
-    om = (lambda name: f"{_OM}.true...{name}") if model == "prefixed" else (lambda name: name)
     p = Path(data.path)
-    conn_id = _connection_id("textscan", data.path)
-    table = p.name
     # Worksheets name the table column (record counts) by this id, so a template that has one keeps it.
     object_id = object_id or (f"{re.sub(r'[^0-9A-Za-z_]', '_', p.stem)}_"
                               + hashlib.md5(data.path.encode("utf-8")).hexdigest().upper())
+    return _file_connection(
+        data, local_of, model, object_id, caption=p.stem, table=p.name,
+        conn_id=_connection_id("textscan", data.path),
+        named={"class": "textscan", "directory": p.parent.as_posix(), "filename": p.name, "password": "", "server": ""},
+        rel_table=f"[{p.stem}#{p.suffix.lstrip('.')}]",
+        cols={"character-set": "UTF-8", "header": "yes", "locale": "en_US",
+              "separator": "\t" if p.suffix.lower() == ".tsv" else ","},
+        record=lambda f: (str(_REMOTE_TYPE.get(f["datatype"], 129)), "Sum" if f["datatype"] in _NUMERIC else "Count", None),
+    )
+
+
+def _excel_connection(data: DataSource, local_of: dict[str, str], model: Optional[str] = "prefixed",
+                      object_id: Optional[str] = None):
+    """A federated connection to one worksheet of an Excel file (`excel-direct`), in the shape Tableau writes
+    it (copied from the 88 `excel-direct` workbooks of the corpus: the relation is `[Sheet$]`, its `columns`
+    carry the sheet's `gridOrigin`, the remote types are the Excel driver's). Same object-model forms as
+    `_csv_connection`."""
+    p = Path(data.path)
+    sheet = data.sheet or ""
+    object_id = object_id or (f"{re.sub(r'[^0-9A-Za-z_]', '_', sheet)}_"
+                              + hashlib.md5(f"{data.path}\x1f{sheet}".encode("utf-8")).hexdigest().upper())
+    grid = data.grid or "A1:A1"
+
+    def record(f):
+        code, debug = _EXCEL_REMOTE_TYPE.get(f["datatype"], (130, "WSTR"))
+        aggregation = "Sum" if f["datatype"] in _NUMERIC else "Year" if f["datatype"] in _DATES else "Count"
+        return str(code), aggregation, debug
+
+    return _file_connection(
+        data, local_of, model, object_id, caption=sheet or p.stem, table=sheet,
+        conn_id=_connection_id("excel-direct", data.path),
+        named={"class": "excel-direct", "cleaning": "no", "compat": "no", "dataRefreshTime": "", "filename": p.as_posix(),
+               "interpretationMode": "0", "password": "", "server": "", "validate": "no"},
+        named_caption=p.stem, rel_table=f"[{sheet}$]",
+        cols={"gridOrigin": f"{grid}:no:{grid}:0", "header": "yes", "outcome": "2"}, record=record,
+    )
+
+
+def _file_connection(data: DataSource, local_of: dict[str, str], model: Optional[str], object_id: str, caption: str,
+                     table: str, conn_id: str, named: dict, rel_table: str, cols: dict, record,
+                     named_caption: Optional[str] = None):
+    """The part of a file connection `_csv_connection` and `_excel_connection` share: the named connection, the
+    relation (twice for the prefixed object model), one metadata record per column and, for an object model, the
+    table column and object graph. `record(field)` gives the remote type, aggregation and, if the driver writes
+    one, the `DebugRemoteType` text."""
+    modern = model is not None
+    om = (lambda name: f"{_OM}.true...{name}") if model == "prefixed" else (lambda name: name)
     conn = etree.Element("connection", {"class": "federated"})
-    named = etree.SubElement(etree.SubElement(conn, "named-connections"), "named-connection",
-                             caption=p.stem, name=conn_id)
-    etree.SubElement(named, "connection", {
-        "class": "textscan", "directory": p.parent.as_posix(), "filename": p.name,
-        "password": "", "server": "",
-    })
+    node = etree.SubElement(etree.SubElement(conn, "named-connections"), "named-connection",
+                            caption=named_caption or caption, name=conn_id)
+    etree.SubElement(node, "connection", named)
 
     def relation():
-        rel = etree.Element("relation", connection=conn_id, name=table,
-                            table=f"[{p.stem}#{p.suffix.lstrip('.')}]", type="table")
-        cols = etree.SubElement(rel, "columns", {"character-set": "UTF-8", "header": "yes", "locale": "en_US",
-                                                 "separator": "\t" if p.suffix.lower() == ".tsv" else ","})
+        rel = etree.Element("relation", connection=conn_id, name=table, table=rel_table, type="table")
+        columns = etree.SubElement(rel, "columns", cols)
         for i, f in enumerate(data.fields):
-            etree.SubElement(cols, "column", datatype=f["datatype"], name=f["name"], ordinal=str(i))
+            etree.SubElement(columns, "column", datatype=f["datatype"], name=f["name"], ordinal=str(i))
         return rel
 
     if model == "prefixed":
@@ -933,23 +1075,27 @@ def _csv_connection(data: DataSource, local_of: dict[str, str], model: Optional[
         conn.append(relation())
     records = etree.SubElement(conn, "metadata-records")
     for i, f in enumerate(data.fields):
+        remote_type, aggregation, debug = record(f)
         rec = etree.SubElement(records, "metadata-record", {"class": "column"})
         for tag, text in (
-            ("remote-name", f["name"]), ("remote-type", str(_REMOTE_TYPE.get(f["datatype"], 129))),
+            ("remote-name", f["name"]), ("remote-type", remote_type),
             ("local-name", local_of[f["name"]]), ("parent-name", f"[{table}]"),
             ("remote-alias", f["name"]), ("ordinal", str(i)), ("local-type", f["datatype"]),
-            ("aggregation", "Sum" if f["datatype"] in _NUMERIC else "Count"), ("contains-null", "true"),
+            ("aggregation", aggregation), ("contains-null", "true"),
         ):
             etree.SubElement(rec, tag).text = text
+        if debug:
+            attrs = etree.SubElement(rec, "attributes")
+            etree.SubElement(attrs, "attribute", datatype="string", name="DebugRemoteType").text = f'"{debug}"'
         if modern:
             etree.SubElement(rec, om("object-id")).text = f"[{object_id}]"
     if not modern:
         return conn, []
-    table_col = etree.Element(_OM_TABLE if model == "prefixed" else "column", caption=p.stem, datatype="table",
+    table_col = etree.Element(_OM_TABLE if model == "prefixed" else "column", caption=caption, datatype="table",
                               name=f"[__tableau_internal_object_id__].[{object_id}]",
                               role="measure", type="quantitative")
     graph = etree.Element(om("object-graph"))
-    obj = etree.SubElement(etree.SubElement(graph, "objects"), "object", caption=p.stem, id=object_id)
+    obj = etree.SubElement(etree.SubElement(graph, "objects"), "object", caption=caption, id=object_id)
     props = etree.SubElement(obj, "properties", context="")
     props.append(relation())
     return conn, [table_col, graph]
@@ -1111,6 +1257,7 @@ def resolve_apply(
     answers: Union[str, os.PathLike, dict, None] = None,
     profile: Optional[str] = None,
     fuzzy_cutoff: float = 0.85,
+    sheet: Union[str, int, None] = None,
 ) -> ApplyPlan:
     """What `apply_template` would do, without writing: the same arguments, the same precedence (explicit
     argument, then profile, then saved answers), the same errors."""
@@ -1141,9 +1288,11 @@ def resolve_apply(
             file = str(Path(saved["_base_dir"]) / file)
         if data_datasource is None and not chosen_profile.get("data"):
             data_datasource = (prior.get("data") or {}).get("datasource")
+        if sheet is None and not chosen_profile.get("data"):
+            sheet = (prior.get("data") or {}).get("sheet")
         data = file
     if not isinstance(data, DataSource):
-        data = read_data(data, datasource=data_datasource)
+        data = read_data(data, datasource=data_datasource, sheet=sheet)
     stale: list = []
     if mapping is None:
         mapping = suggest_mapping(template, data, datasource=entry["name"], fuzzy_cutoff=fuzzy_cutoff)
@@ -1172,6 +1321,7 @@ def apply_template(
     report: Optional[dict] = None,
     answers: Union[str, os.PathLike, dict, None] = None,
     profile: Optional[str] = None,
+    sheet: Union[str, int, None] = None,
 ) -> str:
     """Make a new workbook from a template and new data; return its path.
 
@@ -1193,7 +1343,8 @@ def apply_template(
     which beats the saved answers. Answers never hold credentials.
 
     The template datasource's connection is replaced by one to the new data
-    (a CSV file, or the connection of the given workbook / .tds); every
+    (a CSV file, one worksheet of an Excel file -- `sheet=`, see `read_data` --
+    or the connection of the given workbook / .tds); every
     field keeps the local name its sheets and formulas use. The answers
     (template, data, mapping, parameters) are saved inside the output as
     `template-answers.json`. Output is a `.twbx` (default
@@ -1201,7 +1352,7 @@ def apply_template(
     unless `overwrite=True`.
     """
     plan = resolve_apply(template, data, mapping=mapping, params=params, datasource=datasource,
-                         data_datasource=data_datasource, answers=answers, profile=profile)
+                         data_datasource=data_datasource, answers=answers, profile=profile, sheet=sheet)
     template, data, entry, mapping, params = plan.template, plan.data, plan.entry, plan.mapping, plan.params
     saved, stale, changed = plan.saved, plan.stale, plan.changed
     by_field = {f["name"]: f for f in entry["fields"]}
@@ -1238,7 +1389,7 @@ def apply_template(
 
     doc = copy.deepcopy(template.parser.xml_doc)
     ds_el = doc.xpath("/workbook/datasources/datasource[@name=$n]", n=entry["name"])[0]
-    if data.kind == "csv":
+    if data.kind in ("csv", "excel"):
         # a column with no values takes the type of the field it feeds (else string)
         typed = copy.copy(data)
         typed.fields = [{**f, "datatype": f["datatype"] or (
@@ -1246,8 +1397,8 @@ def apply_template(
             if f["name"] in field_of else "string")} for f in data.fields]
         old_ids = ds_el.xpath("./*[substring(name(), string-length(name()) - 11) = 'object-graph']"
                               "/objects/object/@id")
-        conn, extras = _csv_connection(typed, local_of, model=_object_model(doc),
-                                       object_id=old_ids[0] if old_ids else None)
+        build = _excel_connection if data.kind == "excel" else _csv_connection
+        conn, extras = build(typed, local_of, model=_object_model(doc), object_id=old_ids[0] if old_ids else None)
     else:
         conn, extras = _tableau_connection(data, local_of)
     old = ds_el.find("connection")
@@ -1289,7 +1440,8 @@ def apply_template(
         "datasource": entry["name"],
         "data": {"file": data.path, "kind": data.kind,
                  "datasource": data.element.get("name") if data.element is not None else None,
-                 "schema_fingerprint": data.fingerprint(), "columns": data.names()},
+                 "schema_fingerprint": data.fingerprint(), "columns": data.names(),
+                 **({"sheet": data.sheet} if data.sheet else {})},
         "mapping": {fld: col for fld, col in chosen.items()},
         "missing": [f["name"] for f in missing],
     }

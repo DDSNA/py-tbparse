@@ -244,7 +244,8 @@ def _readable_data(answers: dict, datasource: Optional[str], data):
     if not Path(file).is_absolute() and answers.get("_base_dir"):
         file = str(Path(answers["_base_dir"]) / file)
     try:
-        return read_data(file, datasource=(entry.get("data") or {}).get("datasource"))
+        return read_data(file, datasource=(entry.get("data") or {}).get("datasource"),
+                         sheet=(entry.get("data") or {}).get("sheet"))
     except (OSError, ValueError):
         return None
 
@@ -301,6 +302,7 @@ def update_from_answers(
     old: Union[Template, dict, str, None] = None,
     data=None,
     datasource: Optional[str] = None,
+    sheet: Union[str, int, None] = None,
 ) -> Optional[str]:
     """Apply a newer revision of a template to the data and answers of a workbook made from an older one;
     return the new workbook's path, or None when the answers were made from exactly this template (then
@@ -310,7 +312,7 @@ def update_from_answers(
     when a required field has no column (a new one, or one whose saved column no longer fits), unless
     `allow_missing` (its sheets will break) or an edited `mapping` supplies it. A saved parameter value the
     template no longer accepts is dropped, so the parameter takes the template's default; `report` says
-    which. `data` overrides the data file the answers name. The output defaults to
+    which. `data` overrides the data file the answers name (`sheet` picks its worksheet, for Excel). The output defaults to
     `<workbook>_r<revision>.twbx` beside the workbook; nothing is overwritten unless `overwrite`.
 
     `report` is filled with `status`, `changes` (the stage A table), `needs_mapping`, `conflicts`,
@@ -346,7 +348,7 @@ def update_from_answers(
             dropped.append(caption)
             del saved_params[caption]
 
-    plan = resolve_apply(new, data, mapping=mapping, datasource=datasource, answers=carried)
+    plan = resolve_apply(new, data, mapping=mapping, datasource=datasource, answers=carried, sheet=sheet)
     prior = _answers_entry(carried, plan.entry["name"])
     # a saved column whose type no longer fits the field is not kept: the field is asked for again
     conflicts = []
