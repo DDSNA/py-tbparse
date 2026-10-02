@@ -14,13 +14,11 @@ import pytest
 from py_tbparse import webgui
 
 
-def _page_script(base) -> str:
-    """The <script> body of the served page, as the browser receives it."""
-    with urllib.request.urlopen(base + "/") as r:
-        page = r.read().decode()
-    match = re.search(r"<script>(.*?)</script>", page, re.S)
-    assert match, "served page has no <script> block"
-    return match.group(1)
+def _page_script(base, name="app.js") -> str:
+    """The page's JavaScript, as the browser receives it (/static/app.js, /static/table.js)."""
+    with urllib.request.urlopen(base + f"/static/{name}") as r:
+        assert r.headers["Content-Type"].startswith("text/javascript")
+        return r.read().decode()
 
 
 @pytest.fixture
@@ -163,11 +161,14 @@ def test_preload_path_cannot_break_out_of_script_tag(server, wenjie_path, tmp_pa
     with urllib.request.urlopen(server + "/") as r:
         page = r.read().decode()
 
-    # The page must contain exactly one <script> element: if the path's
-    # embedded "</script>" broke out of the intended script block, the
-    # HTML parser would see (and this would count) a second one.
+    # The page has exactly one inline <script> (the config block) plus the two external ones,
+    # table.js and app.js: if the path's embedded "</script>" broke out of the inline block, the
+    # HTML parser would see (and this would count) another one.
     assert page.count("<script>") == 1
-    assert page.count("</script>") == 1
+    assert page.count("<script") == 3
+    assert page.count("</script>") == 3
+    assert '<script src="/static/table.js"></script>' in page
+    assert '<script src="/static/app.js"></script>' in page
     # But the path itself (escaped) must still be present and round-trip
     # correctly -- \/ is a legal JSON escape, so json.loads decodes it
     # back to "/" on its own, no manual unescaping needed.
@@ -197,15 +198,16 @@ def test_dashboards_endpoint_empty_before_load(server):
     assert data["dashboards"] == []
 
 
-def test_page_js_has_no_string_literal_split_across_lines(server):
-    # Regression: _PAGE is a non-raw Python string, so writing '\n' inside
+@pytest.mark.parametrize("script", ["app.js", "table.js"])
+def test_page_js_has_no_string_literal_split_across_lines(server, script):
+    # Regression (from when the page was a Python string): writing '\n' inside
     # the embedded JS made *Python* emit a real newline, splitting a JS
     # string literal across two physical lines. That's a SyntaxError, and
     # it kills the whole <script> -- no listeners bind, the table dropdown
     # stays empty and the Load button does nothing. A JS string literal
     # can't span a physical line, so an odd number of unescaped quotes on
     # any line means an unterminated literal.
-    js = _page_script(server)
+    js = _page_script(server, script)
     offenders = []
     for lineno, line in enumerate(js.splitlines(), 1):
         for quote in ("'", '"'):
@@ -220,8 +222,9 @@ def test_page_js_escapes_newline_for_javascript(server):
     assert r"split('\n')" in js
 
 
-def test_page_js_brackets_are_balanced(server):
-    js = _page_script(server)
+@pytest.mark.parametrize("script", ["app.js", "table.js"])
+def test_page_js_brackets_are_balanced(server, script):
+    js = _page_script(server, script)
     # Strip string literals first so braces/parens inside them don't count.
     stripped = re.sub(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"", "''", js)
     for opener, closer in (("{", "}"), ("(", ")"), ("[", "]")):
@@ -501,3 +504,64 @@ def test_everything_in_the_report_via_the_endpoints(server, tmp_path):
     assert status == 200 and made["renamed"] > 3
     text = (tmp_path / "report_renamed.twb").read_text(encoding="utf-8")
     assert "My Dashboard" in text and "my dashboard" not in text
+
+
+# --- the page is real files under webui/, served from a fixed whitelist ------------------
+
+
+def test_static_assets_are_served_with_the_right_types(server):
+    expected = {"tokens.css": "text/css", "app.css": "text/css", "app.js": "text/javascript",
+                "table.js": "text/javascript"}
+    for name, ctype in expected.items():
+        with urllib.request.urlopen(server + f"/static/{name}") as r:
+            assert r.status == 200
+            assert r.headers["Content-Type"].startswith(ctype), name
+            assert r.headers["Cache-Control"] == "no-cache"
+            assert r.read(), name
+    with urllib.request.urlopen(server + "/") as r:
+        page = r.read().decode()
+    for name in ("tokens.css", "app.css"):
+        assert f'href="/static/{name}"' in page
+    # tokens come first, so the cascade matches the single stylesheet it used to be
+    assert page.index("tokens.css") < page.index("app.css")
+
+
+@pytest.mark.parametrize("path", [
+    "/static/../webgui.py", "/static/..%2Fwebgui.py", "/static/%2e%2e/webgui.py", "/static/index.html",
+    "/static/", "/static/nope.js", "/static/app.js/..", "/static//etc/passwd", "/static/js/app.js",
+])
+def test_static_route_only_serves_the_whitelist(server, path):
+    status, _ = _raw(server, "GET", path, {"Host": urlsplit(server).netloc})
+    assert status == 404
+
+
+def test_static_route_checks_the_host_header(server):
+    port = urlsplit(server).port
+    status, _ = _raw(server, "GET", "/static/app.js", {"Host": f"attacker.example:{port}"})
+    assert status == 403
+
+
+def test_webui_files_are_shipped_in_the_wheel_and_sdist():
+    root = Path(__file__).resolve().parent.parent
+    assert '"webui/*"' in (root / "pyproject.toml").read_text(encoding="utf-8")
+    assert "recursive-include py_tbparse/webui" in (root / "MANIFEST.in").read_text(encoding="utf-8")
+    for name in ("index.html", "tokens.css", "app.css", "app.js", "table.js"):
+        assert (root / "py_tbparse" / "webui" / name).is_file(), name
+
+
+def test_load_reports_datasource_captions_for_readable_labels(server, wenjie_path):
+    status, data = _post(server, "/load", {"path": wenjie_path})
+    assert status == 200
+    labels = data["datasource_labels"]
+    assert labels == {"federated.0grgaor1pd01yy1f0yr380of1ags": "Sheet1 (test_county)"}
+    # only datasources that have a caption are listed; the internal id stays the key everywhere else
+    assert set(labels) <= set(data["datasources"]) | set(labels)
+
+
+def test_the_page_loads_table_js_before_app_js(server):
+    with urllib.request.urlopen(server + "/") as r:
+        page = r.read().decode()
+    assert page.index('src="/static/table.js"') < page.index('src="/static/app.js"')
+    # app.js builds a VTable at load, so the class must exist by then
+    assert "new VTable(" in _page_script(server)
+    assert "window.VTable = VTable;" in _page_script(server, "table.js")

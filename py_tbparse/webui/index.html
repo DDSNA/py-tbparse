@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>py-tbparse</title>
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/app.css">
+
+</head>
+<body>
+<a class="skip" href="#main">Skip to the table</a>
+<header class="top">
+  <div class="bar">
+    <div class="brand">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
+      <span class="wordmark">py-tbparse</span> <span class="ver" id="version"></span>
+    </div>
+    <div class="open">
+      <input id="path" class="field" type="text" placeholder="/path/to/workbook.twb or .twbx"
+             aria-label="Workbook path" spellcheck="false" autocomplete="off">
+      <button id="loadBtn" class="btn primary" type="button">Load</button>
+    </div>
+  </div>
+</header>
+
+<section id="empty" class="hero">
+  <svg class="art" width="132" height="104" viewBox="0 0 132 104" fill="none" aria-hidden="true">
+    <rect class="p" x="20" y="26" width="92" height="68" rx="10"/>
+    <path class="a" d="M14 26h104v8a8.67 8.67 0 0 1-17.33 0a8.67 8.67 0 0 1-17.34 0a8.67 8.67 0 0 1-17.33 0a8.67 8.67 0 0 1-17.33 0a8.67 8.67 0 0 1-17.34 0A8.67 8.67 0 0 1 14 34z"/>
+    <rect class="p" x="36" y="62" width="12" height="24" rx="3"/>
+    <rect class="p" x="56" y="52" width="12" height="34" rx="3"/>
+    <rect class="p" x="76" y="44" width="12" height="42" rx="3"/>
+    <path class="a-line" d="M100 52l4-6M104 56l5-3"/>
+  </svg>
+  <h1>Let’s open a workbook</h1>
+  <p>Paste the path to a <code>.twb</code> or <code>.twbx</code> file above and press Load.</p>
+  <p>Everything stays on this computer. Nothing is uploaded.</p>
+  <p>Tip: start with <code>py-tbparse-gui path/to/book.twbx</code> to open one directly.</p>
+</section>
+
+<div id="controls" class="workspace" hidden>
+  <aside class="side">
+    <div class="wb">
+      <div class="label">Workbook</div>
+      <div class="name" id="wbName"></div>
+    </div>
+    <nav id="nav" aria-label="Tables"></nav>
+  </aside>
+
+  <main class="view" id="main" tabindex="-1">
+    <div class="view-head">
+      <div>
+        <h1 id="viewTitle" class="view-title"></h1>
+        <div class="desc" id="viewDesc"></div>
+      </div>
+      <div class="toolbar">
+        <label class="mobile-only" aria-label="Table">
+          <select id="tableSel" class="field"></select>
+        </label>
+        <input id="filter" class="field" type="search" placeholder="Filter rows  ( / )" aria-label="Filter rows">
+        <label id="dashboardWrap" class="check" hidden>Dashboard
+          <select id="dashboardSel" class="field"><option value="">(all)</option></select>
+        </label>
+        <label id="paramsWrap" class="check" hidden>
+          <input type="checkbox" id="includeParams"> Include parameters
+        </label>
+        <label id="inferredWrap" class="check" hidden>
+          <input type="checkbox" id="includeInferred"> Include inferred (dashed)
+        </label>
+        <span id="renameTools" class="rename-tools" hidden>
+          <select id="renameStyle" class="field" aria-label="Naming style">
+            <option value="title">Title Case</option><option value="snake">snake_case</option>
+            <option value="lower">lower case</option><option value="keep">Keep case</option>
+          </select>
+          <select id="renameDs" class="field" aria-label="Datasource">
+            <option value="">(all datasources)</option>
+          </select>
+          <select id="renameKinds" class="field" aria-label="What to rename">
+            <option value="">Fields only</option><option value="all">Everything in the report</option>
+          </select>
+          <input id="renameRef" class="field" type="text" spellcheck="false"
+                 placeholder="Reference workbook path (optional)" aria-label="Reference workbook path">
+          <label class="check"><input type="checkbox" id="renameChanged" checked> Only changes</label>
+          <button id="createBtn" class="btn primary" type="button">Create fixed workbook</button>
+          <a id="downloadBtn" class="btn" href="#" download>Download fixed workbook</a>
+        </span>
+        <button id="colsBtn" class="btn" type="button" aria-haspopup="menu" aria-expanded="false" hidden>Columns</button>
+        <button id="densityBtn" class="btn" type="button" aria-pressed="false" hidden
+                title="Switch between comfortable and compact rows">Compact rows</button>
+        <button id="copyBtn" class="btn" type="button" hidden>Copy</button>
+        <a id="exportLink" class="btn" href="#" download><span id="exportBtn">Export CSV</span></a>
+      </div>
+    </div>
+    <div class="subbar">
+      <span id="meta"></span>
+      <span id="hint">Click a column to sort. Click a row, or press Enter on it, for its details. Alt+Down opens column options.</span>
+    </div>
+    <div id="chips" class="chips" role="group" aria-label="Active column filters" hidden></div>
+    <div id="tableWrap" tabindex="-1"></div>
+  </main>
+</div>
+
+<aside id="drawer" class="drawer" role="dialog" aria-modal="false" aria-labelledby="drawerTitle" hidden>
+  <header class="drawer-head">
+    <h2 id="drawerTitle" tabindex="-1">Row details</h2>
+    <button id="drawerClose" class="btn small" type="button" aria-label="Close details">Close</button>
+  </header>
+  <div id="drawerBody" class="drawer-body"></div>
+  <footer class="drawer-foot">
+    <button id="drawerCopy" class="btn small" type="button">Copy row as JSON</button>
+  </footer>
+</aside>
+
+<div id="menu" class="menu" role="menu" hidden></div>
+
+<div id="status" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="announce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
+<!--APP_CONFIG-->
+<script src="/static/table.js"></script>
+<script src="/static/app.js"></script>
+
+</body>
+</html>
