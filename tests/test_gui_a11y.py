@@ -214,7 +214,7 @@ def test_every_control_has_an_accessible_name_in_every_state(fields_page):
     _wait_meta(page, "3 row(s)")
     assert unnamed(page) == []                                  # the renames toolbar
     _open(page, "graph")
-    page.wait_for_selector("#tableWrap pre.dot", timeout=10_000)
+    page.wait_for_selector("#tableWrap svg.graph .node", timeout=10_000)
     assert unnamed(page) == []
     _open(page, "overview")
     page.wait_for_selector("#tableWrap .stat", timeout=10_000)
@@ -392,7 +392,7 @@ def test_all_rendered_text_has_enough_contrast(browser, gui_server, wenjie_path,
         settle(pg)
         found += failures(pg, "field renames")
         _open(pg, "graph")
-        pg.wait_for_selector("#tableWrap pre.dot", timeout=10_000)
+        pg.wait_for_selector("#tableWrap svg.graph .node", timeout=10_000)
         settle(pg)
         found += failures(pg, "graph")
         pg.fill("#path", "/no/such/workbook.twb")

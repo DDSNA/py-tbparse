@@ -165,9 +165,10 @@ def test_preload_path_cannot_break_out_of_script_tag(server, wenjie_path, tmp_pa
     # table.js and app.js: if the path's embedded "</script>" broke out of the inline block, the
     # HTML parser would see (and this would count) another one.
     assert page.count("<script>") == 1
-    assert page.count("<script") == 3
-    assert page.count("</script>") == 3
+    assert page.count("<script") == 4
+    assert page.count("</script>") == 4
     assert '<script src="/static/table.js"></script>' in page
+    assert '<script src="/static/graph.js"></script>' in page
     assert '<script src="/static/app.js"></script>' in page
     # But the path itself (escaped) must still be present and round-trip
     # correctly -- \/ is a legal JSON escape, so json.loads decodes it
@@ -198,7 +199,7 @@ def test_dashboards_endpoint_empty_before_load(server):
     assert data["dashboards"] == []
 
 
-@pytest.mark.parametrize("script", ["app.js", "table.js"])
+@pytest.mark.parametrize("script", ["app.js", "table.js", "graph.js"])
 def test_page_js_has_no_string_literal_split_across_lines(server, script):
     # Regression (from when the page was a Python string): writing '\n' inside
     # the embedded JS made *Python* emit a real newline, splitting a JS
@@ -218,11 +219,11 @@ def test_page_js_has_no_string_literal_split_across_lines(server, script):
 
 def test_page_js_escapes_newline_for_javascript(server):
     # The JS must receive a two-character \n escape, not a literal newline.
-    js = _page_script(server)
-    assert r"split('\n')" in js
+    assert r".join('\n')" in _page_script(server, "graph.js")
+    assert r"'\n'" in _page_script(server)   # and never a quote broken across a real newline
 
 
-@pytest.mark.parametrize("script", ["app.js", "table.js"])
+@pytest.mark.parametrize("script", ["app.js", "table.js", "graph.js"])
 def test_page_js_brackets_are_balanced(server, script):
     js = _page_script(server, script)
     # Strip string literals first so braces/parens inside them don't count.

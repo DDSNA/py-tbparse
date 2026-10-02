@@ -117,6 +117,7 @@ def test_recent_files_are_remembered_opened_and_forgotten(page, gui_server, wenj
     assert page.locator("#recent").is_hidden()
     _load(page, wenjie_path)
     _load(page, zip_twbx_path)
+    page.wait_for_function("() => document.getElementById('wbName').textContent === 'test_for_zip.twbx'")
     stored = json.loads(page.evaluate("() => localStorage.getItem('py-tbparse:recent')"))
     assert stored == [zip_twbx_path, wenjie_path], "newest first, no duplicates"
     webgui._STATE["path"] = None             # a fresh start, as when the server was started without a workbook

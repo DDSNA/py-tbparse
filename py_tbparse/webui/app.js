@@ -45,7 +45,8 @@ const CODE_COLUMNS = new Set(['formula', 'custom_sql', 'initial_sql', 'connectio
 
 const state = { table: 'overview', columns: [], data: [], sortCol: -1, sortDir: 0,
                 loaded: false, uploaded: false, req: 0, dot: '', fresh: false, dsLabels: {}, hay: null, hayKey: '',
-                colLower: {}, sortKeys: {}, numeric: {}, natural: null, drawerIdx: null };
+                colLower: {}, sortKeys: {}, numeric: {}, natural: null, drawerIdx: null,
+                drawerInfo: null, drawerOpener: null, graph: {nodes: [], edges: []} };
 let filterTimer = null;
 let toastTimer = null;
 
@@ -359,11 +360,11 @@ async function showTable() {
       clearTimeout(loadingTimer);
       if (req !== state.req) return;
       state.dot = data.dot;
+      state.graph = data.graph || {nodes: [], edges: []};
       const wrap = $('tableWrap');
-      wrap.innerHTML = '';
-      wrap.appendChild(el('pre', 'dot', data.dot));
-      $('meta').textContent = data.dot.split('\n').length + ' line(s)';
-      finishView(fresh, wrap, 'Showing the relationship graph');
+      renderGraphView(wrap);
+      finishView(fresh, wrap, 'Showing the relationship graph, ' + plural(state.graph.nodes.length, 'table') + ', ' +
+                 plural(state.graph.edges.length, 'connection'));
     } catch (e) {
       failed(e);
     }
@@ -775,6 +776,134 @@ function cellNode(col, value) {
   return td;
 }
 
+// ---- the relationship graph view -------------------------------------------------------------------------
+
+const BIG_GRAPH = 300;
+let graphCtl = null;
+
+function infoRows(pairs) {
+  const list = el('dl', 'details');
+  pairs.forEach(([k, v]) => list.append(el('dt', '', k), el('dd', '', v === null || v === undefined || v === '' ? '-' : String(v))));
+  return list;
+}
+
+// The drawer also tells about a graph table or connection; closing it returns focus to what opened it.
+function openInfo(title, pairs, opener, json) {
+  state.drawerIdx = null;
+  state.drawerInfo = json || null;
+  state.drawerOpener = opener || null;
+  $('drawerTitle').textContent = title;
+  $('drawerBody').replaceChildren(infoRows(pairs));
+  $('drawerCopy').textContent = 'Copy as JSON';
+  const drawer = $('drawer');
+  drawer.hidden = false;
+  requestAnimationFrame(() => drawer.classList.add('show'));
+  $('drawerTitle').focus();
+}
+
+function kindLabel(kind) { return kind === 'inferred' ? 'Inferred (a guess)' : kind === 'relationship' ? 'Relationship' : 'Join'; }
+
+function renderGraphList(box, graph) {
+  box.replaceChildren();
+  const table = el('table', 'graph-table');
+  const head = el('thead');
+  const hr = el('tr');
+  ['From', 'To', 'Kind', 'Keys'].forEach((h) => { const th = el('th', '', h); th.scope = 'col'; hr.appendChild(th); });
+  head.appendChild(hr);
+  const body = el('tbody');
+  graph.edges.slice(0, 500).forEach((e) => {
+    const tr = el('tr');
+    [e.source, e.target, kindLabel(e.kind), e.label].forEach((v) => tr.appendChild(el('td', '', v)));
+    body.appendChild(tr);
+  });
+  table.append(head, body);
+  box.appendChild(table);
+  if (graph.edges.length > 500) box.appendChild(el('p', 'quiet', 'and ' + (graph.edges.length - 500) + ' more. Export the DOT for everything.'));
+}
+
+function renderGraphView(wrap) {
+  const graph = state.graph;
+  wrap.innerHTML = '';
+  graphCtl = null;
+  const nodes = graph.nodes.length;
+  $('meta').textContent = plural(nodes, 'table') + ', ' + plural(graph.edges.length, 'connection');
+  const root = el('div', 'graph-view');
+  const source = el('details', 'dot-source');
+  source.append(el('summary', '', 'DOT source'), el('pre', 'dot', state.dot));
+  if (!nodes) {
+    root.append(emptyState('No joins or relationships', 'This workbook has none, so there is nothing to draw.'), source);
+    wrap.appendChild(root);
+    return;
+  }
+  const tools = el('div', 'graph-tools');
+  tools.setAttribute('role', 'toolbar');
+  tools.setAttribute('aria-label', 'Graph tools');
+  const button = (label, title, run) => {
+    const b = el('button', 'btn small', label);
+    b.type = 'button'; b.title = title; b.setAttribute('aria-label', title);
+    b.addEventListener('click', run);
+    tools.appendChild(b);
+    return b;
+  };
+  const box = el('div', 'graph-box');
+  const list = el('div', 'graph-list');
+  list.hidden = true;
+  let component;
+  const draw = () => {
+    graphCtl = VGraph.render(box, graph, {
+      component,
+      onSelectNode: (n, edges, opener) => openInfo(n.id, [
+        ['Kind', 'Table'],
+        ['Connections', edges.length],
+      ].concat(edges.map((e) => [e.source === n.id ? 'To ' + e.target : 'From ' + e.source, e.label + ' (' + kindLabel(e.kind).toLowerCase() + ')'])),
+      opener, {table: n.id, connections: edges.map((e) => ({from: e.source, to: e.target, keys: e.label, kind: e.kind}))}),
+      onSelectEdge: (e, opener) => openInfo(e.source + ' to ' + e.target, [
+        ['Kind', kindLabel(e.kind)], ['From', e.source], ['To', e.target], ['Keys', e.label],
+      ], opener, {from: e.source, to: e.target, keys: e.label, kind: e.kind}),
+    });
+  };
+  button('+', 'Zoom in', () => graphCtl && graphCtl.zoomIn());
+  button('\u2212', 'Zoom out', () => graphCtl && graphCtl.zoomOut());
+  button('Fit', 'Fit the whole graph in view', () => graphCtl && graphCtl.fit());
+  if (nodes > BIG_GRAPH) {
+    const lay = VGraph.layout(graph);
+    component = 0;
+    const sel = el('select', 'field');
+    sel.setAttribute('aria-label', 'Which group of connected tables to draw');
+    lay.components.forEach((c) => {
+      const opt = el('option', '', 'Group ' + (c.index + 1) + ': ' + plural(c.size, 'table'));
+      opt.value = String(c.index);
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', () => { component = Number(sel.value); draw(); });
+    tools.appendChild(sel);
+    tools.appendChild(el('span', 'note', 'Large graph: drawing one group at a time.'));
+  }
+  const toggle = button('View as list', 'Switch between the picture and a list of connections', () => {
+    const showList = list.hidden;
+    list.hidden = !showList;
+    box.hidden = showList;
+    toggle.textContent = showList ? 'View as graph' : 'View as list';
+    toggle.setAttribute('aria-pressed', showList ? 'true' : 'false');
+    if (showList) renderGraphList(list, graph); else if (graphCtl) requestAnimationFrame(() => graphCtl.fit());
+  });
+  toggle.setAttribute('aria-pressed', 'false');
+  button('Save as SVG', 'Download the graph as an SVG file', () => {
+    if (!graphCtl) return;
+    const blob = new Blob([graphCtl.exportSvg()], {type: 'image/svg+xml'});
+    const a = el('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'relationships.svg';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }).classList.add('save-svg');
+  root.append(tools, box, list, source);
+  wrap.appendChild(root);
+  draw();
+}
+
 function emptyState(title, text) {
   const box = el('div', 'empty-state');
   box.append(el('strong', '', title), el('span', '', text));
@@ -876,6 +1005,9 @@ function openRow(pos, opener) {
   const idx = vt.order[pos];
   if (idx === undefined) return;
   state.drawerIdx = idx;
+  state.drawerInfo = null;
+  state.drawerOpener = null;
+  $('drawerCopy').textContent = 'Copy row as JSON';
   fillDrawer(idx);
   const drawer = $('drawer');
   drawer.hidden = false;
@@ -893,6 +1025,9 @@ function closeDrawer(restoreFocus) {
   drawer.classList.remove('show');
   setTimeout(() => { if (!drawer.classList.contains('show')) drawer.hidden = true; }, 260);
   if (restoreFocus && idx !== null && idx !== undefined) vt.focusRowByIndex(idx);
+  else if (restoreFocus && state.drawerOpener && state.drawerOpener.isConnected) state.drawerOpener.focus();
+  state.drawerOpener = null;
+  state.drawerInfo = null;
 }
 
 async function copyText(text, message) {
@@ -1290,8 +1425,8 @@ $('densityBtn').addEventListener('click', () => {
 });
 $('drawerClose').addEventListener('click', () => closeDrawer(true));
 $('drawerCopy').addEventListener('click', () => {
-  if (state.drawerIdx === null) return;
-  copyText(JSON.stringify(rowObject(state.drawerIdx), null, 2), 'Copied this row as JSON');
+  if (state.drawerIdx !== null) copyText(JSON.stringify(rowObject(state.drawerIdx), null, 2), 'Copied this row as JSON');
+  else if (state.drawerInfo) copyText(JSON.stringify(state.drawerInfo, null, 2), 'Copied as JSON');
 });
 $('menu').addEventListener('keydown', (e) => {
   if ($('menu').getAttribute('role') === 'dialog') {

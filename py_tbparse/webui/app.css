@@ -258,6 +258,22 @@ button.stat:hover { border-color: var(--primary); transform: translateY(-2px); b
 .stat.zero { background: transparent; border-style: dashed; }
 .stat.zero .n { color: var(--faint); font-size: 22px; }
 
+.graph-view { display: flex; flex-direction: column; height: calc(100vh - 290px); min-height: 420px; }
+.graph-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-3);
+               border-bottom: 1px solid var(--border); }
+.graph-box { flex: 1; min-height: 360px; position: relative; background: var(--panel); }
+.graph-box[hidden], .graph-list[hidden] { display: none; }
+.graph { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; user-select: none; }
+.graph.panning { cursor: grabbing; }
+.graph .node, .graph .edge { cursor: pointer; }
+.graph .node:focus { outline: none; }
+.graph .node:focus-visible rect { stroke: var(--primary); stroke-width: 3; }
+.graph-list { overflow: auto; padding: var(--space-3); }
+.graph-table { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
+.graph-table th, .graph-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.graph-table th { color: var(--muted); font-weight: 600; }
+.dot-source { border-top: 1px solid var(--border); padding: var(--space-2) var(--space-3); }
+.dot-source summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); min-height: 32px; display: flex; align-items: center; }
 .dot { margin: 0; padding: var(--space-5); font: var(--text-sm)/1.6 var(--mono); white-space: pre; background: var(--code-bg); }
 .empty-state { padding: 64px var(--space-4); text-align: center; color: var(--muted); }
 .empty-state strong { display: block; color: var(--text); font: 650 var(--text-lg) var(--font-display); margin-bottom: 4px; }

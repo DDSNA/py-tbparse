@@ -20,7 +20,7 @@ from .datasources import (
     extract_datasource_details,
 )
 from .fields import _FIELDS_COLUMNS, _INFERRED_COLUMNS, extract_columns_with_table_source, infer_implicit_relationships
-from .graph import to_dot
+from .graph import graph_data, to_dot
 from .joins import _JOIN_COLUMNS, extract_joins
 from .published import _PUBLISHED_COLUMNS, extract_published_refs
 from .relationships import _RELATION_COLUMNS, _RELATIONSHIP_COLUMNS, extract_relations, extract_relationships
@@ -197,6 +197,14 @@ class TwbParser:
         """Render joins + relationships (and optionally inferred
         relationships) as a Graphviz DOT digraph string."""
         return to_dot(
+            self.get_joins(),
+            self.get_relationships(),
+            self.get_inferred_relationships() if include_inferred else None,
+        )
+
+    def get_relationship_graph_data(self, include_inferred: bool = False) -> dict:
+        """The relationship graph as `{"nodes": [...], "edges": [...]}` (see `graph.graph_data`)."""
+        return graph_data(
             self.get_joins(),
             self.get_relationships(),
             self.get_inferred_relationships() if include_inferred else None,

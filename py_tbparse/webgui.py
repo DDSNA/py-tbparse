@@ -224,6 +224,7 @@ _ASSETS = {
     "app.css": "text/css; charset=utf-8",
     "app.js": "text/javascript; charset=utf-8",
     "table.js": "text/javascript; charset=utf-8",
+    "graph.js": "text/javascript; charset=utf-8",
 }
 
 
@@ -366,7 +367,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "No workbook loaded"}, 400)
                 return
             include_inferred = (qs.get("include_inferred") or ["false"])[0] == "true"
-            dot = _STATE["parser"].get_relationship_graph_dot(include_inferred=include_inferred)
+            parser = _STATE["parser"]
+            dot = parser.get_relationship_graph_dot(include_inferred=include_inferred)
             if (qs.get("download") or ["0"])[0] == "1":
                 self._send(
                     200,
@@ -375,7 +377,7 @@ class Handler(BaseHTTPRequestHandler):
                     {"Content-Disposition": 'attachment; filename="relationships.dot"'},
                 )
                 return
-            self._send_json({"dot": dot})
+            self._send_json({"dot": dot, "graph": parser.get_relationship_graph_data(include_inferred=include_inferred)})
             return
 
         if parsed.path == "/overview":

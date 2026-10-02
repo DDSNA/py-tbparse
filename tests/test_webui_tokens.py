@@ -95,6 +95,16 @@ def test_focus_ring_and_borders_you_must_see_have_3_to_1(name, mode, palette):
         assert contrast(palette["primary"], palette[bg]) >= 3.0, bg
 
 
+@pytest.mark.parametrize("name,mode,palette", ALL_PALETTES, ids=[f"{n}-{m}" for n, m, _ in ALL_PALETTES])
+def test_graph_lines_and_node_outlines_are_visible(name, mode, palette):
+    # WCAG 1.4.11: the parts of a graphic you need to see have 3:1 against what is behind them. Join lines are
+    # --muted, relationship lines --primary, inferred ones --accent, all on the panel; a table box is outlined
+    # in --primary when highlighted.
+    for token in ("muted", "primary", "accent"):
+        assert contrast(palette[token], palette["panel"]) >= 3.0, token
+    assert contrast(palette["primary"], palette["primary-soft"]) >= 3.0, "highlighted outline on its fill"
+
+
 def test_there_are_five_extra_themes_and_each_has_both_modes():
     assert set(THEMES) == {"matcha", "fjord", "pastel", "neon", "contrast"}   # Shop is the default in tokens.css
     for name, modes in THEMES.items():
