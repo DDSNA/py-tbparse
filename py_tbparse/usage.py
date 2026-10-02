@@ -164,3 +164,85 @@ def field_usage(parser_or_doc) -> pd.DataFrame:
                 "calculations": sorted(used_by_calc.get((ds, name), set())),
             })
     return pd.DataFrame(rows, columns=USAGE_COLUMNS)
+
+
+MISSING_COLUMNS = ["datasource", "calculation", "caption", "missing"]
+
+
+def _code_refs(formula: Optional[str]) -> list[str]:
+    """`[Name]` references in a formula, in order, skipping string literals ("..." or '...'), so the Python
+    inside a SCRIPT_REAL("...['x']...") call is not mistaken for a field. A quote inside a bracketed
+    name belongs to the name, not to a string."""
+    refs: list[str] = []
+    i, text = 0, formula or ""
+    while i < len(text):
+        c = text[i]
+        if c in "\"'":
+            j = i + 1
+            while j < len(text):
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == c:
+                    if text[j + 1:j + 2] == c:        # a doubled quote is a quote inside the string
+                        j += 2
+                        continue
+                    break
+                j += 1
+            i = j + 1
+        elif c == "[":
+            j = i + 1
+            while j < len(text):
+                if text[j] == "]":
+                    if text[j + 1:j + 2] == "]":      # `]]` escapes a bracket inside a name
+                        j += 2
+                        continue
+                    break
+                j += 1
+            refs.append(text[i:j + 1])
+            i = j + 1
+        else:
+            i += 1
+    return refs
+
+
+def missing_references(parser_or_doc) -> pd.DataFrame:
+    """Calculations whose formula names a field the workbook does not have.
+
+    One row per (calculation, missing name). A reference is `[Name]` in the calculation's own datasource,
+    `[Parameters].[Name]` for a parameter, or `[datasource].[Name]` for another datasource; a name starting
+    with a colon (`[:Measure Names]`) is Tableau's own and is never reported. A bracketed word inside a
+    string literal is read as a reference, which is why the GUI reports this as a warning, not an error."""
+    doc = parser_or_doc.xml_doc if isinstance(parser_or_doc, TwbParser) else parser_or_doc
+    by_ds = {ds.get("name"): _datasource_fields(ds)
+             for ds in doc.xpath("/workbook/datasources/datasource[@name]")}
+    rows = []
+    for ds in doc.xpath("/workbook/datasources/datasource[@name]"):
+        ds_name = ds.get("name")
+        own = by_ds[ds_name]
+        for col in ds.xpath("./column[@name][calculation[@formula]]"):
+            if col.get("param-domain-type"):
+                continue                               # a parameter's formula is its current value
+            refs = _code_refs(col.find("calculation").get("formula"))
+            missing: list[str] = []
+            i = 0
+            while i < len(refs):
+                ref = refs[i]
+                inner = ref[1:-1]
+                if inner.startswith(":"):
+                    i += 1
+                    continue
+                if (inner == "Parameters" or inner in by_ds) and i + 1 < len(refs):
+                    target = by_ds.get(inner, {})
+                    nxt = refs[i + 1]
+                    if nxt not in target and not nxt[1:-1].startswith(":"):
+                        missing.append(f"{inner}.{nxt}")
+                    i += 2
+                    continue
+                if ref not in own:
+                    missing.append(ref)
+                i += 1
+            for name in sorted(set(missing)):
+                rows.append({"datasource": ds_name, "calculation": col.get("name"),
+                             "caption": col.get("caption"), "missing": name})
+    return pd.DataFrame(rows, columns=MISSING_COLUMNS)

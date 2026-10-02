@@ -20,7 +20,7 @@ from .datasources import (
     extract_datasource_details,
 )
 from .fields import _FIELDS_COLUMNS, _INFERRED_COLUMNS, extract_columns_with_table_source, infer_implicit_relationships
-from .graph import to_dot
+from .graph import graph_data, to_dot
 from .joins import _JOIN_COLUMNS, extract_joins
 from .published import _PUBLISHED_COLUMNS, extract_published_refs
 from .relationships import _RELATION_COLUMNS, _RELATIONSHIP_COLUMNS, extract_relations, extract_relationships
@@ -202,6 +202,14 @@ class TwbParser:
             self.get_inferred_relationships() if include_inferred else None,
         )
 
+    def get_relationship_graph_data(self, include_inferred: bool = False) -> dict:
+        """The relationship graph as `{"nodes": [...], "edges": [...]}` (see `graph.graph_data`)."""
+        return graph_data(
+            self.get_joins(),
+            self.get_relationships(),
+            self.get_inferred_relationships() if include_inferred else None,
+        )
+
     def get_field_renames(self, reference=None, **kwargs) -> pd.DataFrame:
         """Suggested clean field names; see `rename.suggest_field_renames`."""
         from .rename import suggest_field_renames
@@ -214,6 +222,19 @@ class TwbParser:
         from .usage import field_usage
 
         return field_usage(self)
+
+    def get_missing_references(self) -> pd.DataFrame:
+        """Calculations that name a field the workbook does not have; see
+        `usage.missing_references`."""
+        from .usage import missing_references
+
+        return missing_references(self)
+
+    def get_report(self) -> dict:
+        """The workbook report card (summary, health checks); see `report.workbook_report`."""
+        from .report import workbook_report
+
+        return workbook_report(self)
 
     def get_renames(self, reference=None, **kwargs) -> pd.DataFrame:
         """Suggested clean names for everything in the report (fields,

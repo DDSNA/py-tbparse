@@ -5,7 +5,7 @@ const statusEl = $('status');
 // still show up, under "Other", so the registry stays the source of truth.
 const GROUPS = [
   ['Workbook', ['overview', 'published-refs']],
-  ['Data', ['datasources', 'parameters', 'fields', 'raw-fields', 'calculated-fields', 'field-renames']],
+  ['Data', ['datasources', 'parameters', 'fields', 'raw-fields', 'calculated-fields', 'field-usage', 'missing-references', 'field-renames']],
   ['Data model', ['relationships', 'joins', 'relations', 'inferred-relationships', 'graph']],
   ['Dashboards', ['dashboards', 'dashboard-sheets']],
   ['SQL', ['custom-sql', 'initial-sql']],
@@ -18,6 +18,8 @@ const INFO = {
   'fields': ['Fields', 'Every column across all datasources.'],
   'raw-fields': ['Raw fields', 'Columns that come straight from the source.'],
   'calculated-fields': ['Calculated fields', 'Calculations and their formulas.'],
+  'field-usage': ['Field usage', 'Which worksheets, dashboards and calculations use each field.'],
+  'missing-references': ['Missing references', 'Calculations that name a field the workbook does not have.'],
   'field-renames': ['Field renames', 'Suggested clean names. Create a copy of the workbook with them applied.'],
   'joins': ['Joins', 'Join clauses from the physical layer.'],
   'relations': ['Relations', 'Physical tables and custom SQL relations.'],
@@ -42,8 +44,9 @@ const OVERVIEW_LINKS = {
 const CODE_COLUMNS = new Set(['formula', 'custom_sql', 'initial_sql', 'connection_target']);
 
 const state = { table: 'overview', columns: [], data: [], sortCol: -1, sortDir: 0,
-                loaded: false, req: 0, dot: '', fresh: false, dsLabels: {}, hay: null, hayKey: '',
-                colLower: {}, sortKeys: {}, numeric: {}, natural: null, drawerIdx: null };
+                loaded: false, uploaded: false, req: 0, dot: '', fresh: false, dsLabels: {}, hay: null, hayKey: '',
+                colLower: {}, sortKeys: {}, numeric: {}, natural: null, drawerIdx: null,
+                drawerInfo: null, drawerOpener: null, graph: {nodes: [], edges: []} };
 let filterTimer = null;
 let toastTimer = null;
 
@@ -184,24 +187,73 @@ function selectTable(name) {
   showTable();
 }
 
-async function loadWorkbook() {
-  const path = $('path').value.trim();
-  if (!path) { setStatus('Enter a workbook path first.', true); return; }
-  setStatus('Opening ' + path + ' ...', false, 'busy');
+// Plain words for the errors a person can run into when opening a file.
+function friendlyOpenError(message) {
+  const m = String(message || '');
+  if (/No such file|not found|FileNotFound/i.test(m)) return m + '. Check the path, or drop the file onto the page instead.';
+  if (/BadZipFile|not a zip|zip archive/i.test(m)) return 'that .twbx is damaged or not a zip archive.';
+  if (/no \.twb|No .*twb.* in/i.test(m)) return 'there is no workbook (.twb) inside that .twbx.';
+  return m;
+}
+
+function recentPaths() {
+  try {
+    const list = JSON.parse(localStorage.getItem('py-tbparse:recent') || '[]');
+    return Array.isArray(list) ? list.filter((p) => typeof p === 'string').slice(0, 8) : [];
+  } catch (e) { return []; }
+}
+function saveRecent(list) {
+  try { localStorage.setItem('py-tbparse:recent', JSON.stringify(list.slice(0, 8))); } catch (e) { /* private window */ }
+}
+function rememberRecent(path) {
+  if (!path) return;
+  saveRecent([path].concat(recentPaths().filter((p) => p !== path)));
+  renderRecent();
+}
+function forgetRecent(path) {
+  saveRecent(recentPaths().filter((p) => p !== path));
+  renderRecent();
+}
+function baseName(path) { return path.split(/[\\/]/).filter(Boolean).pop() || path; }
+function renderRecent() {
+  const list = recentPaths();
+  $('recent').hidden = !list.length;
+  const ul = $('recentList');
+  ul.innerHTML = '';
+  list.forEach((path) => {
+    const li = el('li');
+    const open = el('button', 'open-recent', baseName(path));
+    open.type = 'button';
+    open.title = path;
+    const dir = el('small', '', path.slice(0, path.length - baseName(path).length).replace(/[\\/]$/, ''));
+    open.appendChild(dir);
+    open.addEventListener('click', () => { $('path').value = path; loadWorkbook(); });
+    const forget = el('button', 'forget', '\u00d7');
+    forget.type = 'button';
+    forget.setAttribute('aria-label', 'Forget ' + baseName(path));
+    forget.addEventListener('click', () => { forgetRecent(path); });
+    li.appendChild(open);
+    li.appendChild(forget);
+    ul.appendChild(li);
+  });
+}
+
+// Show a freshly opened workbook. `request` resolves to the /load or /upload answer.
+async function openWorkbook(label, request) {
+  setStatus('Opening ' + label + ' ...', false, 'busy');
   const btn = $('loadBtn');
   btn.disabled = true; btn.textContent = 'Opening';
   try {
-    const data = await fetchJSON('/load', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path}),
-    });
+    const data = await request();
     setStatus('Opened ' + (data.name || data.path), false, 'ok');
     state.loaded = true;
+    state.uploaded = !!data.uploaded;
+    $('uploadNote').hidden = !state.uploaded;
+    $('createBtn').hidden = state.uploaded;
     $('empty').hidden = true;
     $('controls').hidden = false;
     $('wbName').textContent = data.name || data.path;
-    $('wbName').title = data.path;
+    $('wbName').title = data.path || data.name;
     document.title = (data.name || 'workbook') + ' - py-tbparse';
     setCounts(data.counts);
     state.dsLabels = data.datasource_labels || {};
@@ -225,11 +277,52 @@ async function loadWorkbook() {
     markCurrent();
     state.fresh = true;
     await showTable();
+    if (!data.uploaded) rememberRecent(data.path);
   } catch (e) {
-    fail(e);
+    setStatus('That didn\u2019t work: ' + friendlyOpenError(e.message), true);
   } finally {
     btn.disabled = false; btn.textContent = 'Load';
   }
+}
+
+async function loadWorkbook() {
+  const path = $('path').value.trim();
+  if (!path) { setStatus('Enter a workbook path first, or drop a file onto the page.', true); return; }
+  await openWorkbook(path, () => fetchJSON('/load', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path}),
+  }));
+}
+
+const MAX_UPLOAD_MB = 200;
+function uploadFile(file) {
+  const name = file.name || 'workbook';
+  if (!/\.(twb|twbx)$/i.test(name)) { setStatus('That didn\u2019t work: only .twb and .twbx files can be opened.', true); return Promise.resolve(); }
+  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+    setStatus('That didn\u2019t work: ' + name + ' is ' + Math.round(file.size / 1048576) + ' MB; the limit is ' + MAX_UPLOAD_MB + ' MB.', true);
+    return Promise.resolve();
+  }
+  $('path').value = '';
+  return openWorkbook(name, () => new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/upload');
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('X-Filename', encodeURIComponent(name));
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && file.size > 5 * 1048576) {
+        setStatus('Opening ' + name + ' (' + Math.round(100 * e.loaded / e.total) + '%) ...', false, 'busy');
+      }
+    };
+    xhr.onerror = () => reject(new Error('the upload did not go through'));
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch (e) { /* not JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new Error(data.error || xhr.statusText));
+    };
+    xhr.send(file);
+  }));
 }
 
 async function showTable() {
@@ -270,11 +363,11 @@ async function showTable() {
       clearTimeout(loadingTimer);
       if (req !== state.req) return;
       state.dot = data.dot;
+      state.graph = data.graph || {nodes: [], edges: []};
       const wrap = $('tableWrap');
-      wrap.innerHTML = '';
-      wrap.appendChild(el('pre', 'dot', data.dot));
-      $('meta').textContent = data.dot.split('\n').length + ' line(s)';
-      finishView(fresh, wrap, 'Showing the relationship graph');
+      renderGraphView(wrap);
+      finishView(fresh, wrap, 'Showing the relationship graph, ' + plural(state.graph.nodes.length, 'table') + ', ' +
+                 plural(state.graph.edges.length, 'connection'));
     } catch (e) {
       failed(e);
     }
@@ -364,6 +457,82 @@ function renderOverview() {
     cards.appendChild(card);
   });
   wrap.appendChild(cards);
+  fillReport(wrap, cards);
+}
+
+// ---- the report card: a sentence about the workbook, what deserves a look, what is on the dashboards ------
+
+const SEVERITY = {
+  problem: ['\u2716', 'Problem'],
+  warning: ['\u25B2', 'Needs a look'],
+  info: ['\u2022', 'Worth knowing'],
+};
+
+// Open a table with column filters already on, so a count on the card lands on exactly its rows.
+function openWithFilters(table, filters) {
+  const v = viewFor(table);
+  v.filters = (filters || []).map((f) => ({col: f.col, text: f.text}));
+  if (state.table === table) { showTable(); return; }
+  selectTable(table);
+}
+
+async function fillReport(wrap, cards) {
+  let rep;
+  try { rep = await fetchJSON('/overview'); } catch (e) { return; }
+  if (state.table !== 'overview' || !cards.isConnected) return;
+  const lead = el('p', 'lead', rep.summary);
+  wrap.insertBefore(lead, cards);
+
+  const heading = el('h2', 'section-title', 'Worth a look');
+  heading.id = 'healthTitle';
+  const list = el('ul', 'health');
+  list.setAttribute('aria-labelledby', 'healthTitle');
+  const serious = rep.health.filter((h) => h.severity !== 'info');
+  if (!serious.length) {
+    const ok = el('li', 'health-item ok');
+    ok.append(el('span', 'sev', '\u2713'), el('div', 'health-text', 'All clear. No broken relationships, missing references or unused calculations.'));
+    list.appendChild(ok);
+  }
+  rep.health.forEach((h) => {
+    const [icon, word] = SEVERITY[h.severity] || SEVERITY.info;
+    const li = el('li', 'health-item ' + h.severity);
+    const sev = el('span', 'sev', icon);
+    sev.setAttribute('aria-hidden', 'true');
+    const text = el('div', 'health-text');
+    text.append(el('span', 'sr-only', word + ': '), el('strong', '', h.title));
+    if (h.detail) text.append(el('span', 'health-detail', h.detail));
+    li.append(sev, text);
+    if (h.table) {
+      const go = el('button', 'btn small health-go', 'Show');
+      go.type = 'button';
+      go.dataset.health = h.id;
+      go.setAttribute('aria-label', 'Show the rows: ' + h.title);
+      go.addEventListener('click', () => openWithFilters(h.table, h.filters));
+      li.appendChild(go);
+    }
+    list.appendChild(li);
+  });
+  wrap.append(heading, list);
+
+  if (rep.dashboards.length || rep.worksheets.length) {
+    const title = el('h2', 'section-title', 'On the dashboards');
+    title.id = 'dashTitle';
+    const grid = el('div', 'dash-grid');
+    grid.setAttribute('role', 'list');
+    grid.setAttribute('aria-labelledby', 'dashTitle');
+    rep.dashboards.forEach((d) => {
+      const card = el('div', 'dash-card');
+      card.setAttribute('role', 'listitem');
+      card.append(el('h3', '', d.name), el('div', 'dash-count', plural(d.sheets.length, 'worksheet')));
+      const ul = el('ul', 'dash-sheets');
+      d.sheets.slice(0, 6).forEach((s) => ul.appendChild(el('li', '', s)));
+      if (d.sheets.length > 6) ul.appendChild(el('li', 'more', 'and ' + (d.sheets.length - 6) + ' more'));
+      card.appendChild(ul);
+      grid.appendChild(card);
+    });
+    if (!rep.dashboards.length) grid.appendChild(el('p', 'quiet', 'No dashboards. ' + plural(rep.worksheets.length, 'worksheet') + ' on their own.'));
+    wrap.append(title, grid);
+  }
 }
 
 // ---- the table: filtering, sorting and windowed rendering ---------------------------------------------
@@ -610,6 +779,134 @@ function cellNode(col, value) {
   return td;
 }
 
+// ---- the relationship graph view -------------------------------------------------------------------------
+
+const BIG_GRAPH = 300;
+let graphCtl = null;
+
+function infoRows(pairs) {
+  const list = el('dl', 'details');
+  pairs.forEach(([k, v]) => list.append(el('dt', '', k), el('dd', '', v === null || v === undefined || v === '' ? '-' : String(v))));
+  return list;
+}
+
+// The drawer also tells about a graph table or connection; closing it returns focus to what opened it.
+function openInfo(title, pairs, opener, json) {
+  state.drawerIdx = null;
+  state.drawerInfo = json || null;
+  state.drawerOpener = opener || null;
+  $('drawerTitle').textContent = title;
+  $('drawerBody').replaceChildren(infoRows(pairs));
+  $('drawerCopy').textContent = 'Copy as JSON';
+  const drawer = $('drawer');
+  drawer.hidden = false;
+  requestAnimationFrame(() => drawer.classList.add('show'));
+  $('drawerTitle').focus();
+}
+
+function kindLabel(kind) { return kind === 'inferred' ? 'Inferred (a guess)' : kind === 'relationship' ? 'Relationship' : 'Join'; }
+
+function renderGraphList(box, graph) {
+  box.replaceChildren();
+  const table = el('table', 'graph-table');
+  const head = el('thead');
+  const hr = el('tr');
+  ['From', 'To', 'Kind', 'Keys'].forEach((h) => { const th = el('th', '', h); th.scope = 'col'; hr.appendChild(th); });
+  head.appendChild(hr);
+  const body = el('tbody');
+  graph.edges.slice(0, 500).forEach((e) => {
+    const tr = el('tr');
+    [e.source, e.target, kindLabel(e.kind), e.label].forEach((v) => tr.appendChild(el('td', '', v)));
+    body.appendChild(tr);
+  });
+  table.append(head, body);
+  box.appendChild(table);
+  if (graph.edges.length > 500) box.appendChild(el('p', 'quiet', 'and ' + (graph.edges.length - 500) + ' more. Export the DOT for everything.'));
+}
+
+function renderGraphView(wrap) {
+  const graph = state.graph;
+  wrap.innerHTML = '';
+  graphCtl = null;
+  const nodes = graph.nodes.length;
+  $('meta').textContent = plural(nodes, 'table') + ', ' + plural(graph.edges.length, 'connection');
+  const root = el('div', 'graph-view');
+  const source = el('details', 'dot-source');
+  source.append(el('summary', '', 'DOT source'), el('pre', 'dot', state.dot));
+  if (!nodes) {
+    root.append(emptyState('No joins or relationships', 'This workbook has none, so there is nothing to draw.'), source);
+    wrap.appendChild(root);
+    return;
+  }
+  const tools = el('div', 'graph-tools');
+  tools.setAttribute('role', 'toolbar');
+  tools.setAttribute('aria-label', 'Graph tools');
+  const button = (label, title, run) => {
+    const b = el('button', 'btn small', label);
+    b.type = 'button'; b.title = title; b.setAttribute('aria-label', title);
+    b.addEventListener('click', run);
+    tools.appendChild(b);
+    return b;
+  };
+  const box = el('div', 'graph-box');
+  const list = el('div', 'graph-list');
+  list.hidden = true;
+  let component;
+  const draw = () => {
+    graphCtl = VGraph.render(box, graph, {
+      component,
+      onSelectNode: (n, edges, opener) => openInfo(n.id, [
+        ['Kind', 'Table'],
+        ['Connections', edges.length],
+      ].concat(edges.map((e) => [e.source === n.id ? 'To ' + e.target : 'From ' + e.source, e.label + ' (' + kindLabel(e.kind).toLowerCase() + ')'])),
+      opener, {table: n.id, connections: edges.map((e) => ({from: e.source, to: e.target, keys: e.label, kind: e.kind}))}),
+      onSelectEdge: (e, opener) => openInfo(e.source + ' to ' + e.target, [
+        ['Kind', kindLabel(e.kind)], ['From', e.source], ['To', e.target], ['Keys', e.label],
+      ], opener, {from: e.source, to: e.target, keys: e.label, kind: e.kind}),
+    });
+  };
+  button('+', 'Zoom in', () => graphCtl && graphCtl.zoomIn());
+  button('\u2212', 'Zoom out', () => graphCtl && graphCtl.zoomOut());
+  button('Fit', 'Fit the whole graph in view', () => graphCtl && graphCtl.fit());
+  if (nodes > BIG_GRAPH) {
+    const lay = VGraph.layout(graph);
+    component = 0;
+    const sel = el('select', 'field');
+    sel.setAttribute('aria-label', 'Which group of connected tables to draw');
+    lay.components.forEach((c) => {
+      const opt = el('option', '', 'Group ' + (c.index + 1) + ': ' + plural(c.size, 'table'));
+      opt.value = String(c.index);
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', () => { component = Number(sel.value); draw(); });
+    tools.appendChild(sel);
+    tools.appendChild(el('span', 'note', 'Large graph: drawing one group at a time.'));
+  }
+  const toggle = button('View as list', 'Switch between the picture and a list of connections', () => {
+    const showList = list.hidden;
+    list.hidden = !showList;
+    box.hidden = showList;
+    toggle.textContent = showList ? 'View as graph' : 'View as list';
+    toggle.setAttribute('aria-pressed', showList ? 'true' : 'false');
+    if (showList) renderGraphList(list, graph); else if (graphCtl) requestAnimationFrame(() => graphCtl.fit());
+  });
+  toggle.setAttribute('aria-pressed', 'false');
+  button('Save as SVG', 'Download the graph as an SVG file', () => {
+    if (!graphCtl) return;
+    const blob = new Blob([graphCtl.exportSvg()], {type: 'image/svg+xml'});
+    const a = el('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'relationships.svg';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }).classList.add('save-svg');
+  root.append(tools, box, list, source);
+  wrap.appendChild(root);
+  draw();
+}
+
 function emptyState(title, text) {
   const box = el('div', 'empty-state');
   box.append(el('strong', '', title), el('span', '', text));
@@ -711,6 +1008,9 @@ function openRow(pos, opener) {
   const idx = vt.order[pos];
   if (idx === undefined) return;
   state.drawerIdx = idx;
+  state.drawerInfo = null;
+  state.drawerOpener = null;
+  $('drawerCopy').textContent = 'Copy row as JSON';
   fillDrawer(idx);
   const drawer = $('drawer');
   drawer.hidden = false;
@@ -728,6 +1028,9 @@ function closeDrawer(restoreFocus) {
   drawer.classList.remove('show');
   setTimeout(() => { if (!drawer.classList.contains('show')) drawer.hidden = true; }, 260);
   if (restoreFocus && idx !== null && idx !== undefined) vt.focusRowByIndex(idx);
+  else if (restoreFocus && state.drawerOpener && state.drawerOpener.isConnected) state.drawerOpener.focus();
+  state.drawerOpener = null;
+  state.drawerInfo = null;
 }
 
 async function copyText(text, message) {
@@ -775,11 +1078,21 @@ function fillMenu(items, focusItem) {
     if (item.sep) { const sep = el('div', 'menu-sep'); sep.setAttribute('role', 'separator'); menu.appendChild(sep); return; }
     const btn = el('button', 'menu-item');
     btn.type = 'button';
-    btn.setAttribute('role', item.checkbox ? 'menuitemcheckbox' : 'menuitem');
-    if (item.checkbox) btn.setAttribute('aria-checked', item.checked ? 'true' : 'false');
+    btn.setAttribute('role', item.radio ? 'menuitemradio' : item.checkbox ? 'menuitemcheckbox' : 'menuitem');
+    if (item.checkbox || item.radio) btn.setAttribute('aria-checked', item.checked ? 'true' : 'false');
     if (item.disabled) btn.setAttribute('aria-disabled', 'true');
     byItem.set(at, btn);
-    btn.append(el('span', 'menu-check', item.checkbox ? (item.checked ? '✓' : '') : ''), el('span', '', item.label));
+    btn.append(el('span', 'menu-check', (item.checkbox || item.radio) ? (item.checked ? '✓' : '') : ''));
+    if (item.swatch) {
+      // a swatch scopes the theme to itself, so it shows the real colours of that theme in the current mode
+      const sw = el('span', 'menu-swatch');
+      sw.dataset.theme = item.swatch;
+      sw.dataset.mode = document.documentElement.dataset.mode || 'light';
+      sw.setAttribute('aria-hidden', 'true');
+      sw.append(el('i'), el('i'), el('i'));
+      btn.appendChild(sw);
+    }
+    btn.appendChild(el('span', '', item.label));
     btn.addEventListener('click', () => {
       if (item.disabled) return;
       if (item.keep) {
@@ -960,6 +1273,48 @@ function openColumnsMenu() {
   });
 }
 
+// ---- themes -------------------------------------------------------------------------------------------
+
+const THEME_LABELS = {shop: 'Shop', matcha: 'Matcha', fjord: 'Fjord', pastel: 'Pastel', neon: 'Neon', contrast: 'High contrast'};
+const MODE_LABELS = {auto: 'Auto (follow my system)', light: 'Light', dark: 'Dark'};
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+function applyTheme(theme, pref) {
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  root.dataset.pref = pref;
+  root.dataset.mode = pref === 'auto' ? (systemDark.matches ? 'dark' : 'light') : pref;
+  try {
+    localStorage.setItem('py-tbparse:theme', theme);
+    localStorage.setItem('py-tbparse:mode', pref);
+  } catch (e) { /* private window: the choice lasts until the page closes */ }
+  $('themeBtn').title = 'Theme: ' + THEME_LABELS[theme] + ', ' + MODE_LABELS[pref];
+  $('announce').textContent = 'Theme ' + THEME_LABELS[theme] + ', ' + root.dataset.mode + ' mode';
+}
+
+systemDark.addEventListener('change', () => {
+  const root = document.documentElement;
+  if ((root.dataset.pref || 'auto') === 'auto') root.dataset.mode = systemDark.matches ? 'dark' : 'light';
+});
+
+function openThemeMenu() {
+  showMenu($('themeBtn'), 'Theme', () => {
+    const root = document.documentElement;
+    const theme = root.dataset.theme || 'shop';
+    const pref = root.dataset.pref || 'auto';
+    const items = (window.THEMES || []).map((id) => ({
+      label: THEME_LABELS[id] || id, radio: true, checked: id === theme, keep: true, swatch: id,
+      run: () => applyTheme(id, root.dataset.pref || 'auto'),
+    }));
+    items.push({sep: true});
+    ['auto', 'light', 'dark'].forEach((m) => items.push({
+      label: MODE_LABELS[m], radio: true, checked: m === pref, keep: true,
+      run: () => applyTheme(root.dataset.theme || 'shop', m),
+    }));
+    return items;
+  });
+}
+
 function updateColumnsButton() {
   const hidden = hiddenCount(viewFor(state.table));
   $('colsBtn').textContent = hidden ? 'Columns (' + hidden + ' hidden)' : 'Columns';
@@ -1017,6 +1372,36 @@ async function copyDot() {
 }
 
 $('loadBtn').addEventListener('click', loadWorkbook);
+$('pickBtn').addEventListener('click', () => $('filePick').click());
+$('filePick').addEventListener('change', () => {
+  const file = $('filePick').files[0];
+  $('filePick').value = '';
+  if (file) uploadFile(file);
+});
+// Drop a file anywhere. The overlay only shows for drags that carry files, and a counter copes with
+// dragenter/dragleave firing for every child element on the way.
+let dragDepth = 0;
+function hasFiles(e) { return e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'); }
+window.addEventListener('dragenter', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth++; $('dropzone').hidden = false;
+});
+window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('dragleave', (e) => {
+  if (!hasFiles(e)) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) $('dropzone').hidden = true;
+});
+window.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; $('dropzone').hidden = true;
+  const files = Array.from(e.dataTransfer.files);
+  if (files.length > 1) setStatus('Opening the first of ' + files.length + ' files; one workbook at a time.', false, 'ok');
+  if (files.length) uploadFile(files[0]);
+});
+renderRecent();
+$('themeBtn').title = 'Theme: ' + THEME_LABELS[document.documentElement.dataset.theme || 'shop'] + ', ' +
+  MODE_LABELS[document.documentElement.dataset.pref || 'auto'];
 $('path').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadWorkbook(); });
 $('tableSel').addEventListener('change', () => selectTable($('tableSel').value));
 $('dashboardSel').addEventListener('change', showTable);
@@ -1030,6 +1415,10 @@ $('filter').addEventListener('input', () => {
 ['renameStyle', 'renameDs', 'renameKinds', 'renameRef', 'renameChanged'].forEach((id) =>
   $(id).addEventListener('change', showTable));
 $('createBtn').addEventListener('click', createWorkbook);
+$('themeBtn').addEventListener('click', () => {
+  if (menuState && menuState.anchor === $('themeBtn')) closeMenu(true);
+  else openThemeMenu();
+});
 $('colsBtn').addEventListener('click', () => {
   if (menuState && menuState.anchor === $('colsBtn')) closeMenu(true);
   else openColumnsMenu();
@@ -1039,8 +1428,8 @@ $('densityBtn').addEventListener('click', () => {
 });
 $('drawerClose').addEventListener('click', () => closeDrawer(true));
 $('drawerCopy').addEventListener('click', () => {
-  if (state.drawerIdx === null) return;
-  copyText(JSON.stringify(rowObject(state.drawerIdx), null, 2), 'Copied this row as JSON');
+  if (state.drawerIdx !== null) copyText(JSON.stringify(rowObject(state.drawerIdx), null, 2), 'Copied this row as JSON');
+  else if (state.drawerInfo) copyText(JSON.stringify(state.drawerInfo, null, 2), 'Copied as JSON');
 });
 $('menu').addEventListener('keydown', (e) => {
   if ($('menu').getAttribute('role') === 'dialog') {

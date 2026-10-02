@@ -272,9 +272,8 @@ def test_narrow_viewport_switches_tables_with_the_dropdown(page, wenjie_path):
 # --- graph view: the exact code path the syntax error lived in ---------------
 
 
-def test_graph_view_renders_dot_and_counts_lines(page, wenjie_path):
-    # The broken line was the `split('\n')` that produces this line count,
-    # so this asserts on the specific statement that was malformed.
+def test_graph_view_draws_the_graph_and_keeps_the_dot(page, wenjie_path):
+    # The DOT text stays available (a collapsed section), and the picture is drawn from the same data.
     _load(page, wenjie_path)
     _open(page, "graph")
     page.wait_for_function(
@@ -284,9 +283,11 @@ def test_graph_view_renders_dot_and_counts_lines(page, wenjie_path):
     assert dot.startswith('digraph "twb" {')
     assert "Sheet1" in dot
 
+    page.wait_for_selector("#tableWrap svg.graph .node", timeout=10_000)
     meta = page.text_content("#meta")
-    assert meta.endswith("line(s)")
-    assert int(meta.split()[0]) == len(dot.splitlines())
+    assert re.fullmatch(r"\d+ tables?, \d+ connections?", meta), meta
+    assert int(meta.split()[0]) == page.locator("#tableWrap svg.graph .node").count()
+    assert dot.count(" -> ") == page.locator("#tableWrap svg.graph .edge").count()
     assert page.js_errors == []
 
 
@@ -610,7 +611,8 @@ def test_overview_tiles_sit_two_across_on_a_phone(page, wenjie_path):
 
 def test_start_screen_has_the_friendly_copy(page):
     assert page.text_content("#empty h1") == "Let’s open a workbook"
-    assert "Nothing is uploaded" in page.text_content("#empty")
+    text = page.text_content("#empty")
+    assert "Everything stays on this computer" in text and "Nothing leaves it" in text
 
 
 # --- phase 2 of the redesign: a windowed, column-aware table ----------------------------------------------

@@ -117,6 +117,8 @@ def browser():
 def gui_server():
     webgui._STATE["parser"] = None
     webgui._STATE["path"] = None
+    webgui._STATE["uploaded"] = False
+    webgui._STATE["report"] = None
     srv = ThreadingHTTPServer(("127.0.0.1", 0), webgui.Handler)
     host, port = srv.server_address
     thread = threading.Thread(target=srv.serve_forever, daemon=True)

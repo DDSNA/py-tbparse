@@ -68,3 +68,30 @@ def test_repr_html(wenjie_path):
     assert html.startswith("<div>")
     assert "test_for_wenjie.twb" in html
     assert "<table" in html
+
+
+def test_graph_data_has_nodes_edges_and_kinds():
+    from py_tbparse import graph_data
+
+    cols = ["left_table", "right_table", "left_field", "right_field", "operator"]
+    joins = pd.DataFrame([{"left_table": "Orders", "left_field": "ID", "operator": "=", "right_table": "Customers", "right_field": "ID"}])
+    rels = pd.DataFrame([{"left_table": "Customers", "left_field": "Region", "operator": "=", "right_table": "Regions", "right_field": "Name"}])
+    inferred = pd.DataFrame([{"left_table": "A", "left_field": "x", "right_table": "B", "right_field": "x", "reason": "same name"}])
+    g = graph_data(joins, rels, inferred)
+    assert [n["id"] for n in g["nodes"]] == ["A", "B", "Customers", "Orders", "Regions"]
+    assert [(e["source"], e["target"], e["kind"]) for e in g["edges"]] == [
+        ("Orders", "Customers", "join"), ("Customers", "Regions", "relationship"), ("A", "B", "inferred")]
+    assert g["edges"][0]["label"] == "ID = ID"
+    assert graph_data(joins, rels)["edges"][-1]["kind"] == "relationship"
+    empty = pd.DataFrame(columns=cols)
+    assert graph_data(empty, empty) == {"nodes": [], "edges": []}
+
+
+def test_graph_data_agrees_with_the_dot_text(wenjie_path):
+    p = TwbParser(wenjie_path)
+    for inferred in (False, True):
+        g = p.get_relationship_graph_data(include_inferred=inferred)
+        dot = p.get_relationship_graph_dot(include_inferred=inferred)
+        for n in g["nodes"]:
+            assert f'"{n["id"]}"' in dot
+        assert dot.count(" -> ") == len(g["edges"])

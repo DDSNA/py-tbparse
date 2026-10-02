@@ -44,6 +44,57 @@ def _inferred_label(row) -> str:
     return f"{row.left_field} ~ {row.right_field} ({row.reason})"
 
 
+def _collect(joins_df, relationships_df, inferred_df) -> list[tuple[str, str, str, str]]:
+    """Every edge as (left table, right table, label, kind) with kind `join`, `relationship` or `inferred`,
+    in the order they are drawn: joins, relationships, then inferred guesses."""
+    edges = []
+    for left, right, label in _edges_from(joins_df, _join_label):
+        edges.append((left, right, label, "join"))
+    for left, right, label in _edges_from(relationships_df, _relationship_label):
+        edges.append((left, right, label, "relationship"))
+    if inferred_df is not None:
+        for left, right, label in _edges_from(inferred_df, _inferred_label):
+            edges.append((left, right, label, "inferred"))
+    return edges
+
+
+def graph_data(
+    joins_df: pd.DataFrame,
+    relationships_df: pd.DataFrame,
+    inferred_df: pd.DataFrame | None = None,
+) -> dict:
+    """The same graph as `to_dot`, as plain data for the GUI to lay out and draw:
+    `{"nodes": [{"id": ...}], "edges": [{"source", "target", "label", "kind"}]}`.
+    Nodes are sorted by name; edges keep `to_dot`'s order."""
+    edges = _collect(joins_df, relationships_df, inferred_df)
+    nodes = sorted({n for left, right, _, _ in edges for n in (left, right)})
+    return {
+        "nodes": [{"id": n} for n in nodes],
+        "edges": [{"source": l, "target": r, "label": lab, "kind": k} for l, r, lab, k in edges],
+    }
+
+
+def to_dot(
+    joins_df: pd.DataFrame,
+    relationships_df: pd.DataFrame,
+    inferred_df: pd.DataFrame | None = None,
+    graph_name: str = "twb",
+) -> str:
+    """Render join/relationship (and optionally inferred) edges as a
+    Graphviz DOT digraph string.
+
+    Solid edges are real joins/relationships; dashed edges (when
+    `inferred_df` is passed) are `infer_implicit_relationships()` guesses.
+    """
+    edges = [(l, r, lab, kind == "inferred") for l, r, lab, kind in _collect(joins_df, relationships_df, inferred_df)]
+
+    nodes = sorted({n for left, right, _, _ in edges for n in (left, right)})
+    return {
+        "nodes": [{"id": n} for n in nodes],
+        "edges": [{"source": l, "target": r, "label": lab, "kind": k} for l, r, lab, k in edges],
+    }
+
+
 def to_dot(
     joins_df: pd.DataFrame,
     relationships_df: pd.DataFrame,

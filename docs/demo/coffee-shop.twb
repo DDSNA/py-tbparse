@@ -1,0 +1,118 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook version='18.1' source-platform='win'>
+  <datasources>
+    <datasource name='Parameters' hasconnection='false'>
+      <column name='[Target Margin]' caption='Target Margin' datatype='real' param-domain-type='range' role='measure'>
+        <calculation class='tableau' formula='0.15' />
+      </column>
+    </datasource>
+    <datasource name='coffee' caption='Coffee Shop'>
+      <column name="[order_id]" datatype='string' role='dimension' />
+      <column name="[customer_id]" datatype='string' role='dimension' />
+      <column name="[product_id]" datatype='string' role='dimension' />
+      <column name="[order_date]" datatype='date' role='dimension' />
+      <column name="[sales_usd]" datatype='real' role='measure' />
+      <column name="[profit_usd]" datatype='real' role='measure' />
+      <column name="[discount_pct]" datatype='real' role='measure' />
+      <column name="[qty]" datatype='real' role='measure' />
+      <column name="[customer_name]" datatype='string' role='dimension' />
+      <column name="[segment]" datatype='string' role='dimension' />
+      <column name="[loyalty_tier]" datatype='string' role='dimension' />
+      <column name="[city]" datatype='string' role='dimension' />
+      <column name="[product_name]" datatype='string' role='dimension' />
+      <column name="[category]" datatype='string' role='dimension' />
+      <column name="[supplier_id]" datatype='string' role='dimension' />
+      <column name="[list_price]" datatype='real' role='measure' />
+      <column name="[supplier_name]" datatype='string' role='dimension' />
+      <column name="[country]" datatype='string' role='dimension' />
+      <column name="[returned_flag]" datatype='string' role='dimension' />
+      <column name="[return_reason]" datatype='string' role='dimension' />
+      <column name="[store_manager]" datatype='string' role='dimension' />
+      <column name="[opened_on]" datatype='date' role='dimension' />
+      <column name="[Profit Ratio]" caption="Profit Ratio" datatype='real' role='measure'>
+        <calculation class='tableau' formula="SUM([profit_usd]) / SUM([sales_usd])" />
+      </column>
+      <column name="[Margin Band]" caption="Margin Band" datatype='real' role='measure'>
+        <calculation class='tableau' formula="IF [Profit Ratio] &gt;= [Parameters].[Target Margin] THEN 'On target' ELSE 'Below' END" />
+      </column>
+      <column name="[Loyalty Score]" caption="Loyalty Score" datatype='real' role='measure'>
+        <calculation class='tableau' formula="[sales_usd] * [Loyalty Weight]" />
+      </column>
+      <column name="[Old Discount]" caption="Old Discount" datatype='real' role='measure'>
+        <calculation class='tableau' formula="[discount_pct] * 100" />
+      </column>
+      <column name="[Net Sales]" caption="Net Sales" datatype='real' role='measure'>
+        <calculation class='tableau' formula="[sales_usd] - [sales_usd] * [discount_pct]" />
+      </column>
+    </datasource>
+  </datasources>
+  <object-graph>
+    <objects>
+        <object id="Orders" caption="Orders"><properties context=''><relation name="Orders" table="[Orders]" type='table' /></properties></object>
+        <object id="Customers" caption="Customers"><properties context=''><relation name="Customers" table="[Customers]" type='table' /></properties></object>
+        <object id="Products" caption="Products"><properties context=''><relation name="Products" table="[Products]" type='table' /></properties></object>
+        <object id="Suppliers" caption="Suppliers"><properties context=''><relation name="Suppliers" table="[Suppliers]" type='table' /></properties></object>
+        <object id="Returns" caption="Returns"><properties context=''><relation name="Returns" table="[Returns]" type='table' /></properties></object>
+        <object id="Stores" caption="Stores"><properties context=''><relation name="Stores" table="[Stores]" type='table' /></properties></object>
+    </objects>
+    <relationships>
+        <relationship><expression op='='><expression op="[Orders].[customer_id]" /><expression op="[Customers].[customer_id]" /></expression><first-end-point object-id="Orders" /><second-end-point object-id="Customers" /></relationship>
+        <relationship><expression op='='><expression op="[Orders].[product_id]" /><expression op="[Products].[product_id]" /></expression><first-end-point object-id="Orders" /><second-end-point object-id="Products" /></relationship>
+        <relationship><expression op='='><expression op="[Orders].[order_id]" /><expression op="[Returns].[order_id]" /></expression><first-end-point object-id="Orders" /><second-end-point object-id="Returns" /></relationship>
+        <relationship><expression op='='><expression op="[Products].[supplier_id]" /><expression op="[Suppliers].[supplier_id]" /></expression><first-end-point object-id="Products" /><second-end-point object-id="Suppliers" /></relationship>
+        <relationship><expression op='='><expression op="[Customers].[city]" /><expression op="[Stores].[city]" /></expression><first-end-point object-id="Customers" /><second-end-point object-id="Stores" /></relationship>
+    </relationships>
+  </object-graph>
+  <worksheets>
+    <worksheet name="Sales by Region">
+      <table><view>
+        <datasource-dependencies datasource='coffee'>
+          <column name="[sales_usd]" datatype='string' role='dimension' />
+          <column name="[city]" datatype='string' role='dimension' />
+          <column name="[Net Sales]" datatype='string' role='dimension' />
+        </datasource-dependencies>
+      </view></table>
+    </worksheet>
+    <worksheet name="Profit Trend">
+      <table><view>
+        <datasource-dependencies datasource='coffee'>
+          <column name="[profit_usd]" datatype='string' role='dimension' />
+          <column name="[order_date]" datatype='string' role='dimension' />
+          <column name="[Profit Ratio]" datatype='string' role='dimension' />
+        </datasource-dependencies>
+      </view></table>
+    </worksheet>
+    <worksheet name="Top Products">
+      <table><view>
+        <datasource-dependencies datasource='coffee'>
+          <column name="[sales_usd]" datatype='string' role='dimension' />
+          <column name="[product_name]" datatype='string' role='dimension' />
+          <column name="[Margin Band]" datatype='string' role='dimension' />
+        </datasource-dependencies>
+      </view></table>
+    </worksheet>
+    <worksheet name="Returns Detail">
+      <table><view>
+        <datasource-dependencies datasource='coffee'>
+          <column name="[order_id]" datatype='string' role='dimension' />
+          <column name="[returned_flag]" datatype='string' role='dimension' />
+          <column name="[return_reason]" datatype='string' role='dimension' />
+        </datasource-dependencies>
+      </view></table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name="Weekly Overview">
+      <zones>
+        <zone worksheet="Sales by Region" id='1' x='0' y='0' w='50000' h='100000' />
+        <zone worksheet="Profit Trend" id='2' x='50000' y='0' w='50000' h='100000' />
+      </zones>
+    </dashboard>
+    <dashboard name="Product Review">
+      <zones>
+        <zone worksheet="Top Products" id='1' x='0' y='0' w='50000' h='100000' />
+        <zone worksheet="Sales by Region" id='2' x='50000' y='0' w='50000' h='100000' />
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

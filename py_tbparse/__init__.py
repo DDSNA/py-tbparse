@@ -10,7 +10,7 @@ from .dashboards import dashboard_sheets, list_dashboards
 from .datasources import extract_datasource_details, extract_named_connections, extract_parameters
 from .diff import diff_tables, diff_workbooks
 from .fields import extract_columns_with_table_source, infer_implicit_relationships
-from .graph import to_dot
+from .graph import graph_data, to_dot
 from .joins import extract_joins
 from .parser import TwbParser
 from .published import extract_published_refs
@@ -51,6 +51,7 @@ __all__ = [
     "infer_implicit_relationships",
     "extract_joins",
     "to_dot",
+    "graph_data",
     "extract_relations",
     "extract_relationships",
     "extract_custom_sql",
