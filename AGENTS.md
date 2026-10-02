@@ -244,6 +244,12 @@ leaves inputs empty and tests time out) and may crash rendering. Don't add
 startup, which makes collection fail for anyone who doesn't have it
 installed.
 
+`scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures nine GUI states (start,
+overview and fields in light and dark, renames, graph, phone width) deterministically. Use it for GUI
+refactors: a pure refactor must compare all-identical to the baseline taken before it; a redesign is expected to
+differ, so review the new look and re-capture the baseline. The redesign plan and its decisions are in
+`docs/ui-redesign-plan.md`.
+
 ## Commit / PR conventions
 
 Nothing project-specific beyond the harness defaults — see repo commit
