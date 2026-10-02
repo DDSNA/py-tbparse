@@ -41,7 +41,7 @@ _IDENTIFIER_SEPARATORS = re.compile(r"[_\-.\s]+")
 _PHRASE_SEPARATORS = re.compile(r"[_\s]+")
 _CAMEL_LOWER_UPPER = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _CAMEL_ACRONYM = re.compile(r"(?<=[A-Z])(?=[A-Z][a-z])")
-_NON_ALNUM = re.compile(r"[^0-9a-z]+")
+_NON_ALNUM = re.compile(r"[\W_]+")  # keeps letters and digits of any script (赛前排名, über), drops the rest
 
 
 def _words(name: str) -> list[str]:

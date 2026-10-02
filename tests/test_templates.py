@@ -370,3 +370,46 @@ def test_make_and_apply_every_public_workbook(tmp_path):
             p = TwbParser(out)
             assert len(p.xml_doc.xpath("/workbook/worksheets/worksheet")) == len(t.manifest["worksheets"])
             assert read_answers(out)["datasource"] == entry["name"]
+
+
+def test_names_in_any_script_match():
+    from py_tbparse.rename import _match_key, suggest_field_renames
+
+    assert _match_key("赛前排名") == "赛前排名"
+    assert _match_key("赛前排名") != _match_key("赛后排名")
+    assert _match_key("Über Größe") == "übergröße"
+    # a respelled non-Latin name takes the reference's spelling (it used to match nothing)
+    fields = pd.DataFrame([{"datasource": "d", "name": "[用户 人数]", "caption": None, "is_parameter": False}])
+    out = suggest_field_renames(fields, reference=["用户人数"])
+    assert out.loc[0, "reason"] == "matches reference" and out.loc[0, "suggested"] == "用户人数"
+
+
+def test_template_mapping_with_non_latin_columns(tmp_path):
+    from py_tbparse.templates import DataSource, Template
+
+    manifest = {"datasources": [{"name": "ds", "caption": None, "fields": [
+        {"name": "[赛前排名]", "caption": None, "remote": "赛前排名", "datatype": "integer", "required": True},
+        {"name": "[赛后排名]", "caption": None, "remote": "赛后排名", "datatype": "integer", "required": True},
+    ]}]}
+    t = Template(path="t.twbx", parser=None, manifest=manifest)
+    data = DataSource(path="d.csv", kind="csv", fields=[
+        {"name": "赛后排名", "datatype": "integer"}, {"name": "赛前排名", "datatype": "integer"}])
+    m = suggest_mapping(t, data).set_index("field")
+    assert m.loc["[赛前排名]", "mapped_to"] == "赛前排名"
+    assert m.loc["[赛后排名]", "mapped_to"] == "赛后排名"
+
+
+def test_a_column_two_fields_want_says_who_took_it():
+    from py_tbparse.templates import DataSource, Template
+
+    # a joined source: the same column name in two tables
+    manifest = {"datasources": [{"name": "ds", "caption": None, "fields": [
+        {"name": "[Order ID]", "caption": None, "remote": "Order ID", "datatype": "string", "required": True},
+        {"name": "[Order ID (Returns)]", "caption": None, "remote": "Order ID", "datatype": "string", "required": True},
+    ]}]}
+    t = Template(path="t.twbx", parser=None, manifest=manifest)
+    data = DataSource(path="d.csv", kind="csv", fields=[{"name": "Order ID", "datatype": "string"}])
+    m = suggest_mapping(t, data).set_index("field")
+    assert m.loc["[Order ID]", "mapped_to"] == "Order ID"
+    assert m.loc["[Order ID (Returns)]", "mapped_to"] == ""
+    assert "already used by [Order ID]" in m.loc["[Order ID (Returns)]", "status"]

@@ -476,6 +476,7 @@ def suggest_mapping(
         by_key.setdefault(_match_key(n), n)
     keys = list(by_key)
     taken: set = set()
+    taken_by: dict = {}
     rows = []
     fields = sorted(entry["fields"], key=lambda f: not f["required"])
     for f in fields:
@@ -516,8 +517,14 @@ def suggest_mapping(
                 status = problem
         if pick is not None:
             taken.add(pick)
+            taken_by[pick] = f["name"]
         elif status is None:
             status = "missing" if f["required"] else "unused"
+            for n in names:  # the right column exists but another field already took it
+                col = by_key.get(_match_key(n))
+                if col in taken_by:
+                    status = f"column {col!r} already used by {taken_by[col]}"
+                    break
         rows.append({
             "datasource": entry["name"], "field": f["name"], "caption": f.get("caption"),
             "datatype": f["datatype"], "required": bool(f["required"]),

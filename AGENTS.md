@@ -177,6 +177,12 @@ beyond the R package's scope:
   synthetic XML snippet (see `tests/test_joins.py`,
   `tests/test_dashboards.py` for the pattern — many are lifted from the R
   functions' own `@examples` roxygen blocks).
+- `tests/corpus/` is 200 real workbooks (permissive licences, pinned by blob sha in
+  `manifest.csv`, licence texts in `licenses/`). The files are gitignored; fetch with
+  `python scripts/fetch_corpus.py`. `tests/test_corpus.py` skips without them. Run it when you
+  change anything that reads workbook XML: it found a Unicode matching bug the hand-made
+  fixtures could not. Add to the corpus only from repositories whose licence permits
+  redistribution, and record the licence text.
 - `tests/conftest.py` provides `wenjie_xml`, `wenjie_path`,
   `zip_twbx_path` fixtures and an `xml_from_string()` helper. Tests import
   it with `from conftest import xml_from_string` (no `tests/__init__.py`,

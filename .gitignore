@@ -11,3 +11,6 @@ dist/
 # scratch/session files only — never tracked
 /HANDOFF.md
 /CHANGELOG.md
+
+# example-workbook corpus: fetched with scripts/fetch_corpus.py, not tracked
+/tests/corpus/files/
