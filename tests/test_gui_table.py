@@ -631,7 +631,8 @@ def test_switching_tables_keeps_column_choices_but_resets_search_and_sort(synthe
     assert page.input_value("#filter") == ""
     _open(page, "fields")
     page.wait_for_selector("#tableWrap table", timeout=10_000)
-    assert page.text_content("#colsBtn") == "Columns (1 hidden)"                  # kept
+    # the old table stays in the page while the new one loads, and the label is reset until it renders
+    page.wait_for_function("() => document.getElementById('colsBtn').textContent === 'Columns (1 hidden)'", timeout=10_000)   # kept
     assert page.input_value("#filter") == ""                                       # reset
     assert page.eval_on_selector_all("#tableWrap th[aria-sort='ascending']", "els => els.length") == 0   # reset
 
