@@ -54,7 +54,7 @@ body { font: var(--text-md)/var(--leading) var(--font); background: var(--bg); c
 .btn:hover { background: var(--hover); border-color: var(--faint); }
 .btn:active { transform: translateY(1px); }
 .btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text);
-               font-weight: 600; box-shadow: var(--shadow-1), var(--glow); }
+               font-weight: 600; box-shadow: var(--shadow-1); }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn:disabled { opacity: .6; cursor: progress; }
 .btn.small { height: 32px; padding: 0 10px; font-size: var(--text-sm); }

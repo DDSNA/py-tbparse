@@ -233,7 +233,14 @@ def _read_webui(name: str) -> str:
     return (_WEBUI / name).read_text(encoding="utf-8")
 
 
-THEMES = ["shop", "matcha", "fjord", "pastel", "neon", "contrast"]
+THEMES = [
+    "shop", "matcha", "fjord", "contrast",
+    "harbor", "meadow", "lagoon", "slate", "graphite", "paper",
+    "glacier", "pine", "olive", "citrus", "ocean", "cobalt",
+    "navy", "midnight", "rose", "berry", "mint", "jade",
+    "moss", "steel", "mono", "ink", "frost", "birch",
+    "peacock", "marine", "canopy", "tide", "cornflower", "spruce",
+]
 
 # Runs in <head>, before anything is painted, so the page never shows the wrong colours first. It reads
 # the saved theme and mode (the localStorage read can throw in a private window), resolves Auto against

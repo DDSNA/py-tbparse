@@ -151,7 +151,7 @@ def test_the_card_fits_a_phone(browser, gui_server, rich_path, width):
         pg.ctx.close()
 
 
-@pytest.mark.parametrize("theme", ["shop", "matcha", "neon", "contrast"])
+@pytest.mark.parametrize("theme", ["shop", "matcha", "harbor", "contrast"])
 def test_the_card_is_readable_in_light_and_dark(browser, gui_server, rich_path, theme):
     found = []
     for mode in ("light", "dark"):

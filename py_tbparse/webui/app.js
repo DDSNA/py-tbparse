@@ -1275,7 +1275,15 @@ function openColumnsMenu() {
 
 // ---- themes -------------------------------------------------------------------------------------------
 
-const THEME_LABELS = {shop: 'Shop', matcha: 'Matcha', fjord: 'Fjord', pastel: 'Pastel', neon: 'Neon', contrast: 'High contrast'};
+const THEME_LABELS = {
+  shop: 'Shop', matcha: 'Matcha', fjord: 'Fjord', contrast: 'High contrast',
+  harbor: 'Harbor', meadow: 'Meadow', lagoon: 'Lagoon', slate: 'Slate', graphite: 'Graphite',
+  paper: 'Paper', glacier: 'Glacier', pine: 'Pine', olive: 'Olive', citrus: 'Citrus',
+  ocean: 'Ocean', cobalt: 'Cobalt', navy: 'Navy', midnight: 'Midnight', rose: 'Rose',
+  berry: 'Berry', mint: 'Mint', jade: 'Jade', moss: 'Moss', steel: 'Steel',
+  mono: 'Mono', ink: 'Ink', frost: 'Frost', birch: 'Birch', peacock: 'Peacock',
+  marine: 'Marine', canopy: 'Canopy', tide: 'Tide', cornflower: 'Cornflower', spruce: 'Spruce',
+};
 const MODE_LABELS = {auto: 'Auto (follow my system)', light: 'Light', dark: 'Dark'};
 const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
 
