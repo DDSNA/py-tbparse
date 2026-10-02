@@ -208,6 +208,13 @@ class TwbParser:
 
         return suggest_field_renames(self, reference=reference, **kwargs)
 
+    def get_field_usage(self) -> pd.DataFrame:
+        """Which sheets, dashboards and calculations use each field; see
+        `usage.field_usage`."""
+        from .usage import field_usage
+
+        return field_usage(self)
+
     def get_renames(self, reference=None, **kwargs) -> pd.DataFrame:
         """Suggested clean names for everything in the report (fields,
         parameters, worksheets, dashboards, datasources, folders,

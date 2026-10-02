@@ -54,6 +54,13 @@ def _report_renames(p: TwbParser, style: str = "title", reference=None, only_cha
     return p.get_renames(reference=reference, style=style, only_changed=only_changed, datasource=datasource)
 
 
+def _field_usage(p: TwbParser, **_kw) -> pd.DataFrame:
+    df = p.get_field_usage()
+    for col in ("sheets", "dashboards", "calculations"):
+        df[col] = df[col].map("; ".join)
+    return df
+
+
 def _joins(p: TwbParser, **_kw) -> pd.DataFrame:
     return p.get_joins()
 
@@ -101,6 +108,7 @@ TABLE_SPECS: dict[str, Callable[..., pd.DataFrame]] = {
     "calculated-fields": _calculated_fields,
     "field-renames": _field_renames,
     "report-renames": _report_renames,
+    "field-usage": _field_usage,
     "joins": _joins,
     "relations": _relations,
     "relationships": _relationships,

@@ -10,14 +10,25 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 import pandas as pd
+from lxml import etree
 
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
 from .parser import TwbParser
+from .templates import (
+    apply_template,
+    broken_sheets,
+    load_mapping,
+    load_template,
+    make_template,
+    read_data,
+    suggest_mapping,
+)
 from .rename import (
     STYLES,
     apply_field_renames,
@@ -258,6 +269,104 @@ def _run_rename(argv: list[str]) -> int:
     return 0
 
 
+def build_template_arg_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        prog="py-tbparse template",
+        description="Make a reusable template from a workbook, or apply one to new data.",
+    )
+    sub = ap.add_subparsers(dest="action", required=True)
+
+    mk = sub.add_parser("make", help="save WORKBOOK as a template (.twbx with a template.json manifest)")
+    mk.add_argument("workbook")
+    mk.add_argument("--output", "-o", help="template file (default: <name>.template.twbx beside the workbook)")
+    mk.add_argument("--name", help="template name (default: the workbook's)")
+    mk.add_argument("--description", help="what the template is for")
+    mk.add_argument("--keep-data", action="store_true", help="keep extracts and packaged data as sample data")
+
+    sh = sub.add_parser("show", help="list the fields and parameters a template needs")
+    sh.add_argument("template")
+    sh.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+
+    ap_ = sub.add_parser(
+        "apply", help="map a template's fields to new data; with --write, make the workbook",
+        description="Without --write this only prints the suggested mapping and what would break.",
+    )
+    ap_.add_argument("template")
+    ap_.add_argument("--data", "-d", required=True, help="the new data: a .csv, or a .twb/.twbx/.tds connected to it")
+    ap_.add_argument("--datasource", help="which template datasource to fill (when it has several)")
+    ap_.add_argument("--data-datasource", help="which datasource of a --data workbook to use")
+    ap_.add_argument("--mapping", "-m", help="use this edited mapping CSV instead of the suggestion")
+    ap_.add_argument("--mapping-out", help="save the mapping as CSV, to edit and pass back with --mapping")
+    ap_.add_argument("--param", "-p", action="append", default=[], metavar="NAME=VALUE",
+                     help="set a parameter (repeatable), e.g. -p 'Top N=10'")
+    ap_.add_argument("--cutoff", type=float, default=0.85, help="0..1 similarity for approximate matches")
+    ap_.add_argument("--allow-missing", action="store_true",
+                     help="write even if required fields have no column (their sheets will break)")
+    ap_.add_argument(
+        "--write", "-w", nargs="?", const="", metavar="PATH",
+        help="make the workbook (default PATH: <template>_<data>.twbx beside the template; never overwrites)",
+    )
+    ap_.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    return ap
+
+
+def _run_template(argv: list[str]) -> int:
+    ap = build_template_arg_parser()
+    args = ap.parse_args(argv)
+    try:
+        if args.action == "make":
+            out = make_template(args.workbook, output_path=args.output, name=args.name,
+                                description=args.description, keep_data=args.keep_data)
+            t = load_template(out)
+            req = int(t.fields()["required"].sum())
+            print(f"wrote {out} ({req} required field(s), {len(t.parameters())} parameter(s))", file=sys.stderr)
+            return 0
+
+        t = load_template(args.template)
+        if args.action == "show":
+            if t.manifest.get("description"):
+                print(t.manifest["description"], file=sys.stderr)
+            _write(_df_text(t.fields(), args.format), None)
+            if args.format == "table" and len(t.parameters()):
+                print("\nParameters:")
+                _write(_df_text(t.parameters(), args.format), None)
+            return 0
+
+        params = {}
+        for item in args.param:
+            if "=" not in item:
+                ap.error(f"--param expects NAME=VALUE, got {item!r}")
+            k, v = item.split("=", 1)
+            params[k.strip()] = v
+        data = read_data(args.data, datasource=args.data_datasource)
+        if args.mapping:
+            mapping = load_mapping(args.mapping)
+        else:
+            mapping = suggest_mapping(t, data, datasource=args.datasource, fuzzy_cutoff=args.cutoff)
+        _write(_df_text(mapping, args.format), None)
+        if args.mapping_out:
+            _write(mapping.to_csv(index=False), args.mapping_out)
+        broken = broken_sheets(t, mapping, datasource=args.datasource)
+        for r in broken.to_dict("records"):
+            name = r["caption"] or r["field"].strip("[]")
+            print(f"missing: {name} (breaks: {r['sheets'] or 'no sheet'})", file=sys.stderr)
+        if args.write is None:
+            if not broken.empty:
+                print("required fields are unmapped; edit the mapping (--mapping-out / --mapping) "
+                      "or pass --allow-missing", file=sys.stderr)
+            return 0
+        report: dict = {}
+        out = apply_template(t, data, mapping=mapping, params=params, output_path=args.write or None,
+                             datasource=args.datasource, allow_missing=args.allow_missing, report=report)
+        print(f"wrote {out} ({report['mapped']} field(s) mapped, {report['missing']} missing, "
+              f"{report['parameters']} parameter(s) set)", file=sys.stderr)
+        return 0
+    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile,
+            json.JSONDecodeError, etree.XMLSyntaxError, pd.errors.ParserError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
 def _is_reserved_subcommand(argv: list[str], name: str) -> bool:
     """True if `argv` invokes the `name` subcommand -- but don't let that
     shadow an actual workbook that happens to be named exactly "diff" or
@@ -273,6 +382,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_batch(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "rename"):
         return _run_rename(raw_argv[1:])
+    if _is_reserved_subcommand(raw_argv, "template"):
+        return _run_template(raw_argv[1:])
 
     args = build_arg_parser().parse_args(argv)
 
