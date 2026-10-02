@@ -255,7 +255,7 @@ Every text/background pair the stylesheet uses (22 per theme) passes 4.5:1, and 
 
 ## 11. Plan: phase 3 (open, overview, graph) and colour themes
 
-Drafted 2026-10-02, not started. Same branch (`ui-redesign`), same rules: every page change gets a browser
+Drafted 2026-10-02. **All four parts are built: 3a (open) and 3d (themes) as 0.4.3, 3b (overview) and 3c (graph) as 0.4.4** (status notes at the end of this section). Same branch (`ui-redesign`), same rules: every page change gets a browser
 test, colours stay tokens, nothing is pushed or released without the user saying so. Before any code, re-capture
 the screenshot baseline (phase 2 changed the table).
 
@@ -343,6 +343,14 @@ step with what is in fashion now but kept calm enough to work in all day:
 - **Exports:** DOT stays; add SVG download.
 - **Tests:** layout unit tests in the browser (no overlaps, every edge drawn, same input gives same output),
   DOT unchanged, keyboard navigation, pan/zoom without JS errors, reduced motion has no animated fit.
+
+### Status of phase 3 (updated as it lands)
+- **3a done:** `POST /upload` (streamed to a private temp dir, 200 MB cap, content must match the extension, one upload kept), Open file button, drop overlay (counted dragenter/dragleave, only for drags that carry files), recent paths in localStorage, plain-language open errors, download-only for uploaded workbooks. 13 endpoint tests and 14 browser tests.
+- **3d done, with one change from the plan:** Auto is resolved to light or dark by the head script (and `app.js` follows the system setting), so dark colours exist once, under `[data-mode="dark"]`, instead of twice (media query plus attribute). The config script moved to `<head>` so the theme is set before first paint. Six themes, each in light and dark; every one passes 4.5:1 (High contrast 7:1) in `test_webui_tokens.py`, and the rendered-text audit runs all 12 theme/mode combinations on six states. Palettes were checked by script before being written, and five light variants needed a second pass (a pale soft background under the faint text, accent text on its soft fill).
+- **Tested once, not shipped:** Neon's glow is a `--glow` token, empty everywhere except Neon dark.
+
+- **3b done:** `GET /overview` (built on first request, cached per workbook), `report.py`, a new `missing_references` check (a small scanner that skips string literals, so Python inside SCRIPT_REAL is not read as fields; on the 200-workbook corpus 6 workbooks have hits and the ones inspected are real, such as deliberately broken fixtures), a `missing-references` table, Show buttons that open a table with its filters set. The count on a card always equals the rows it opens (tested on every corpus workbook). "Missing references" severity is a warning because a formula can still defeat a text scan.
+- **3c done:** `graph_data()` (DOT output is byte-identical: hashed across all 206 workbooks before and after), `webui/graph.js` with a deterministic layered layout (components, cycle breaking, longest-path layers, 4 barycentre sweeps), SVG drawing with fanned parallel edges, pan, wheel and button zoom, Fit, hover and focus highlighting without opacity (colour only), one tab stop with arrow-key navigation, drawer details for a table or a connection, a list view, SVG export with literal colours, one group at a time above 300 tables. Layout invariants are tested on 25 + 15 + 10 + 10 seeded random graphs (no overlap, every table placed once, edges point right in acyclic graphs, order-independent). Not done: edge labels are shown on hover only, and the layout stacks groups vertically instead of packing them.
 
 ### Version, size and risks
 - **Version:** 3a+3d could ship as **0.5.0** (new endpoint, new feature) and 3b+3c as 0.5.1, or all of phase 3 as

@@ -122,10 +122,11 @@ beyond the R package's scope:
 |---|---|
 | `_tables.py` | Name → `TwbParser`-accessor registry shared by `cli.py`, `webgui.py`, `diff.py`, and `batch.py`. Adding a new extractor to `TwbParser`? Add it here too so it's automatically available everywhere else. |
 | `cli.py` | `py-tbparse` command-line entry point, plus the `diff`/`batch`/`rename`/`template` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
-| `webgui.py` + `webui/` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. The server is `webgui.py`; the page is `webui/` (`index.html`, `tokens.css`, `app.css`, `table.js`, `app.js`). Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
-| `graph.py` | `to_dot()`: Graphviz DOT export of joins/relationships (+ optional inferred, as dashed edges). Replaces the R package's igraph/ggraph-based `plot_dependency_graph`/`plot_relationship_graph` with a dependency-free text format any Graphviz-compatible tool can render. |
+| `webgui.py` + `webui/` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. The server is `webgui.py`; the page is `webui/` (`index.html`, `tokens.css`, `themes.css`, `app.css`, `table.js`, `graph.js`, `app.js`). Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
+| `graph.py` | `to_dot()`: Graphviz DOT export of joins/relationships (+ optional inferred, as dashed edges); `graph_data()` is the same edges as plain data, which the GUI lays out and draws itself (`webui/graph.js`: layered layout, SVG, pan/zoom, keyboard). Replaces the R package's igraph/ggraph-based `plot_dependency_graph`/`plot_relationship_graph` with a dependency-free text format any Graphviz-compatible tool can render. |
 | `diff.py` | `diff_tables()`/`diff_workbooks()`: row-level added/removed diff between two workbooks' same-named table, via `_tables.TABLE_SPECS`. No "changed" classification without a natural key — a changed row shows as one removed + one added row. |
 | `rename.py` | `suggest_field_renames()` (clean-name suggestions, optionally matched against a "before" reference), `suggest_renames()` (the same for every kind of object: field, parameter, worksheet, dashboard, datasource, folder, hierarchy; adds a `kind` column), `load_rename_mapping()` (read an edited CSV back), `compare_field_schemas()` (fields with no counterpart across a datasource switch) and `apply_field_renames()`/`build_renamed_workbook()` (write a copy with captions set; never overwrites). Also the `field-renames` and `report-renames` tables in `_tables.py`. A worksheet/dashboard rename must rewrite every reference (`_SHEET_REFERENCES`); if you learn of another place Tableau writes a sheet name, add it there. |
+| `report.py` | `workbook_report()`: the overview's report card (summary sentence, health checks, dashboards with their sheets) built from `validate_relationships`, `field_usage` and `usage.missing_references`. Every health item names the table and column filters that list exactly the rows it counted; a test keeps count and rows equal on all 200 corpus workbooks. |
 | `usage.py` | `field_usage()`: for every field, the worksheets, dashboards and calculations that use it, followed through calculations, groups/sets and bins (the `field-usage` table). Python-native rather than a port of the R package's field-usage helper. |
 | `templates.py` | Workbook templates. `make_template()` writes a `.twbx` with a `template.json` manifest (required fields from `usage.py`, parameters, connections; data, extracts and credentials stripped); `read_data()` describes new data (CSV, or a `.twb`/`.twbx`/`.tds`); `suggest_mapping()` pairs fields with columns (reuses `rename._match_key`, type checks against the field's *physical* type, `datatype-customized` fields keep their type); `apply_template()` replaces the datasource's connection, keeping every field's local name, sets parameters and stores `template-answers.json`. A CSV connection is written in the 2020.2+ object-model shape (both `_.fcp.ObjectModelEncapsulateLegacy` relations, object graph, table column, `object-id` per record) when the template uses it -- keep those in step if you touch one. Untested in Tableau itself. |
 | `batch.py` | `scan_folder()`: runs one table across every `.twb`/`.twbx` in a directory, concatenated with a `workbook` column. Skips (with a warning) any file that fails to load/extract rather than aborting the batch. |
@@ -222,10 +223,16 @@ tokens), `app.css` and `app.js`. They are served by `webgui.py` from a fixed whi
 `/static/` (`_ASSETS`), so a request can never reach any other file; add a new asset to
 `_ASSETS` and to the `webui/*` package-data (pyproject and MANIFEST.in) or it will not ship.
 `index.html` is the only thing that gets server values: `_render_index()` replaces
-`<!--APP_CONFIG-->` with the single inline `<script>`. Keep it that way (one inline script plus the two
-external ones, `table.js` then `app.js`); a test counts them. `populateTables();` must appear exactly once
+`<!--APP_CONFIG-->` (now in `<head>`, so the saved theme is on `<html>` before the first paint) with the single
+inline `<script>`. Keep it that way (one inline script plus the three external ones, `table.js`, `graph.js`, then
+`app.js`); a test counts them. `populateTables();` must appear exactly once
 in `app.js`, and the structural tests (unterminated string literals, bracket balance) read both served scripts.
 Keep apostrophes out of JS strings and comments (the test counts quotes per line).
+
+`POST /upload` (drag and drop, Open file) takes raw bytes with `Content-Type: application/octet-stream` and the name
+in `X-Filename`: neither is CORS-safelisted, so another site cannot send it without a preflight. It streams to a
+`mkdtemp` directory, refuses over `MAX_UPLOAD_BYTES` (413) and content that does not match the extension, and keeps
+only one upload at a time. An uploaded workbook cannot "create beside the original" (409), only download.
 
 Any server-side value spliced into the page (currently `TABLE_NAMES`, the preloaded workbook path
 and the version, all in `_render_index()`'s config script) must go through `_json_for_script()`, not
@@ -262,10 +269,18 @@ Use `aria-rowcount` for the size and the column menu's "Copy column values" to r
 sandbox has only 2 CPUs and 7.9 GB, and a 50,000-row DOM render has crashed it before.
 
 The page's colours, spacing, type and motion are tokens in `webui/tokens.css`; use them rather than literals.
-`tests/test_webui_tokens.py` reads that file and fails if any text/background pair drops below WCAG AA
+Colour themes are `webui/themes.css`: each theme is a complete colour set in light and dark, selected by
+`<html data-theme data-mode>` (Auto is resolved to light/dark by the head script and kept in step by `app.js`;
+dark colours live under `[data-mode="dark"]`, there is no `prefers-color-scheme` query). To add a theme, add its
+two blocks there, its id to `webgui.THEMES` and its label to `THEME_LABELS` in `app.js`; the token test checks it.
+`tests/test_webui_tokens.py` reads those files and fails if any text/background pair drops below WCAG AA
 4.5:1, if the stylesheet uses an undefined variable, or if text is faded with `opacity` (use `--faint`).
 Motion durations come from the `--dur-*` tokens, which `prefers-reduced-motion` sets to instant; keep new
 animations on those tokens.
+
+`scripts/readme_screenshots.py` retakes the README's four images from the made-up `docs/demo/coffee-shop.twb`
+(built by `scripts/make_demo_workbook.py`, which is the one place that workbook is defined); run both after a
+visible change.
 
 `scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures nine GUI states (start,
 overview and fields in light and dark, renames, graph, phone width) deterministically. Use it for GUI

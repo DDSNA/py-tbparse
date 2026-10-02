@@ -28,7 +28,7 @@ from test_gui_table import open_synthetic, render_stamp, wait_render
 VIEWPORTS = [(320, 640), (390, 800), (640, 400), (768, 1024), (1024, 768), (1366, 768), (1920, 1080)]
 VIEWS = ["overview", "fields", "field-renames", "relations", "graph"]
 
-CONTENT = "#tableWrap table, #tableWrap .empty-state, #tableWrap .cards, #tableWrap pre.dot"
+CONTENT = "#tableWrap table, #tableWrap .empty-state, #tableWrap .cards, #tableWrap .graph-view"
 
 
 def go(page, view):

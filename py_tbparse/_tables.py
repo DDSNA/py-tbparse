@@ -93,6 +93,10 @@ def _initial_sql(p: TwbParser, **_kw) -> pd.DataFrame:
     return p.get_initial_sql()
 
 
+def _missing_references(p: TwbParser, **_kw) -> pd.DataFrame:
+    return p.get_missing_references()
+
+
 def _published_refs(p: TwbParser, **_kw) -> pd.DataFrame:
     return p.get_published_refs()
 
@@ -109,6 +113,7 @@ TABLE_SPECS: dict[str, Callable[..., pd.DataFrame]] = {
     "field-renames": _field_renames,
     "report-renames": _report_renames,
     "field-usage": _field_usage,
+    "missing-references": _missing_references,
     "joins": _joins,
     "relations": _relations,
     "relationships": _relationships,
