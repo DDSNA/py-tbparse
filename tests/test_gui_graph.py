@@ -385,3 +385,17 @@ def test_hover_dims_what_is_not_connected(page, wenjie_path):
     assert dim == ["B", "C", "E"]
     page.mouse.move(5, 5)
     assert page.locator("#tableWrap .node.on").count() == 0
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_every_gap_is_wide_enough_for_the_labels_that_cross_it(page, seed):
+    g = random_graph(seed, dag=True)
+    lay = page.evaluate(LAYOUT, g)
+    pos = {n["id"]: n for n in lay["nodes"]}
+    for e in g["edges"]:
+        a, b = pos[e["source"]], pos[e["target"]]
+        if a["id"] == b["id"] or b["layer"] != a["layer"] + 1:
+            continue
+        room = b["x"] - (a["x"] + a["w"])
+        need = min(len(e["label"]), 40) * 6.6
+        assert room >= need, f"{e['label']!r}: {room:.0f}px of gap for {need:.0f}px of text"

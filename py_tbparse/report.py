@@ -103,11 +103,21 @@ def workbook_report(parser: TwbParser) -> dict:
     for key, getter, table, title in (
         ("custom-sql", parser.get_custom_sql, "custom-sql", "custom SQL"),
         ("initial-sql", parser.get_initial_sql, "initial-sql", "initial SQL"),
-        ("published", parser.get_published_refs, "published-refs", "published data source"),
     ):
         n = len(getter())
         if n:
             health.append(_item(INFO, key, f"{n} {title} {'entry' if n == 1 else 'entries'}", "", n, table))
+
+    # A datasource with no connection of its own is a published one, or the Parameters source that every
+    # workbook with parameters has. Only mention it when something other than Parameters is in the list; the
+    # count is still every row the link opens, Parameters included, and the detail says so.
+    pub = parser.get_published_refs()
+    likely = pub[pub["likely_published"].astype(bool)] if len(pub) else pub
+    if len(likely) and (likely["name"] != "Parameters").any():
+        n = len(likely)
+        health.append(_item(INFO, "published", _plural(n, "datasource") + " without a connection of its own",
+                            "Published data sources look like this. So does the Parameters source, which is counted too.",
+                            n, "published-refs", [{"col": "likely_published", "text": "true"}]))
 
     order = {PROBLEM: 0, WARNING: 1, INFO: 2}
     health.sort(key=lambda h: order[h["severity"]])

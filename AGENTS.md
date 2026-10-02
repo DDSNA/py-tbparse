@@ -278,6 +278,10 @@ two blocks there, its id to `webgui.THEMES` and its label to `THEME_LABELS` in `
 Motion durations come from the `--dur-*` tokens, which `prefers-reduced-motion` sets to instant; keep new
 animations on those tokens.
 
+`scripts/readme_screenshots.py` retakes the README's four images from the made-up `docs/demo/coffee-shop.twb`
+(built by `scripts/make_demo_workbook.py`, which is the one place that workbook is defined); run both after a
+visible change.
+
 `scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures nine GUI states (start,
 overview and fields in light and dark, renames, graph, phone width) deterministically. Use it for GUI
 refactors: a pure refactor must compare all-identical to the baseline taken before it; a redesign is expected to

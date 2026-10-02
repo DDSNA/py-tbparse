@@ -199,3 +199,16 @@ def test_the_report_builds_for_every_corpus_workbook_and_its_links_are_honest():
                 assert len(_filtered_rows(parser, h)) == h["count"], (path, h["id"])
     assert slowest[0] < 5.0, f"slowest report {slowest[0]:.1f} s ({slowest[1]})"
     assert time.time() - started < 180
+
+
+def test_a_connectionless_source_is_mentioned_only_when_it_is_not_just_parameters(tmp_path, book):
+    # the Parameters source never has a connection, so it alone is not worth a line
+    assert "published" not in {h["id"] for h in workbook_report(book)["health"]}
+    xml = WORKBOOK.replace("<datasource name='ds1' caption='Sales'>", "<datasource name='ds1' caption='Sales' hasconnection='false'>")
+    path = tmp_path / "pub.twb"
+    path.write_text(xml, encoding="utf-8")
+    parser = TwbParser(str(path))
+    item = {h["id"]: h for h in workbook_report(parser)["health"]}["published"]
+    assert item["count"] == 2, "Parameters is counted too, so the count equals the rows the link opens"
+    assert len(_filtered_rows(parser, item)) == item["count"]
+    assert "Parameters" in item["detail"]

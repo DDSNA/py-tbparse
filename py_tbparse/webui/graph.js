@@ -15,6 +15,8 @@
   const PAD = 28;
   const COMP_GAP = 56;
   const SWEEPS = 4;
+  const LABEL_CHARS = 40;
+  const LABEL_PX = 6.6;
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
   function nodeWidth(label) { return Math.max(104, Math.min(248, 30 + String(label).length * 7)); }
@@ -121,6 +123,18 @@
         sweep(columns.slice(1), into);
         sweep(columns.slice(0, -1).reverse(), out);
       }
+      // each gap between columns is as wide as the longest label crossing it, so a label never lies on a table
+      const need = new Array(depth).fill(0);
+      (data.edges || []).forEach((e) => {
+        const a = index.get(e.source);
+        const b = index.get(e.target);
+        if (a === b || !inComp.has(a) || !inComp.has(b)) return;
+        const from = Math.min(layer.get(a), layer.get(b));
+        const to = Math.max(layer.get(a), layer.get(b));
+        const len = Math.min(String(e.label || '').length, LABEL_CHARS);
+        for (let li = from; li < to; li++) need[li] = Math.max(need[li], len);
+      });
+      const gaps = need.map((len) => Math.max(GAP_X, len * LABEL_PX + 56));
       // coordinates, relative to this component
       const widths = columns.map((col) => Math.max(...col.map((v) => nodeWidth(ids[v]))));
       const tallest = Math.max(...columns.map((col) => col.length));
@@ -132,9 +146,9 @@
           nodes.set(ids[v], {id: ids[v], x, y: (height - colHeight) / 2 + i * (NODE_H + GAP_Y),
                              w: nodeWidth(ids[v]), h: NODE_H, layer: li, row: i, comp: ci});
         });
-        x += widths[li] + GAP_X;
+        x += widths[li] + gaps[li];
       });
-      placed.push({index: ci, size: members.length, width: x - GAP_X, height, nodes: members.map((v) => ids[v])});
+      placed.push({index: ci, size: members.length, width: x - gaps[depth - 1], height, nodes: members.map((v) => ids[v])});
     });
 
     // edges: parallel ones (same pair, either direction) fan out so none hides another
