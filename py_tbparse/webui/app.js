@@ -175,7 +175,10 @@ function selectTable(name) {
   clearTimeout(filterTimer);
   closeMenu(false);
   closeDrawer(false);
-  if (changed) { $('filter').value = ''; state.sortCol = -1; state.sortDir = 0; state.fresh = true; }
+  if (changed) {
+    $('filter').value = ''; state.sortCol = -1; state.sortDir = 0; state.fresh = true;
+    $('colsBtn').textContent = 'Columns';   // the old table hidden count must not linger while the new one loads
+  }
   markCurrent();
   if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
   showTable();
