@@ -8,7 +8,7 @@
    survey in section 4, then the CLI. Mark generated connections experimental. Store no credentials.
 4. Package B needs sample workbooks from the owner: stop and ask, do not invent connection XML.
 5. Finish each package with: the full non-browser suite, the corpus tests, docs (`docs/templates.md`, `AGENTS.md`,
-   `docs/next-steps.md`), and a commit as Dan (no attribution lines). Push only if told. No PR, version bump or merge unasked.
+   `docs/next-steps.md`), and a commit as Dan (no attribution lines). Push only if told. No new PR, version bump or merge unasked (PRs #18 and #19 already exist, see section 1).
 6. Report what was verified and what was not. The CSV and workbook outputs have been opened in Tableau; the Excel file
    `4-template-on-excel.twbx` in the verification pack is still waiting for the owner.
 
@@ -17,7 +17,7 @@ part of `docs/next-steps.md` (that file keeps the history of what was built and 
 and the full catalogue of packages (WP0 to WP19) is `docs/template-roadmap-plan.md` on the branch
 `docs/template-roadmap`; this file is the decided, ordered, detailed version for what comes next.
 
-**Verify before relying on anything here:** `git log --oneline -8`, `git ls-remote --heads origin`,
+**Verify before relying on anything here** (push and PR state in particular moved within hours on 2026-10-04): `git log --oneline -8`, `git ls-remote --heads origin`,
 `gh pr list -R DDSNA/py-tbparse`, `git show origin/main:pyproject.toml | grep ^version`. The owner works in parallel
 (GUI track), so `main` moves.
 
@@ -59,10 +59,15 @@ the memory notes first. The ones that bite:
 
 | What | Where | State |
 |---|---|---|
-| `main` | origin | **0.4.6** (Docker server mode, #17, bumped it). No open PRs when this was written. |
-| WP0 verification | `worktree-wp0-verification` | pushed, no PR. Schema check, reference check, Tableau pack. |
-| WP1 answers, ids, matcher, explain | `wp1-answers-matcher` (on WP0) | pushed, no PR. |
-| WP3 stages A+B, WP2 Excel, WP4 core | `wp3-template-update` (on WP1): `b71b5e1` WP3, `1233914` WP2, `8ad433a` WP4 (code, tests, docs), `6acd292` (see below) | all **pushed** on 2026-10-04 (tip `9b62677`, the plan itself). No PR. |
+| `main` | origin | **0.4.6** (Docker server mode, #17, bumped it), checked 2026-10-04 18:00. |
+| WP0 verification | `worktree-wp0-verification` | pushed (`3a75df5`), **no PR of its own**; its commits are inside #18 and #19. Schema check, reference check, Tableau pack. |
+| WP1 answers, ids, matcher, explain | `wp1-answers-matcher` (on WP0) | pushed (`00492d9`), **PR #19 open, base `main`** (6 commits: WP0 + WP1). |
+| WP3 stages A+B, WP2 Excel, WP4 core | `wp3-template-update` (on WP1): `b71b5e1` WP3, `1233914` WP2, `8ad433a` WP4 (code, tests, docs), `6acd292` (see below), then two docs commits | all **pushed**, local tip = `origin/wp3-template-update` (`f881e48` when checked 2026-10-04 18:00). **PR #18 open, base `main`**, 11 commits: the whole stack WP0 to WP4, not only WP3. |
+
+**The two open PRs overlap**: both target `main`, and #18 contains every commit of #19. They are not stacked, so
+merging #19 first makes #18 show only the rest, merging #18 first makes #19 empty. Which to land first is the owner's
+call (section 6). Every new commit on `wp3-template-update` updates #18 once pushed. Nothing past `f881e48` is pushed
+unless a later row or the git log says so.
 | The long plan | `docs/template-roadmap` | pushed, unmerged. |
 | Stale | `worktree-docker-server` | merged as #17; delete only if the owner says. |
 
