@@ -1,5 +1,17 @@
 # py-tbparse templates: the plan for the next agent
 
+## Start here (brief for the next agent)
+
+1. Read sections 0 and 1 of this file, then `AGENTS.md`. Run the verify commands below; the branch state may have moved.
+2. Make your own worktree off `wp3-template-update` (`git worktree add -b wp4b-connection-targets PATH wp3-template-update`).
+3. Do package **A** (section 3) test-first: schema reader, then the registry of database classes from the corpus
+   survey in section 4, then the CLI. Mark generated connections experimental. Store no credentials.
+4. Package B needs sample workbooks from the owner: stop and ask, do not invent connection XML.
+5. Finish each package with: the full non-browser suite, the corpus tests, docs (`docs/templates.md`, `AGENTS.md`,
+   `docs/next-steps.md`), and a commit as Dan (no attribution lines). Push only if told. No PR, version bump or merge unasked.
+6. Report what was verified and what was not. The CSV and workbook outputs have been opened in Tableau; the Excel file
+   `4-template-on-excel.twbx` in the verification pack is still waiting for the owner.
+
 Written 2026-10-04 for the next agent, after WP0 to WP4 (core) were built. It replaces the "next work packages"
 part of `docs/next-steps.md` (that file keeps the history of what was built and the known gaps). The long research
 and the full catalogue of packages (WP0 to WP19) is `docs/template-roadmap-plan.md` on the branch
@@ -50,7 +62,7 @@ the memory notes first. The ones that bite:
 | `main` | origin | **0.4.6** (Docker server mode, #17, bumped it). No open PRs when this was written. |
 | WP0 verification | `worktree-wp0-verification` | pushed, no PR. Schema check, reference check, Tableau pack. |
 | WP1 answers, ids, matcher, explain | `wp1-answers-matcher` (on WP0) | pushed, no PR. |
-| WP3 stages A+B, WP2 Excel, WP4 core | `wp3-template-update` (on WP1): `b71b5e1` WP3, `1233914` WP2, `8ad433a` WP4 (code, tests, docs), `6acd292` (see below) | WP3 and WP2 **pushed**; WP4 `8ad433a` and `6acd292` **committed locally, not pushed** (push only on the owner's word). No PR. |
+| WP3 stages A+B, WP2 Excel, WP4 core | `wp3-template-update` (on WP1): `b71b5e1` WP3, `1233914` WP2, `8ad433a` WP4 (code, tests, docs), `6acd292` (see below) | all **pushed** on 2026-10-04 (tip `9b62677`, the plan itself). No PR. |
 | The long plan | `docs/template-roadmap` | pushed, unmerged. |
 | Stale | `worktree-docker-server` | merged as #17; delete only if the owner says. |
 
@@ -66,7 +78,7 @@ files", the same title as `8ad433a`). A second Claude session working in the sam
 query, `type='text'`, is no longer reported as an unknown table) with its test in `tests/test_validators.py`. Read the
 diff (`git show 6acd292`) before relying on it; the fix looks right but nobody reviewed it. Before the PR, **ask the
 owner whether to split it out** (a separate branch off `main` with the validators fix, or a reworded commit): rewriting
-it here is safe only while it is unpushed, and only with the owner's say-so, and the other session may still be
+it is no longer safe now that it is pushed (rewriting needs a force-push, which is the owner's call), and the other session may still be
 running (`ps aux | grep claude`; two sessions in one worktree overwrite each other's uncommitted files, so check
 `git status` and `git log` before editing, and use the Edit tool, not whole-file rewrites).
 

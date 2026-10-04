@@ -19,7 +19,7 @@ Architecture and testing conventions: `AGENTS.md`. The long plan with research a
 | `main` | origin | 0.4.5, tagged `v0.4.5`. PRs #15 to #17 (themes, screenshots, Docker server mode) merged. No open PRs. |
 | WP0: verification | branch `worktree-wp0-verification` (3 commits) | pushed, no PR. Schema + reference checks, Tableau pack, 3 template-apply bugs fixed, 1 more found in Tableau. |
 | WP1: answers, ids, matcher, explain | branch `wp1-answers-matcher` (1 commit on top of WP0) | pushed, no PR. Based on 0.4.4; a dry-run merge into current `main` is clean (no conflicts). |
-| WP3 (stages A, B) and WP2 (Excel) | branch `wp3-template-update`, two commits on top of WP1 (`b71b5e1` WP3, then WP2) | **local only, not pushed, no PR.** Built 2026-10-02 after this file was first written; see "Done since" below. WP2 stacks on WP3 (both touch `templates.py`); to get two PRs, cherry-pick the WP2 commit onto a branch off WP3. |
+| WP3 (stages A, B) and WP2 (Excel) | branch `wp3-template-update`, two commits on top of WP1 (`b71b5e1` WP3, then WP2) | **pushed (2026-10-04, with WP4), no PR.** Built 2026-10-02 after this file was first written; see "Done since" below. WP2 stacks on WP3 (both touch `templates.py`); to get two PRs, cherry-pick the WP2 commit onto a branch off WP3. |
 | The plan | branch `docs/template-roadmap` | pushed, unmerged. |
 | Stale | `worktree-docker-server` (merged as #17) | can be deleted; ask the owner. |
 
