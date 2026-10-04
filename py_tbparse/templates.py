@@ -56,8 +56,9 @@ _CONNECTION_ATTRS = ("class", "server", "dbname", "schema", "port", "directory",
 _DATA_SUFFIXES = (".hyper", ".tde", ".csv", ".txt", ".tsv", ".xlsx", ".xls", ".xlsm", ".json",
                   ".zip", ".shp", ".shx", ".dbf", ".prj", ".kml", ".geojson", ".mdb", ".accdb", ".sav")
 
-# Tableau's remote-type codes for the file connections we write.
-_REMOTE_TYPE = {"string": 129, "integer": 20, "real": 5, "boolean": 11, "date": 7, "datetime": 135}
+# Tableau's remote-type codes for the file connections we write. In the 200-workbook corpus a text
+# file's date column is 133 (62 records, 28 workbooks) far more often than 7 (7 records, 5 workbooks).
+_REMOTE_TYPE = {"string": 129, "integer": 20, "real": 5, "boolean": 11, "date": 133, "datetime": 135}
 _NUMERIC = {"integer", "real"}
 _DATES = {"date", "datetime"}
 
@@ -622,21 +623,35 @@ _OM = "_.fcp.ObjectModelEncapsulateLegacy"   # Tableau 2020.2+ object model feat
 _OM_TABLE = "_.fcp.ObjectModelTableType.true...column"
 
 
-def _uses_object_model(doc) -> bool:
-    return any(isinstance(el.tag, str) and el.tag.startswith(_OM) for el in doc.iter())
+def _object_model(doc) -> Optional[str]:
+    """How a workbook writes the 2020.2+ object model: `"prefixed"` (feature-flag tags such as
+    `_.fcp.ObjectModelEncapsulateLegacy.true...object-graph`), `"plain"` (an ordinary
+    `<object-graph>`; same format version, newer builds) or None for neither. Both occur in the
+    corpus, and a workbook's sheets reference the table column either way."""
+    if any(isinstance(el.tag, str) and el.tag.startswith(_OM) for el in doc.iter()):
+        return "prefixed"
+    if doc.xpath("/workbook/datasources/datasource[object-graph or column[@datatype='table']]"):
+        return "plain"
+    return None
 
 
-def _csv_connection(data: DataSource, local_of: dict[str, str], modern: bool = True):
+def _csv_connection(data: DataSource, local_of: dict[str, str], model: Optional[str] = "prefixed",
+                    object_id: Optional[str] = None):
     """A federated connection to a CSV file, in the shape Tableau writes.
 
-    With `modern` (the template uses Tableau's 2020.2+ object model) it also
-    returns the table column and object graph the datasource needs, and
-    writes the legacy and object-model relations side by side, as Tableau
-    does."""
+    With an object `model` (see `_object_model`: the template uses Tableau's
+    2020.2+ object model) it also returns the table column and object graph
+    the datasource needs; the prefixed form writes the legacy and
+    object-model relations side by side, as Tableau does, the plain form
+    one relation."""
+    modern = model is not None
+    om = (lambda name: f"{_OM}.true...{name}") if model == "prefixed" else (lambda name: name)
     p = Path(data.path)
     conn_id = _connection_id("textscan", data.path)
     table = p.name
-    object_id = f"{re.sub(r'[^0-9A-Za-z_]', '_', p.stem)}_" + hashlib.md5(data.path.encode("utf-8")).hexdigest().upper()
+    # Worksheets name the table column (record counts) by this id, so a template that has one keeps it.
+    object_id = object_id or (f"{re.sub(r'[^0-9A-Za-z_]', '_', p.stem)}_"
+                              + hashlib.md5(data.path.encode("utf-8")).hexdigest().upper())
     conn = etree.Element("connection", {"class": "federated"})
     named = etree.SubElement(etree.SubElement(conn, "named-connections"), "named-connection",
                              caption=p.stem, name=conn_id)
@@ -654,7 +669,7 @@ def _csv_connection(data: DataSource, local_of: dict[str, str], modern: bool = T
             etree.SubElement(cols, "column", datatype=f["datatype"], name=f["name"], ordinal=str(i))
         return rel
 
-    if modern:
+    if model == "prefixed":
         for flag in ("false", "true"):
             rel = relation()
             rel.tag = f"{_OM}.{flag}...relation"
@@ -672,13 +687,13 @@ def _csv_connection(data: DataSource, local_of: dict[str, str], modern: bool = T
         ):
             etree.SubElement(rec, tag).text = text
         if modern:
-            etree.SubElement(rec, f"{_OM}.true...object-id").text = f"[{object_id}]"
+            etree.SubElement(rec, om("object-id")).text = f"[{object_id}]"
     if not modern:
         return conn, []
-    table_col = etree.Element(_OM_TABLE, caption=p.stem, datatype="table",
+    table_col = etree.Element(_OM_TABLE if model == "prefixed" else "column", caption=p.stem, datatype="table",
                               name=f"[__tableau_internal_object_id__].[{object_id}]",
                               role="measure", type="quantitative")
-    graph = etree.Element(f"{_OM}.true...object-graph")
+    graph = etree.Element(om("object-graph"))
     obj = etree.SubElement(etree.SubElement(graph, "objects"), "object", caption=p.stem, id=object_id)
     props = etree.SubElement(obj, "properties", context="")
     props.append(relation())
@@ -790,7 +805,10 @@ def apply_template(
         typed.fields = [{**f, "datatype": f["datatype"] or (
             by_field[field_of[f["name"]]].get("physical_type") or by_field[field_of[f["name"]]]["datatype"]
             if f["name"] in field_of else "string")} for f in data.fields]
-        conn, extras = _csv_connection(typed, local_of, modern=_uses_object_model(doc))
+        old_ids = ds_el.xpath("./*[substring(name(), string-length(name()) - 11) = 'object-graph']"
+                              "/objects/object/@id")
+        conn, extras = _csv_connection(typed, local_of, model=_object_model(doc),
+                                       object_id=old_ids[0] if old_ids else None)
     else:
         conn, extras = _tableau_connection(data, local_of)
     old = ds_el.find("connection")
@@ -809,7 +827,9 @@ def apply_template(
             ds_el.append(el)  # Tableau writes it last
             continue
         cols = [c for c in ds_el if isinstance(c.tag, str) and (c.tag == "column" or c.tag.endswith("...column"))]
-        (cols[-1].addnext(el) if cols else conn.addnext(el))
+        # Tableau puts a table column after <aliases> (all 191 object-model datasources of the corpus)
+        aliases = ds_el.find("aliases")
+        (cols[-1].addnext(el) if cols else (conn if aliases is None else aliases).addnext(el))
     # a field now fed by a column of another type takes that type, unless the
     # author set the field's type by hand (Tableau then converts the column)
     for fld, col in chosen.items():

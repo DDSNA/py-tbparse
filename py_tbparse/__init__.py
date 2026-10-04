@@ -36,6 +36,7 @@ from .templates import (
 )
 from .usage import field_usage
 from .validators import validate_relationships
+from .verify import validate_workbook
 from ._xml import extract_twb_from_twbx, twbx_extract_files, twbx_list
 
 __all__ = [
@@ -58,6 +59,7 @@ __all__ = [
     "extract_initial_sql",
     "extract_published_refs",
     "validate_relationships",
+    "validate_workbook",
     "extract_twb_from_twbx",
     "twbx_extract_files",
     "twbx_list",
