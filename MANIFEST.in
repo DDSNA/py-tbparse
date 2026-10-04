@@ -6,3 +6,8 @@ include tests/fixtures/*.twb
 include tests/fixtures/*.twbx
 recursive-include docs *.png
 recursive-include py_tbparse/webui *
+recursive-include tests/schemas *
+include scripts/make_verification_pack.py
+include docs/verify-in-tableau.md
+recursive-include tests/fixtures/public *
+recursive-include tests/fixtures/templates *
