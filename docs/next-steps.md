@@ -53,7 +53,12 @@ What was built, in one paragraph each:
   opened in Tableau**, that is the owner's check. `_csv_connection` and `_excel_connection` now share `_file_connection`
   (the CSV output is byte-identical to before). Not done: `check_data` reads values only from CSV; a template over several
   tables is still unproven for Excel as for CSV.
-- Tests: whole non-browser suite (see the final report of the job); the browser suites were not run (no page code changed).
+- **WP4 batch apply** (`py_tbparse/template_batch.py`, `tests/test_template_batch.py`, CLI `template apply-folder`): one
+  workbook per file, `summary.csv`, sidecar CSV for per-file parameters and sheet, tolerance gate (`--min-mapped`),
+  `--on-error`, `--workers`. Owner confirmed the folder-of-customers use case (2026-10-04). Connection targets (live DBs,
+  published data sources: standard DBMS + Spark, Mongo if feasible, standard connectors, no credentials) are the next,
+  separate package, then WP19 tokens, WP5, WP12 (fake data from an SQL-type schema only), WP10 (basic audit + docs).
+- Tests: whole non-browser suite (519 passed, 155 skipped after WP4); the browser suites were not run (no page code changed).
 
 ## 2. Do first
 
