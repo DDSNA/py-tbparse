@@ -21,6 +21,7 @@ Architecture and testing conventions: `AGENTS.md`. The long plan with research a
 | WP1: answers, ids, matcher, explain | branch `wp1-answers-matcher` (1 commit on top of WP0) | pushed, **PR #19 open (base `main`)**. Based on 0.4.4; a dry-run merge into current `main` is clean (no conflicts). |
 | WP3 (stages A, B) and WP2 (Excel) | branch `wp3-template-update`, two commits on top of WP1 (`b71b5e1` WP3, then WP2) | **pushed (2026-10-04, with WP4); PR #18 open, base `main`, carries the whole stack WP0 to WP4 (11 commits) and overlaps #19.** Built 2026-10-02 after this file was first written; see "Done since" below. WP2 stacks on WP3 (both touch `templates.py`); to get two PRs, cherry-pick the WP2 commit onto a branch off WP3. |
 | The plan | branch `docs/template-roadmap` | pushed, unmerged. |
+| WP19: template tokens | branch `wp19-tokens` (on `wp3-template-update`) | committed 2026-10-04, **not pushed, no PR**. See `docs/template-next-plan.md` section 3. |
 | Stale | `worktree-docker-server` (merged as #17) | can be deleted; ask the owner. |
 
 Tests on the WP1 branch: 449 non-browser tests pass (about 3.5 minutes, corpus included). **The browser (GUI)

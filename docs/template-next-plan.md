@@ -129,11 +129,24 @@ What exists now, in one line each (details in `docs/templates.md` and `AGENTS.md
 |---|---|---|---|
 | A | **WP4b connection targets, part 1**: the SQL-type schema reader + database classes that the corpus proves (Postgres, MySQL, SQL Server, Snowflake) | patch | nothing |
 | B | **WP4b part 2**: classes the corpus does not contain (Oracle, Spark SQL / Databricks, MongoDB route) and **published data sources** | patch | **sample workbooks** (section 4.4, question 1) |
-| C | **WP19 template tokens** | patch | nothing |
+| C | **WP19 template tokens** | patch | nothing. **BUILT 2026-10-04** on branch `wp19-tokens` (off `wp3-template-update`, independent of A), committed, not pushed, no PR. See the note below the table. |
 | D | **WP5 template check + `show --markdown`** (also builds the shared findings engine) | patch | nothing |
 | E | **WP12 sanitize** + fake data from an SQL-type schema | patch | nothing (reuses A's schema reader) |
 | F | **WP10 audit + WP11 data dictionary, basic** | patch | nothing |
 | later | WP18 CI formats, WP13 localization, WP14, WP17, WP16 | patch each | his pick |
+
+**Package C as built (branch `wp19-tokens`).** `py_tbparse/tokens.py`; manifest `tokens`; `make_template(tokens=)`;
+`apply_template(tokens=)`, answers, profiles, `--token` on `make`, `apply`, `apply-folder` and `update`; sidecar columns;
+`template update` rows (`kind=token`, impact `needs-value`); `template show`. Tests: `tests/test_tokens.py` (41, including
+two corpus tests: no corpus workbook has `{{` and apply never touches the text of the 200; a token put into a title of
+every corpus workbook that has one (about 160) is found and filled; and a schema/reference differential on a filled
+workbook). Whole non-browser suite: see the result in the commit message or rerun it. **Decisions that go beyond the plan
+text**: places are title, text, field-caption, datasource-caption, parameter-value (tooltips, worksheet captions and
+filter defaults are not v1); a template with only escapes has `tokens: []` and still unescapes; `make --revision-of` keeps
+the defaults of surviving tokens; a name that is both a parameter caption and a token is an ambiguous sidecar column;
+**question 5 below (worksheet/dashboard names as token places) is still open and is not built.** The two branches A and C
+both edit `templates.py`, `cli.py`, `template_batch.py` and `template_update.py`, so expect small conflicts merging the
+second one (they are in different regions).
 
 Versions: everything already built (WP0 to WP4 core) merges as the **0.5.0** feature release; A to F are each a patch
 on top of whatever is on `main` when they merge (0.5.1, 0.5.2, ... in merge order, never reserved in advance).
