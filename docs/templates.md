@@ -7,6 +7,8 @@ Turn a finished workbook into a template, then make new workbooks from it with o
 ```bash
 py-tbparse template make sales.twbx                         # writes sales.template.twbx
 py-tbparse template show sales.template.twbx                # the fields it needs, and its parameters
+py-tbparse template show sales.template.twbx --markdown -o SALES.md   # the same as a page to review in git
+py-tbparse template check sales.template.twbx --fail-on warning       # lint it before sharing (CI-friendly)
 py-tbparse template apply sales.template.twbx --data q3.csv # suggested mapping + what would break; writes nothing
 py-tbparse template apply sales.template.twbx --data q3.csv --mapping-out map.csv   # save the mapping to edit
 py-tbparse template apply sales.template.twbx --data q3.csv --mapping map.csv -p "Top N=10" --write
@@ -68,6 +70,27 @@ Every `.csv`, `.tsv`, `.xlsx` and `.xlsm` in the folder gets its own workbook, `
 - `--workers N` uses several processes (at most the CPU count); the files are independent, so the output is the same.
 
 **Excel.** `--data q3.xlsx` (or `.xlsm`) reads one worksheet, which needs the optional `openpyxl` (`pip install "py-tbparse[excel]"`). Pick the sheet with `--sheet NAME` or `--sheet 0` (an index from 0); with several visible sheets and none picked the command fails and lists them, and a hidden sheet is only read when it is named. The first non-empty row is the header, wherever it sits; a blank header becomes `F1`, `F2`... and a repeated one gets a number (`name`, `name1`) with a warning; the next 2000 rows decide each column's type (a column of whole numbers is an integer, dates and date-times are told apart by their time of day). The output connects to the file with Tableau's own `excel-direct` driver, written the way Tableau writes it (the shape and the remote types were measured over the 88 Excel workbooks of the test corpus), and the answers remember the sheet, so `--answers` repeats the run. The old `.xls` and `.xlsb` formats are refused: save as `.xlsx`. `--check` reads values only from a CSV.
+
+**Check a template before you share it.** `py-tbparse template check TEMPLATE` (or `py_tbparse.check_template(path)`) lints a template and prints one row per finding: `rule`, `severity` (`error`, `warning`, `info`), `object`, `detail` and `fix`. `--format table|csv|json`, `--only T001,T003` and `--skip T008` choose the output and the rules; `--fail-on error|warning|info|never` (default `error`) sets the severity that makes the exit code 1, so it can run in CI (exit 2 means the template could not be read or an option was wrong). Findings go to stdout, the count to stderr. The same template always gives the same rows in the same order. Rule ids are stable, so put them in CI configs without fear of renumbering:
+
+| Rule | Severity | Looks for |
+|---|---|---|
+| T001 | warning | a connection that still names a server, database, file, directory, warehouse or service (an apply replaces it, so this matters only for a template shared as it is) |
+| T002 | info | a version 1 manifest, or one with no `id`: `template update` cannot match it |
+| T003 | error | a parameter with no value, or a value outside its allowed list |
+| T004 | info | a datasource with several tables (a CSV or one Excel sheet feeds one table) |
+| T005 | warning | data, a cached query or an extract still packaged in the `.twbx`, with its size |
+| T006 | info | a required field nothing uses (only a hand-edited manifest does that), and per datasource the optional fields used by nothing (candidates to drop) |
+| T007 | error / warning | dangling references: `validate_workbook`'s findings on the template's workbook, with their own severity |
+| T008 | info | a calculation with a string that looks like a URL, UNC or drive path, e-mail address or a text over 50 characters; a **heuristic**, parameter defaults are not examined |
+| T009 | | reserved for template tokens (WP19, not merged: the rule is not built, `--only T009` says so) |
+| T010 | info | no description, or the name is the source file's name |
+
+A template made from a real workbook nearly always has T001 (it still carries the connection it was made from) and T010 (the default name), so `--fail-on warning` is for a template you made on purpose with a name and a cleaned connection. T007 can also report what the original workbook already had; read it as "this template has a dangling reference", not as "py-tbparse broke it". These are lint rules about what an author probably did not mean; none says Tableau will refuse the file.
+
+The engine is `py_tbparse/findings.py` (`rule`, `run_rules`, `format_findings`), shared with the workbook audit planned next (WP10): a rule is a function that yields `finding(object, detail)` rows, registered with an id and a scope. A rule that crashes shows up as one `error` finding instead of stopping the run. The template rules are in `py_tbparse/template_check.py`; the token rule will be one more function there.
+
+**A page for a template.** `template show --markdown` (`py_tbparse.template_markdown(template)`) prints a Markdown page: name, description, id and revision, the required and optional fields with their types and the sheets that use them, the parameters with defaults and allowed values, tokens (once a template declares them), the connections it was made from (never a user name or password), the worksheets with the template fields each uses, and the dashboards with their worksheets. The order is fixed and there is no timestamp of its own, so the page can be committed and its changes reviewed. `-o FILE` writes it to a file. The renderer is `py_tbparse/docgen.py` (`md_table`, `heading`, `inline_code`, `code_block`; pipes, line breaks and `<` are escaped); the workbook data dictionary will use the same one.
 
 **Limits.** A CSV or one Excel sheet feeds one table. A template whose datasource joins several tables needs a workbook or `.tds` as its data, so the joins come along. A CSV-backed and a workbook-backed output have been opened in Tableau and drew their sheets (one workbook, see [verify-in-tableau.md](verify-in-tableau.md)); other shapes, an Excel-backed output among them, have only been checked by the tests (schema, references, 200 workbooks), so open one before relying on it: the verification pack has an Excel file for it.
 

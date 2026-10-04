@@ -40,6 +40,9 @@ from .templates import (
     suggest_mapping,
 )
 from .template_batch import apply_template_folder
+from .docgen import template_markdown
+from .findings import format_findings, run_rules
+from .template_check import check_template
 from .template_update import diff_template_revisions, template_update_report, update_from_answers
 from .usage import field_usage
 from .validators import validate_relationships
@@ -92,6 +95,10 @@ __all__ = [
     "diff_template_revisions",
     "template_update_report",
     "update_from_answers",
+    "check_template",
+    "template_markdown",
+    "run_rules",
+    "format_findings",
     "resolve_apply",
     "load_answers",
     "broken_sheets",

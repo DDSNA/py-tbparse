@@ -63,6 +63,13 @@ What was built, in one paragraph each:
   `--on-error`, `--workers`. Owner confirmed the folder-of-customers use case (2026-10-04). Connection targets (live DBs,
   published data sources: standard DBMS + Spark, Mongo if feasible, standard connectors, no credentials) are the next,
   separate package, then WP19 tokens, WP5, WP12 (fake data from an SQL-type schema only), WP10 (basic audit + docs).
+- **WP5 template check and `show --markdown`** (package D, branch `wp5-check`, off `553adec`: `py_tbparse/findings.py`,
+  `template_check.py`, `docgen.py`, `tests/test_findings.py`, `test_template_check.py`, `test_docgen.py`, a corpus test in
+  `test_corpus.py`): the shared findings engine (stable rule ids, sorted deterministic frame, `table|csv|json` through a
+  registry, a crashing rule becomes an `error` finding), template rules T001 to T008 and T010, `template check
+  [--format --fail-on --only --skip]` (exit 1 on a finding at `--fail-on`, 2 on a usage or read error) and `template show
+  --markdown [-o FILE]`. **T009 (tokens) is not built**: WP19 was not merged when this was written; the rule is one function in
+  `template_check.py` (see its docstring and `AGENTS.md`). Not opened in Tableau: it writes no workbook.
 - Tests: whole non-browser suite (519 passed, 155 skipped after WP4); the browser suites were not run (no page code changed).
 
 ## 2. Do first

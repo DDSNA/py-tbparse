@@ -17,6 +17,8 @@ py-tbparse rename new.twb -r old.twb --datasource federated.abc123 --write-workb
 py-tbparse rename report.twb --all --write-workbook       # sheets, dashboards, datasources, ... too
 py-tbparse template make sales.twbx                        # see Templates above
 py-tbparse template apply sales.template.twbx --data q3.csv --write
+py-tbparse template check sales.template.twbx --fail-on warning   # lint a template; exit 1 on a finding at that level
+py-tbparse template show sales.template.twbx --markdown -o SALES.md   # a documentation page for a template
 py-tbparse template apply sales.template.twbx --answers sales_q3.twbx --explain --check   # repeat a run, and see what changes
 ```
 
