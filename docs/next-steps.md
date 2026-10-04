@@ -1,5 +1,10 @@
 # py-tbparse: where things stand and what to do next
 
+> **Read `docs/template-next-plan.md` first** (2026-10-04): the decided, ordered and detailed plan for what to build
+> next (connection targets, tokens, template check, sanitize, basic audit and docs), the owner's decisions, versioning,
+> and the questions still open. This file keeps the history of WP0 to WP4 and the known gaps; its section 3 ("Next work
+> packages") is superseded by that plan.
+
 Written 2026-10-02 for the next agent. Verify against the repo before relying on anything: `git log`,
 `gh pr list -R DDSNA/py-tbparse`, `git ls-remote --heads origin`. How to work with the owner and in this sandbox:
 `CLAUDE.md` (local, not tracked; if it is missing, the rules are: commit as DDSNA with no Claude attribution, never
@@ -11,9 +16,10 @@ Architecture and testing conventions: `AGENTS.md`. The long plan with research a
 
 | What | Where | State |
 |---|---|---|
-| `main` | origin | 0.4.5, tagged `v0.4.5`. PRs #15 to #17 (themes, screenshots, Docker server mode) merged. No open PRs. |
-| WP0: verification | branch `worktree-wp0-verification` (3 commits) | pushed, no PR. Schema + reference checks, Tableau pack, 3 template-apply bugs fixed, 1 more found in Tableau. |
-| WP1: answers, ids, matcher, explain | branch `wp1-answers-matcher` (1 commit on top of WP0) | pushed, no PR. Based on 0.4.4; a dry-run merge into current `main` is clean (no conflicts). |
+| `main` | origin | **0.4.6** (0.4.5 is tagged `v0.4.5`; #17 Docker server mode bumped to 0.4.6). PRs #15 to #17 merged. Open: #18 and #19 (below). |
+| WP0: verification | branch `worktree-wp0-verification` (3 commits) | pushed, no PR of its own (its commits are in #18 and #19). Schema + reference checks, Tableau pack, 3 template-apply bugs fixed, 1 more found in Tableau. |
+| WP1: answers, ids, matcher, explain | branch `wp1-answers-matcher` (1 commit on top of WP0) | pushed, **PR #19 open (base `main`)**. Based on 0.4.4; a dry-run merge into current `main` is clean (no conflicts). |
+| WP3 (stages A, B) and WP2 (Excel) | branch `wp3-template-update`, two commits on top of WP1 (`b71b5e1` WP3, then WP2) | **pushed (2026-10-04, with WP4); PR #18 open, base `main`, carries the whole stack WP0 to WP4 (11 commits) and overlaps #19.** Built 2026-10-02 after this file was first written; see "Done since" below. WP2 stacks on WP3 (both touch `templates.py`); to get two PRs, cherry-pick the WP2 commit onto a branch off WP3. |
 | The plan | branch `docs/template-roadmap` | pushed, unmerged. |
 | Stale | `worktree-docker-server` (merged as #17) | can be deleted; ask the owner. |
 
@@ -34,6 +40,30 @@ What was built, in one paragraph each:
   `resolve_apply()` / `ApplyPlan`, matcher improvements (alias, deterministic ties, `role differs`), `check_data()`,
   `explain()`, and `broken_sheets()` naming dashboards, calculations and filters. CLI: `--answers`, `--profile`,
   `--explain`, `--check`, `--deep`. Documented in `docs/templates.md`.
+
+### Done since (branch `wp3-template-update`)
+
+- **WP3 stages A and B** (`py_tbparse/template_update.py`, `tests/test_template_update.py`, CLI `template update`,
+  `make_template(revision_of=)`): the report (`template_update_report`, `diff_template_revisions`) and the re-apply
+  (`update_from_answers`) as designed in section 3 below, with these decisions: apply now keeps a manifest snapshot
+  (`answers["template"]["manifest"]`) and `data.columns` in the answers, so the "before" needs no old template file
+  (`--old` for answers made before that); a renamed field (same source column or caption, new local name) carries its
+  saved column; a saved parameter value the template no longer accepts is dropped and reported rather than stopping;
+  a new required field or a saved column of the wrong type stops it unless `--allow-missing` / `--mapping`; a workbook
+  made from several datasources is refused (re-applying one would drop the others' connections). Stage C is not started.
+- **WP2 Excel** (`read_data(sheet=)`, `_excel_connection`, `tests/test_excel.py`, `--sheet`, extra `py-tbparse[excel]`,
+  `openpyxl` in `[test]`): the connection shape and remote types were measured from the 88 `excel-direct` corpus
+  workbooks (string 130, integer 20, real 5, date and datetime 7, boolean 11; `gridOrigin`, `[Sheet$]`). `.xls`/`.xlsb`
+  are refused (assumed decision, still the owner's). The verification pack has `4-template-on-excel.twbx`: **not yet
+  opened in Tableau**, that is the owner's check. `_csv_connection` and `_excel_connection` now share `_file_connection`
+  (the CSV output is byte-identical to before). Not done: `check_data` reads values only from CSV; a template over several
+  tables is still unproven for Excel as for CSV.
+- **WP4 batch apply** (`py_tbparse/template_batch.py`, `tests/test_template_batch.py`, CLI `template apply-folder`): one
+  workbook per file, `summary.csv`, sidecar CSV for per-file parameters and sheet, tolerance gate (`--min-mapped`),
+  `--on-error`, `--workers`. Owner confirmed the folder-of-customers use case (2026-10-04). Connection targets (live DBs,
+  published data sources: standard DBMS + Spark, Mongo if feasible, standard connectors, no credentials) are the next,
+  separate package, then WP19 tokens, WP5, WP12 (fake data from an SQL-type schema only), WP10 (basic audit + docs).
+- Tests: whole non-browser suite (519 passed, 155 skipped after WP4); the browser suites were not run (no page code changed).
 
 ## 2. Do first
 

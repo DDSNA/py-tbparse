@@ -52,6 +52,17 @@ def written_workbooks(book, folder):
         out = apply_template(template, data, datasource=entry["name"], allow_missing=True,
                              output_path=str(folder / f"out{i}.twbx"))
         yield "apply", twb_bytes(out), unfed
+        try:
+            import openpyxl
+        except ImportError:
+            break
+        sheet = openpyxl.Workbook()
+        sheet.active.title = "Data"
+        sheet.active.append([f["remote"] for f in entry["fields"]])
+        sheet.save(str(folder / "data.xlsx"))
+        out = apply_template(template, str(folder / "data.xlsx"), datasource=entry["name"], allow_missing=True,
+                             output_path=str(folder / f"excel{i}.twbx"))
+        yield "apply-excel", twb_bytes(out), unfed
         break
 
 
@@ -127,7 +138,9 @@ def test_the_verification_pack_is_made_and_clean(tmp_path, capsys):
     out = tmp_path / "pack"
     assert pack["main"]([str(out)]) == 0
     assert sorted(p.name for p in out.iterdir()) == [
-        "0-original.twb", "1-renamed.twb", "2-template-on-csv.twbx", "3-template-on-workbook.twbx", "_work", "data"]
+        "0-original.twb", "1-renamed.twb", "2-template-on-csv.twbx", "3-template-on-workbook.twbx",
+        "4-template-on-excel.twbx", "_work", "data"]
+    assert sorted(p.suffix for p in (out / "data").iterdir()) == [".csv", ".xlsx"]
     text = capsys.readouterr().out
-    assert text.count("no new errors") == 3 and text.count("no new findings") == 3
+    assert text.count("no new errors") == 4 and text.count("no new findings") == 4
     assert pack["main"]([str(out)]) == 2                       # never writes into a folder with files

@@ -60,3 +60,22 @@ def test_base_token_whitespace_padded_value_does_not_simplify():
     # function call. Pre-trimming before the regex (as a naive port would)
     # changes the result.
     assert _base_token(" INT([GEOID]) ") == "INT(GEOID)"
+
+
+def test_relationship_to_custom_sql_table_is_not_an_unknown_table(tmp_path):
+    h = "A" * 32
+    twb = tmp_path / "custom_sql.twb"
+    twb.write_text(f"""<?xml version='1.0'?><workbook><datasources><datasource name='federated.1'>
+<connection class='federated'><relation type='collection'>
+<relation connection='sqlserver.0' name='Fact' table='[dbo].[Fact]' type='table'/>
+<relation connection='sqlserver.0' name='Custom SQL Query' type='text'>select 1 as EmployeeKey</relation>
+</relation></connection>
+<object-graph><objects>
+<object caption='Fact' id='Fact_{h}'><properties context=''><relation connection='sqlserver.0' name='Fact' table='[dbo].[Fact]' type='table'/></properties></object>
+<object caption='Custom SQL Query' id='Custom SQL Query_{h}'><properties context=''><relation connection='sqlserver.0' name='Custom SQL Query' type='text'>select 1</relation></properties></object>
+</objects><relationships><relationship><expression op='='><expression op='[EmployeeKey (Fact)]'/><expression op='[EmployeeKey (Custom SQL Query)]'/></expression>
+<first-end-point object-id='Fact_{h}'/><second-end-point object-id='Custom SQL Query_{h}'/></relationship></relationships></object-graph>
+<column name='[EmployeeKey (Fact)]' datatype='integer'/><column name='[EmployeeKey (Custom SQL Query)]' datatype='integer'/>
+</datasource></datasources></workbook>""")
+    result = TwbParser(str(twb)).validate()
+    assert "unknown_tables" not in result["issues"]

@@ -39,6 +39,8 @@ from .templates import (
     resolve_apply,
     suggest_mapping,
 )
+from .template_batch import apply_template_folder
+from .template_update import diff_template_revisions, template_update_report, update_from_answers
 from .usage import field_usage
 from .validators import validate_relationships
 from .verify import validate_workbook
@@ -86,6 +88,10 @@ __all__ = [
     "suggest_mapping",
     "load_mapping",
     "apply_template",
+    "apply_template_folder",
+    "diff_template_revisions",
+    "template_update_report",
+    "update_from_answers",
     "resolve_apply",
     "load_answers",
     "broken_sheets",

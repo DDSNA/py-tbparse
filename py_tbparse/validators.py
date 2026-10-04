@@ -9,7 +9,7 @@ import re
 
 import pandas as pd
 
-from ._clean import is_missing, strip_brackets
+from ._clean import clean_table, is_missing, strip_brackets
 
 _FUNC_CALL_FULL_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\((.*)\)")
 
@@ -57,6 +57,12 @@ def validate_relationships(parser, strict: bool = False) -> dict:
         return {"ok": True, "issues": {}}
 
     known_tables = set(ds["datasource"].dropna().unique()) if "datasource" in ds.columns else set()
+    # `datasources` only lists physical tables (`type='table'`); a Custom SQL
+    # query (`type='text'`) is just as valid a relationship end.
+    get_relations = getattr(parser, "get_relations", None)
+    relations = get_relations() if get_relations else None
+    if relations is not None and "name" in relations.columns:
+        known_tables.update(clean_table(n) for n in relations["name"].dropna())
 
     field_pool = set()
     if "field_clean" in flds.columns:

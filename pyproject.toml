@@ -36,7 +36,8 @@ Source = "https://github.com/DDSNA/py-tbparse"
 Issues = "https://github.com/DDSNA/py-tbparse/issues"
 
 [project.optional-dependencies]
-test = ["pytest>=7"]
+test = ["pytest>=7", "openpyxl>=3.1"]
+excel = ["openpyxl>=3.1"]
 browser = ["playwright>=1.40"]
 dev = ["build>=1.0", "twine>=5.0"]
 

@@ -12,7 +12,8 @@ the CSV connection holds the CSV's absolute path. What to look at is in docs/ver
     1-renamed             every rename py-tbparse suggests, applied
     2-template-on-csv     a template made from it, applied to a CSV with every column the template needs
     3-template-on-workbook  the same template applied to workbook 2 (its connection is borrowed)
-    data/                 the sample CSV, with made-up values
+    4-template-on-excel   the same template applied to an .xlsx with the same rows (only with openpyxl)
+    data/                 the sample CSV and .xlsx, with made-up values
 """
 
 from __future__ import annotations
@@ -51,6 +52,31 @@ def write_sample_csv(entry: dict, path: Path) -> None:
         out.writerow([f["remote"] for f in entry["fields"]])
         for row in range(ROWS):
             out.writerow([sample_value(f["datatype"], row) for f in entry["fields"]])
+
+
+def write_sample_xlsx(entry: dict, path: Path) -> None:
+    """The same rows as the CSV, with real Excel dates, numbers and booleans in one sheet called Data."""
+    import datetime as dt
+
+    import openpyxl
+
+    def cell(datatype, row):
+        value = sample_value(datatype, row)
+        if datatype == "boolean":
+            return value == "true"
+        if datatype == "date":
+            return dt.datetime.strptime(value, "%Y-%m-%d")
+        if datatype == "datetime":
+            return dt.datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        return value
+
+    book = openpyxl.Workbook()
+    sheet = book.active
+    sheet.title = "Data"
+    sheet.append([f["remote"] for f in entry["fields"]])
+    for row in range(ROWS):
+        sheet.append([cell(f["datatype"], row) for f in entry["fields"]])
+    book.save(str(path))
 
 
 def schema_summary(original: Path, produced: Path) -> str:
@@ -105,9 +131,21 @@ def main(argv=None) -> int:
     on_workbook = out / "3-template-on-workbook.twbx"
     apply_template(template, str(on_csv), datasource=entry["name"], output_path=str(on_workbook))
 
+    files = [renamed, on_csv, on_workbook]
+    try:
+        import openpyxl  # noqa: F401
+    except ImportError:
+        print("openpyxl is not installed: no Excel file (pip install 'py-tbparse[excel]')", file=sys.stderr)
+    else:
+        xlsx_path = out / "data" / f"{src.stem}-sample.xlsx"
+        write_sample_xlsx(entry, xlsx_path)
+        on_excel = out / "4-template-on-excel.twbx"
+        apply_template(template, str(xlsx_path), datasource=entry["name"], output_path=str(on_excel))
+        files.append(on_excel)
+
     print(f"Pack in {out}\n")
     print(f"renames applied: {report.get('applied', '?')} (skipped {report.get('skipped', '?')})")
-    for path in (renamed, on_csv, on_workbook):
+    for path in files:
         print(f"\n{path.name}")
         print(f"  schema:     {schema_summary(original, path)}")
         print(f"  references: {reference_summary(original, path)}")
