@@ -83,7 +83,7 @@ def test_make_template_manifest_and_scrubbing(filtering):
         assert set(z.namelist()) == {"filtering.twb", MANIFEST_NAME}
         manifest = json.loads(z.read(MANIFEST_NAME))
         twb = z.read("filtering.twb").decode("utf-8")
-    assert manifest["format"] == "py-tbparse-template" and manifest["version"] == 1
+    assert manifest["format"] == "py-tbparse-template" and manifest["version"] == 2
     [ds] = manifest["datasources"]
     required = [f["name"] for f in ds["fields"] if f["required"]]
     assert required == ["[Burst Out Set list]"]

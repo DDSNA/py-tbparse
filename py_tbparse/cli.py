@@ -23,11 +23,12 @@ from .parser import TwbParser
 from .templates import (
     apply_template,
     broken_sheets,
+    check_data,
+    explain,
     load_mapping,
     load_template,
     make_template,
-    read_data,
-    suggest_mapping,
+    resolve_apply,
 )
 from .rename import (
     STYLES,
@@ -53,11 +54,11 @@ def _df_text(df: pd.DataFrame, fmt: str) -> str:
         return df.to_string(index=False)
 
 
-def _write(text: str, output: str | None) -> None:
+def _write(text: str, output: str | None, stream=None) -> None:
     if output:
         Path(output).write_text(text, encoding="utf-8")
     else:
-        print(text)
+        print(text, file=stream)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -292,7 +293,17 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
         description="Without --write this only prints the suggested mapping and what would break.",
     )
     ap_.add_argument("template")
-    ap_.add_argument("--data", "-d", required=True, help="the new data: a .csv, or a .twb/.twbx/.tds connected to it")
+    ap_.add_argument("--data", "-d", help="the new data: a .csv, or a .twb/.twbx/.tds connected to it "
+                                          "(leave out when --answers or --profile name the data)")
+    ap_.add_argument("--answers", "-a", metavar="PATH",
+                     help="an answers file (*.answers.json) or a workbook made by 'template apply': "
+                          "its saved mapping and parameters are the starting point")
+    ap_.add_argument("--profile", help="a named set of parameters and data inside the answers file")
+    ap_.add_argument("--explain", action="store_true",
+                     help="also list everything this changes besides the connection (to stderr)")
+    ap_.add_argument("--check", action="store_true",
+                     help="also check the new data: missing dimensions, empty columns, repeated keys (to stderr)")
+    ap_.add_argument("--deep", action="store_true", help="with --check, read the whole CSV, not its first 2000 rows")
     ap_.add_argument("--datasource", help="which template datasource to fill (when it has several)")
     ap_.add_argument("--data-datasource", help="which datasource of a --data workbook to use")
     ap_.add_argument("--mapping", "-m", help="use this edited mapping CSV instead of the suggestion")
@@ -338,26 +349,41 @@ def _run_template(argv: list[str]) -> int:
                 ap.error(f"--param expects NAME=VALUE, got {item!r}")
             k, v = item.split("=", 1)
             params[k.strip()] = v
-        data = read_data(args.data, datasource=args.data_datasource)
-        if args.mapping:
-            mapping = load_mapping(args.mapping)
-        else:
-            mapping = suggest_mapping(t, data, datasource=args.datasource, fuzzy_cutoff=args.cutoff)
+        plan = resolve_apply(t, args.data, mapping=load_mapping(args.mapping) if args.mapping else None,
+                             params=params, datasource=args.datasource, data_datasource=args.data_datasource,
+                             answers=args.answers, profile=args.profile, fuzzy_cutoff=args.cutoff)
+        data, mapping = plan.data, plan.mapping
+        datasource = plan.entry["name"]
         _write(_df_text(mapping, args.format), None)
         if args.mapping_out:
             _write(mapping.to_csv(index=False), args.mapping_out)
-        broken = broken_sheets(t, mapping, datasource=args.datasource)
+        if plan.changed:
+            print("note: the data's columns differ from the answers' last run", file=sys.stderr)
+        for field in plan.stale:
+            print(f"note: saved mapping for {field} no longer fits the data", file=sys.stderr)
+        broken = broken_sheets(t, mapping, datasource=datasource)
         for r in broken.to_dict("records"):
             name = r["caption"] or r["field"].strip("[]")
-            print(f"missing: {name} (breaks: {r['sheets'] or 'no sheet'})", file=sys.stderr)
+            more = "".join(f"; {label}: {r[key]}" for key, label in
+                           (("dashboards", "dashboards"), ("calculations", "calculations"), ("filters", "filtered by")) if r[key])
+            print(f"missing: {name} (breaks: {r['sheets'] or 'no sheet'}{more})", file=sys.stderr)
+        if args.explain:
+            print("\nWhat applying changes:", file=sys.stderr)
+            _write(_df_text(explain(t, data, mapping, datasource=datasource), args.format), None, stream=sys.stderr)
+        if args.check:
+            found = check_data(t, data, mapping, datasource=datasource, deep=args.deep)
+            print("\nData checks:" + ("" if len(found) else " nothing found"), file=sys.stderr)
+            if len(found):
+                _write(_df_text(found, args.format), None, stream=sys.stderr)
         if args.write is None:
             if not broken.empty:
                 print("required fields are unmapped; edit the mapping (--mapping-out / --mapping) "
                       "or pass --allow-missing", file=sys.stderr)
             return 0
         report: dict = {}
-        out = apply_template(t, data, mapping=mapping, params=params, output_path=args.write or None,
-                             datasource=args.datasource, allow_missing=args.allow_missing, report=report)
+        out = apply_template(t, data, mapping=mapping, params=plan.params, output_path=args.write or None,
+                             datasource=datasource, allow_missing=args.allow_missing, report=report,
+                             answers=args.answers, profile=args.profile)
         print(f"wrote {out} ({report['mapped']} field(s) mapped, {report['missing']} missing, "
               f"{report['parameters']} parameter(s) set)", file=sys.stderr)
         return 0
