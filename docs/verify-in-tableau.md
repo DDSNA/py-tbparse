@@ -19,6 +19,13 @@ neither check could see at the time: a worksheet summing `[Number of Records]` e
 data column of that name and the built-in had no formula; apply now gives it the formula `1`, and
 `validate_workbook` reports a `built-in-count` finding for the same state.
 
+## Status
+
+Done once, by the owner, with the default pack (`tests/fixtures/public/filtering.twb`): file 0 and file 1 asked for the
+SQL Server connection (expected); files 2 and 3 opened without a prompt and drew both worksheets on the dashboard. Treated
+as verified for the template path of that workbook shape (prefixed object model, one CSV table). Not yet looked at:
+the plain object-model form, templates over several tables, and the renamed captions of file 1 with its data reachable.
+
 ## Make the three files
 
 On the machine that has Tableau Desktop (the CSV connection stores the CSV's absolute path):
