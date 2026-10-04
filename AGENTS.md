@@ -102,6 +102,11 @@ this needs to be configured once on the PyPI project's "Trusted
 Publishers" settings page before the first release, and needs a
 `release` GitHub Environment created in repo settings.
 
+`.github/workflows/docker-publish.yml` (same trigger) builds the `Dockerfile`, checks that it starts and answers
+`/healthz`, and pushes `ghcr.io/ddsna/py-tbparse:<version>` (tag minus the `v`; `latest` only for non-pre-releases)
+with `GITHUB_TOKEN`. It fails if the release tag differs from `pyproject.toml`'s version. It does not depend on the
+PyPI job (the image is built from the checkout). It has not run yet; the first release will be its first test.
+
 ## Architecture
 
 Each `py_tbparse/*.py` module is a direct port of one R source file in

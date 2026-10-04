@@ -59,22 +59,13 @@ the memory notes first. The ones that bite:
 
 | What | Where | State |
 |---|---|---|
-| `main` | origin | **0.4.6** (Docker server mode, #17, bumped it), checked 2026-10-04 18:00. |
-| WP0 verification | `worktree-wp0-verification` | pushed (`3a75df5`), **no PR of its own**; its commits are inside #18 and #19. Schema check, reference check, Tableau pack. |
-| WP1 answers, ids, matcher, explain | `wp1-answers-matcher` (on WP0) | pushed (`00492d9`), **PR #19 open, base `main`** (6 commits: WP0 + WP1). |
-| WP3 stages A+B, WP2 Excel, WP4 core | `wp3-template-update` (on WP1): `b71b5e1` WP3, `1233914` WP2, `8ad433a` WP4 (code, tests, docs), `6acd292` (see below), then two docs commits | all **pushed**, local tip = `origin/wp3-template-update` (`f881e48` when checked 2026-10-04 18:00). **PR #18 open, base `main`**, 11 commits: the whole stack WP0 to WP4, not only WP3. |
-
-**The two open PRs overlap**: both target `main`, and #18 contains every commit of #19. They are not stacked, so
-merging #19 first makes #18 show only the rest, merging #18 first makes #19 empty. Which to land first is the owner's
-call (section 6). Every new commit on `wp3-template-update` updates #18 once pushed. Nothing past `f881e48` is pushed
-unless a later row or the git log says so.
+| `main` | origin | **0.4.6**, released 2026-10-04 (tag `v0.4.6`, PyPI). WP0 to WP4 core are merged (#19, then #18, both 2026-10-04) and the old branches `worktree-wp0-verification`, `wp1-answers-matcher` and `worktree-docker-server` are deleted. |
+| WP19 tokens | `wp19-tokens` | rebased on `main`, **PR #20 (draft)**. |
 | The long plan | `docs/template-roadmap` | pushed, unmerged. |
-| Stale | `worktree-docker-server` | merged as #17; delete only if the owner says. |
 
-The stack is linear: `main` (0.4.6) <- WP0 <- WP1 <- `wp3-template-update`. Everything below branches off the tip of
-`wp3-template-update` (or off `main` once the stack is merged; check). The branch's `pyproject.toml` still says
-**0.4.4** because it forked before 0.4.5 and 0.4.6; **do not touch the version** until a merge is planned, then see
-section 6.
+Packages A, D (and E, F) still branch from where they were made; rebase each onto `main` before its PR, and take only
+its own commits (`git rebase --onto origin/main <old base> <branch>`), because the old stack was squash-merged.
+The version on `main` is 0.4.6; the template line's next release number is still to be decided with the owner.
 
 **About `6acd292`**: it is not WP4 code, whatever its message says ("WP4: apply a template to a folder of data
 files", the same title as `8ad433a`). A second Claude session working in the same worktree made it on 2026-10-04
@@ -134,6 +125,19 @@ What exists now, in one line each (details in `docs/templates.md` and `AGENTS.md
 | E | **WP12 sanitize** + fake data from an SQL-type schema | patch | nothing (reuses A's schema reader) |
 | F | **WP10 audit + WP11 data dictionary, basic** | patch | nothing |
 | later | WP18 CI formats, WP13 localization, WP14, WP17, WP16 | patch each | his pick |
+
+**Package C as built (branch `wp19-tokens`).** `py_tbparse/tokens.py`; manifest `tokens`; `make_template(tokens=)`;
+`apply_template(tokens=)`, answers, profiles, `--token` on `make`, `apply`, `apply-folder` and `update`; sidecar columns;
+`template update` rows (`kind=token`, impact `needs-value`); `template show`. Tests: `tests/test_tokens.py` (41, including
+two corpus tests: no corpus workbook has `{{` and apply never touches the text of the 200; a token put into a title of
+every corpus workbook that has one (about 160) is found and filled; and a schema/reference differential on a filled
+workbook). Whole non-browser suite: see the result in the commit message or rerun it. **Decisions that go beyond the plan
+text**: places are title, text, field-caption, datasource-caption, parameter-value (tooltips, worksheet captions and
+filter defaults are not v1); a template with only escapes has `tokens: []` and still unescapes; `make --revision-of` keeps
+the defaults of surviving tokens; a name that is both a parameter caption and a token is an ambiguous sidecar column;
+**question 5 below (worksheet/dashboard names as token places) is still open and is not built.** The two branches A and C
+both edit `templates.py`, `cli.py`, `template_batch.py` and `template_update.py`, so expect small conflicts merging the
+second one (they are in different regions).
 
 Versions: everything already built (WP0 to WP4 core) merges as the **0.5.0** feature release; A to F are each a patch
 on top of whatever is on `main` when they merge (0.5.1, 0.5.2, ... in merge order, never reserved in advance).

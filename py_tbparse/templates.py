@@ -40,6 +40,7 @@ from ._clean import is_missing
 from .parser import TwbParser
 from .rename import _match_key, _words
 from .usage import field_usage
+from . import tokens as _tokens
 
 MANIFEST_NAME = "template.json"
 ANSWERS_NAME = "template-answers.json"
@@ -182,8 +183,23 @@ def _strip_extracts(doc) -> int:
     return n
 
 
+def _token_entries(doc, defaults: Optional[dict]) -> Optional[list[dict]]:
+    """The manifest's `tokens`: `[{name, default, where}]`, or None when no text of the workbook has token syntax
+    (then apply leaves every text alone). A template with only escapes (`{{{{`) has `[]`: apply still unescapes."""
+    found, syntax = _tokens.declared(doc)
+    defaults = defaults or {}
+    unknown = sorted(set(defaults) - set(found))
+    if unknown:
+        raise TemplateError(f"tokens= names {', '.join(unknown)}, which the workbook does not use; it uses: "
+                            + (", ".join(found) or "no tokens"))
+    if not syntax:
+        return None
+    return [{"name": name, "default": None if defaults.get(name) is None else str(defaults[name]), "where": where}
+            for name, where in found.items()]
+
+
 def build_manifest(parser: TwbParser, name: Optional[str] = None, description: Optional[str] = None,
-                   template_id: Optional[str] = None, revision: int = 1) -> dict:
+                   template_id: Optional[str] = None, revision: int = 1, tokens: Optional[dict] = None) -> dict:
     """The manifest `make_template` writes: what a template needs to be applied."""
     doc = parser.xml_doc
     usage = field_usage(parser)
@@ -222,7 +238,8 @@ def build_manifest(parser: TwbParser, name: Optional[str] = None, description: O
             "fields": fields,
         })
     src = Path(parser.twbx_path or parser.path)
-    return {
+    declared = _token_entries(doc, tokens)
+    manifest = {
         "format": TEMPLATE_FORMAT,
         "version": MANIFEST_VERSION,
         "id": template_id or _new_id(),
@@ -237,6 +254,9 @@ def build_manifest(parser: TwbParser, name: Optional[str] = None, description: O
         "worksheets": doc.xpath("/workbook/worksheets/worksheet/@name"),
         "dashboards": doc.xpath("/workbook/dashboards/dashboard/@name"),
     }
+    if declared is not None:
+        manifest["tokens"] = declared    # additive: older readers ignore it
+    return manifest
 
 
 def _is_data_member(name: str) -> bool:
@@ -298,6 +318,7 @@ def make_template(
     overwrite: bool = False,
     template_id: Optional[str] = None,
     revision_of: Union["Template", str, None] = None,
+    tokens: Optional[dict] = None,
 ) -> str:
     """Save a template made from a finished workbook; return its path.
 
@@ -316,6 +337,12 @@ def make_template(
     workbooks made from the old one can be brought up to date
     (`template_update.update_from_answers`). The old template has no `id`
     when it came from 0.4.x; the new one then gets a fresh one.
+
+    Text of the form `{{customer}}` in a title, a text box, a caption or a string parameter is a *token*
+    (see `py_tbparse.tokens`): the manifest lists each with where it occurs, and `apply_template(tokens=)`
+    fills them in. `tokens={"customer": "Your company"}` gives a default; a token with none must be given
+    on apply; a revision (`revision_of`) keeps the defaults of the tokens it still has. A token inside a
+    formula, or cut in two by a change of format, is reported as a warning.
     """
     revision = 1
     if revision_of is not None:
@@ -332,7 +359,19 @@ def make_template(
     if out.resolve() == Path(parser.twbx_path or parser.path).resolve():
         raise FileExistsError(f"refusing to overwrite the source workbook: {out}")
     manifest = build_manifest(parser, name=name, description=description, template_id=template_id,
-                              revision=revision)
+                              revision=revision, tokens=tokens)
+    if revision_of is not None and manifest.get("tokens"):
+        # a revision keeps the defaults its predecessor gave to the tokens it still has
+        kept = {t["name"]: t.get("default") for t in previous.manifest.get("tokens") or []}
+        for entry in manifest["tokens"]:
+            if entry["default"] is None and kept.get(entry["name"]) is not None:
+                entry["default"] = kept[entry["name"]]
+    for field_name, formula in _tokens.formula_hits(parser.xml_doc):
+        warnings.warn(f"{field_name}: a {{{{token}}}} inside a formula is left alone (formulas are never changed): {formula[:60]!r}",
+                      stacklevel=2)
+    for kind, obj, text in _tokens.broken_hits(parser.xml_doc):
+        warnings.warn(f"{kind} of {obj}: {text[:60]!r} has braces that are not a whole token; a token must sit in one "
+                      "text run (format all of it the same way)", stacklevel=2)
     doc = copy.deepcopy(parser.xml_doc)
     _scrub(doc)
     if not keep_data:
@@ -393,6 +432,12 @@ class Template:
                              "caption": f.get("caption"), "datatype": f["datatype"],
                              "required": f["required"], "used_by": "; ".join(f.get("used_by") or [])})
         return pd.DataFrame(rows, columns=["datasource", "field", "caption", "datatype", "required", "used_by"])
+
+    def tokens(self) -> pd.DataFrame:
+        rows = [{"token": t["name"], "default": t.get("default"),
+                 "where": "; ".join(f"{w['kind']} of {w['object']}" for w in t.get("where", []))}
+                for t in self.manifest.get("tokens") or []]
+        return pd.DataFrame(rows, columns=["token", "default", "where"])
 
     def parameters(self) -> pd.DataFrame:
         rows = [{"parameter": p["caption"], "datatype": p["datatype"], "value": p["value"],
@@ -952,7 +997,42 @@ def _param_literal(datatype: str, raw: str) -> str:
     return '"' + raw.replace('"', '""') + '"'
 
 
-def _set_parameters(doc, params: dict[str, str], template: Template) -> dict[str, str]:
+def _fill_tokens(doc, template: Template, given: dict[str, str]) -> Optional[dict[str, str]]:
+    """Replace the template's `{{tokens}}` in `doc`. `given` are the values chosen so far (explicit, profile,
+    answers); a token's default fills the rest. Returns every token's value, or None when the template has
+    none declared (then the text is left exactly as it was)."""
+    declared = template.manifest.get("tokens")
+    if declared is None:
+        if given:
+            raise TemplateError(f"tokens given ({', '.join(sorted(given))}), but the template declares none")
+        return None
+    by_name = {t["name"]: t for t in declared}
+    unknown = sorted(set(given) - set(by_name))
+    if unknown:
+        raise TemplateError(f"the template has no token {', '.join(repr(u) for u in unknown)}; it has: "
+                            + (", ".join(by_name) or "none"))
+    values = {name: given[name] if name in given else t.get("default") for name, t in by_name.items()}
+    missing = [name for name, value in values.items() if value is None]
+    if missing:
+        raise TemplateError("no value for token(s): " + "; ".join(
+            f"{name} (in " + ", ".join(f"{w['kind']} of {w['object']}" for w in by_name[name].get("where", [])) + ")"
+            for name in missing) + " (pass tokens=, or give the token a default in make_template)")
+    _tokens.expand(doc, values)
+    return values
+
+
+def _render_literal(literal: str, values: Optional[dict[str, str]]) -> str:
+    """A parameter's Tableau string literal (`"East {{region}}"`) with its tokens filled in."""
+    if values is None or len(literal) < 2 or literal[0] != '"' or literal[-1] != '"':
+        return literal
+    text = literal[1:-1].replace('""', '"')
+    if not _tokens.has_syntax(text):
+        return literal
+    return '"' + _tokens.render(text, values).replace('"', '""') + '"'
+
+
+def _set_parameters(doc, params: dict[str, str], template: Template,
+                    token_values: Optional[dict[str, str]] = None) -> dict[str, str]:
     known = {p["caption"]: p for p in template.manifest.get("parameters", [])}
     known.update({p["name"].strip("[]"): p for p in template.manifest.get("parameters", [])})
     applied = {}
@@ -965,7 +1045,7 @@ def _set_parameters(doc, params: dict[str, str], template: Template) -> dict[str
             literal = _param_literal(p["datatype"], raw)
         except TemplateError as e:
             raise TemplateError(f"parameter {p['caption']!r}: {e}") from None
-        if p.get("allowed") and literal not in p["allowed"]:
+        if p.get("allowed") and literal not in [_render_literal(a, token_values) for a in p["allowed"]]:
             raise TemplateError(f"parameter {p['caption']!r}: {raw!r} is not one of its allowed values")
         for col in doc.xpath("/workbook/datasources/datasource[@name='Parameters']/column[@name=$n]", n=p["name"]):
             col.set("value", literal)
@@ -1128,7 +1208,7 @@ ANSWERS_FORMAT = TEMPLATE_FORMAT + "-answers"
 ANSWERS_VERSION = 2   # 2 adds the template id/revision, per-datasource entries, profiles and a schema fingerprint
 _CREDENTIAL_KEYS = ("password", "username", "token", "secret")
 # Keys under these hold names the user chose (parameter captions, field names): not part of the format.
-_FREE_KEYS = ("parameters", "mapping")
+_FREE_KEYS = ("parameters", "mapping", "tokens")
 
 
 def _reject_credentials(node, path: str = "") -> None:
@@ -1247,6 +1327,7 @@ class ApplyPlan:
     saved: Optional[dict] = None       # the answers, if any
     stale: list = _field(default_factory=list)    # saved mapping entries that no longer fit
     changed: bool = False              # the data's columns differ from the answers' last run
+    tokens: dict = _field(default_factory=dict)   # token values given: explicit, then profile, then answers
 
 
 def resolve_apply(
@@ -1260,6 +1341,7 @@ def resolve_apply(
     profile: Optional[str] = None,
     fuzzy_cutoff: float = 0.85,
     sheet: Union[str, int, None] = None,
+    tokens: Optional[dict[str, str]] = None,
 ) -> ApplyPlan:
     """What `apply_template` would do, without writing: the same arguments, the same precedence (explicit
     argument, then profile, then saved answers), the same errors."""
@@ -1306,8 +1388,9 @@ def resolve_apply(
         prior["data"]["schema_fingerprint"] != data.fingerprint()
     merged = {**(_answers_parameters(saved, template) if saved is not None else {}),
               **(chosen_profile.get("parameters") or {}), **(params or {})}
+    given = {**((saved or {}).get("tokens") or {}), **(chosen_profile.get("tokens") or {}), **(tokens or {})}
     return ApplyPlan(template=template, entry=entry, data=data, mapping=mapping, params=merged,
-                     saved=saved, stale=stale, changed=changed)
+                     saved=saved, stale=stale, changed=changed, tokens={k: str(v) for k, v in given.items()})
 
 
 def apply_template(
@@ -1324,6 +1407,7 @@ def apply_template(
     answers: Union[str, os.PathLike, dict, None] = None,
     profile: Optional[str] = None,
     sheet: Union[str, int, None] = None,
+    tokens: Optional[dict[str, str]] = None,
 ) -> str:
     """Make a new workbook from a template and new data; return its path.
 
@@ -1344,6 +1428,11 @@ def apply_template(
     {...}, "data": "prod.csv"}}`). An explicit argument beats the profile,
     which beats the saved answers. Answers never hold credentials.
 
+    `tokens` fills the template's `{{name}}` placeholders (see `make_template` and `py_tbparse.tokens`) with
+    plain text, by the same precedence (explicit, profile, answers, the template's default). A token with no
+    value anywhere raises `TemplateError` listing every place it occurs; a name the template does not have
+    raises too. Values are written as text, never expanded again, and are kept in the answers.
+
     The template datasource's connection is replaced by one to the new data
     (a CSV file, one worksheet of an Excel file -- `sheet=`, see `read_data` --
     or the connection of the given workbook / .tds); every
@@ -1354,7 +1443,8 @@ def apply_template(
     unless `overwrite=True`.
     """
     plan = resolve_apply(template, data, mapping=mapping, params=params, datasource=datasource,
-                         data_datasource=data_datasource, answers=answers, profile=profile, sheet=sheet)
+                         data_datasource=data_datasource, answers=answers, profile=profile, sheet=sheet,
+                         tokens=tokens)
     template, data, entry, mapping, params = plan.template, plan.data, plan.entry, plan.mapping, plan.params
     saved, stale, changed = plan.saved, plan.stale, plan.changed
     by_field = {f["name"]: f for f in entry["fields"]}
@@ -1390,6 +1480,7 @@ def apply_template(
         local_of[f["name"]] = local
 
     doc = copy.deepcopy(template.parser.xml_doc)
+    token_values = _fill_tokens(doc, template, plan.tokens)
     ds_el = doc.xpath("/workbook/datasources/datasource[@name=$n]", n=entry["name"])[0]
     if data.kind in ("csv", "excel"):
         # a column with no values takes the type of the field it feeds (else string)
@@ -1437,7 +1528,7 @@ def apply_template(
         if c.get(_AUTO_COLUMN) == "numrec" and c.find("calculation") is None and c.get("name") not in fed:
             etree.SubElement(c, "calculation", {"class": "tableau", "formula": "1"})
 
-    applied_params = _set_parameters(doc, params, template)
+    applied_params = _set_parameters(doc, params, template, token_values)
     this = {
         "datasource": entry["name"],
         "data": {"file": data.path, "kind": data.kind,
@@ -1462,6 +1553,7 @@ def apply_template(
         # the datasource this run filled, as version 1 kept it; `datasources` has them all
         "data": this["data"], "datasource": this["datasource"], "mapping": this["mapping"], "missing": this["missing"],
         "parameters": applied_params,
+        **({"tokens": {k: v for k, v in plan.tokens.items() if k in token_values}} if token_values is not None else {}),
         "datasources": entries,
         "profiles": copy.deepcopy((saved or {}).get("profiles") or {}),
     }
