@@ -119,6 +119,30 @@ def test_answers_explain_and_checks_on_every_workbook(tmp_path, monkeypatch):
         assert Path(first).read_bytes() == Path(again).read_bytes(), path.name
 
 
+def test_apply_folder_writes_every_file_on_every_workbook(tmp_path):
+    """Two data files per template, `min_mapped=0` so a field a CSV cannot feed does not skip the file."""
+    from py_tbparse import apply_template_folder
+
+    for n, path in enumerate(FILES):
+        work = tmp_path / f"w{n}"
+        work.mkdir()
+        book = work / "book.twb"
+        shutil.copy(path, book)
+        template = make_template(str(book), output_path=str(work / "book.template.twbx"))
+        entry = next((e for e in load_template(template).manifest["datasources"] if e["fields"]), None)
+        if entry is None:
+            continue
+        folder = work / "data"
+        folder.mkdir()
+        for name in ("a", "b"):
+            with open(folder / f"{name}.csv", "w", newline="", encoding="utf-8") as fh:
+                csv.writer(fh).writerow([f["remote"] for f in entry["fields"]])
+        table = apply_template_folder(template, str(folder), output_dir=str(work / "out"), min_mapped=0.0,
+                                      datasource=entry["name"])
+        assert list(table["status"]) == ["ok", "ok"], (path.name, table.to_dict("records"))
+        assert sorted(p.name for p in (work / "out").iterdir()) == ["book_a.twbx", "book_b.twbx", "summary.csv"]
+
+
 def test_a_second_revision_identical_to_the_first_reports_no_change_on_every_workbook(tmp_path):
     """Revision 2 made from the same workbook: no change in the diff, none in the report against answers a
     workbook of revision 1 kept, and the update of such a workbook is a clean re-apply."""

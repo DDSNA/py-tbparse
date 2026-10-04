@@ -31,6 +31,7 @@ from .templates import (
     make_template,
     resolve_apply,
 )
+from .template_batch import DEFAULT_PATTERNS as DEFAULT_BATCH_PATTERNS, apply_template_folder
 from .template_update import template_update_report, update_from_answers
 from .templates import TemplateError
 from .rename import (
@@ -310,6 +311,34 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
                     help="make the workbook (default PATH: <workbook>_r<revision>.twbx; never overwrites)")
     up.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
 
+    fo = sub.add_parser(
+        "apply-folder", help="make one workbook per data file in a folder, with a summary.csv of what happened",
+        description="Each .csv/.tsv/.xlsx/.xlsm in DIR is matched on its own. A file whose required fields do not "
+                    "all find a column is skipped and reported (see --min-mapped). Exit status 1 if any file was "
+                    "not written.",
+    )
+    fo.add_argument("template")
+    fo.add_argument("directory", help="the folder of data files")
+    fo.add_argument("--output-dir", "-o", metavar="DIR", help="where the workbooks and summary.csv go (default: DIR/out)")
+    fo.add_argument("--inputs", "-i", metavar="CSV", help="a sidecar CSV: a 'file' column, an optional 'sheet' column, "
+                                                          "and one column per parameter caption, one row per file")
+    fo.add_argument("--pattern", action="append", default=[], metavar="GLOB",
+                    help="which files to take (repeatable; default: *.csv *.tsv *.xlsx *.xlsm)")
+    fo.add_argument("--answers", "-a", metavar="PATH", help="saved answers: their mapping is the prior for every file")
+    fo.add_argument("--profile", help="a named set of parameters inside the answers file")
+    fo.add_argument("--mapping", "-m", help="apply this one edited mapping CSV to every file")
+    fo.add_argument("--param", "-p", action="append", default=[], metavar="NAME=VALUE",
+                    help="set a parameter for every file (repeatable); the sidecar can override it per file")
+    fo.add_argument("--sheet", help="the worksheet for every Excel file (the sidecar can override it per file)")
+    fo.add_argument("--datasource", help="which template datasource to fill (when it has several)")
+    fo.add_argument("--min-mapped", type=float, metavar="SHARE",
+                    help="write a file when at least this share (0..1) of the required fields map, and report the "
+                         "sheets that break; default: all required fields must map")
+    fo.add_argument("--on-error", choices=["skip", "stop"], default="skip", help="what to do with a file that fails")
+    fo.add_argument("--workers", type=int, default=1, help="processes to use (default 1; at most the CPU count)")
+    fo.add_argument("--overwrite", action="store_true", help="replace outputs and summary.csv that already exist")
+    fo.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+
     ap_ = sub.add_parser(
         "apply", help="map a template's fields to new data; with --write, make the workbook",
         description="Without --write this only prints the suggested mapping and what would break.",
@@ -344,6 +373,30 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     )
     ap_.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
     return ap
+
+
+def _param_args(ap, items: list[str]) -> dict[str, str]:
+    params = {}
+    for item in items:
+        if "=" not in item:
+            ap.error(f"--param expects NAME=VALUE, got {item!r}")
+        k, v = item.split("=", 1)
+        params[k.strip()] = v
+    return params
+
+
+def _run_apply_folder(ap, args) -> int:
+    table = apply_template_folder(
+        args.template, args.directory, output_dir=args.output_dir, patterns=args.pattern or DEFAULT_BATCH_PATTERNS,
+        mapping=args.mapping, params=_param_args(ap, args.param), answers=args.answers, profile=args.profile,
+        sheet=_sheet_arg(args.sheet), inputs=args.inputs, datasource=args.datasource, min_mapped=args.min_mapped,
+        on_error=args.on_error, overwrite=args.overwrite, workers=args.workers)
+    _write(_df_text(table, args.format), None)
+    counts = table["status"].value_counts().to_dict()
+    where = args.output_dir or str(Path(args.directory) / "out")
+    print(f"{counts.get('ok', 0)} written, {counts.get('skipped', 0)} skipped, {counts.get('error', 0)} failed; "
+          f"summary in {Path(where) / 'summary.csv'}", file=sys.stderr)
+    return 0 if (table["status"] == "ok").all() else 1
 
 
 def _sheet_arg(value):
@@ -403,6 +456,8 @@ def _run_template(argv: list[str]) -> int:
 
         if args.action == "update":
             return _run_template_update(args)
+        if args.action == "apply-folder":
+            return _run_apply_folder(ap, args)
 
         t = load_template(args.template)
         if args.action == "show":
