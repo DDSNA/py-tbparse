@@ -147,7 +147,7 @@ def test_the_sidecar_is_checked_before_anything_is_written(batch):
     with pytest.raises(TemplateError, match="acme.csv twice"):
         read_inputs(bad, template)
     bad.write_text("file,sheet,New Quota\nsub/acme.csv,Orders,1\n", encoding="utf-8")
-    assert read_inputs(bad, template) == {"sub/acme.csv": {"sheet": "Orders", "params": {"New Quota": "1"}}}
+    assert read_inputs(bad, template) == {"sub/acme.csv": {"sheet": "Orders", "params": {"New Quota": "1"}, "tokens": {}}}
 
 
 def test_an_invalid_parameter_value_fails_only_that_file(batch):
