@@ -1,6 +1,8 @@
 """`template apply-folder`: one template, many data files."""
 
 import datetime as dt
+import json
+import zipfile
 import shutil
 from pathlib import Path
 
@@ -177,13 +179,24 @@ def test_a_mapping_file_applies_to_every_file_and_a_file_without_its_columns_fai
     assert rows["initech.csv"].status == "error" and "does not have" in rows["initech.csv"].error
 
 
+def _members(path):
+    """A workbook's zip members by name. Workers that are spawned (Windows, macOS) do not inherit the test's
+    patched clock, so the `created` stamp in the answers file is left out of the comparison."""
+    with zipfile.ZipFile(path) as z:
+        members = {n: z.read(n) for n in z.namelist()}
+    for n, data in members.items():
+        if n.endswith("template-answers.json"):
+            members[n] = {k: v for k, v in json.loads(data).items() if k != "created"}
+    return members
+
+
 def test_workers_give_the_same_workbooks_as_one_process(batch):
     serial = run(batch)
     parallel = apply_template_folder(batch["template"], str(batch["folder"]), output_dir=str(batch["dir"] / "par"),
                                      workers=2)
     assert list(serial["status"]) == list(parallel["status"])
     for name in ("acme", "globex"):
-        assert (batch["out"] / f"sales_{name}.twbx").read_bytes() == (batch["dir"] / "par" / f"sales_{name}.twbx").read_bytes()
+        assert _members(batch["out"] / f"sales_{name}.twbx") == _members(batch["dir"] / "par" / f"sales_{name}.twbx")
 
 
 def test_a_missing_folder_and_an_empty_one(batch, tmp_path):
