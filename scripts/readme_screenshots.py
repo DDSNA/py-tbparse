@@ -80,7 +80,7 @@ def main() -> int:
         shot(page, "gui-graph.png")
         page.close()
 
-        page = prepare(browser, theme="neon", mode="dark")
+        page = prepare(browser, theme="harbor", mode="dark")
         go(page, "fields")
         page.click("#themeBtn")
         time.sleep(0.4)

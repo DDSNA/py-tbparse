@@ -55,6 +55,21 @@ There is no linter/formatter configured yet — match existing style
 (no trailing comments unless explaining non-obvious behavior, type hints
 via `from __future__ import annotations`).
 
+## Server mode / Docker
+
+`Dockerfile`, `docker-compose.yml` and `docs/deployment.md` run the GUI behind a TLS-terminating proxy. The
+app side is `webgui._CONFIG` (`--server-mode`, `--allowed-host`, `--trust-proxy`, `--max-sessions`,
+`--session-ttl`, each with a `PY_TBPARSE_*` env var). Rules to keep:
+
+- `_STATE` and `_UPLOAD` are `_Scoped` mappings: in server mode they read the current request's session
+  (a thread-local set by `Handler._bind_session`), otherwise the one global dict. New per-user state goes in
+  `_STATE_DEFAULTS` / the session dict, never in a new module-level global, or users will see each other's data.
+- Origin checks go through `_origin_ok()`, not an inline comparison; `/load` and `/create-workbook` stay
+  refused in server mode (they touch the server's disk).
+- Tests: `tests/test_server_mode.py` (HTTP) and `tests/test_gui_server_mode.py` (Chromium); the `docker` CI job
+  builds the image and drives it like a proxy. There is no Docker daemon in the usual sandbox, so the image
+  itself is only built in CI.
+
 ## Release / packaging
 
 ```bash
@@ -294,5 +309,10 @@ differ, so review the new look and re-capture the baseline. The redesign plan an
 
 ## Commit / PR conventions
 
-Nothing project-specific beyond the harness defaults — see repo commit
-history for message style.
+See repo commit history for message style. Two rules from the owner:
+
+- **Author and committer are `DDSNA <79444147+DDSNA@users.noreply.github.com>`.** Commit with
+  `git -c user.name=DDSNA -c user.email=79444147+DDSNA@users.noreply.github.com commit ...`, and check
+  `git log --format='%an <%ae> | %cn <%ce>' origin/main..HEAD` before pushing.
+- **Never name Claude or any AI tool as author or co-author**: no `Co-Authored-By` and no "Generated with" line in
+  commit messages or PR descriptions, whatever default the tooling suggests.

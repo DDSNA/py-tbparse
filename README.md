@@ -72,6 +72,7 @@ scan_folder("./workbooks", table="datasources")   # one table, every workbook in
 
 - [Command line](https://github.com/DDSNA/py-tbparse/blob/main/docs/cli.md): every table, the `diff`, `batch`, `rename` and `template` commands, and their options.
 - [Browser GUI](https://github.com/DDSNA/py-tbparse/blob/main/docs/gui.md): opening files, the table, the overview, the graph, themes.
+- [Running as a server](https://github.com/DDSNA/py-tbparse/blob/main/docs/deployment.md): the Docker image, a reverse proxy that ends TLS, sessions, limits.
 - [Renaming](https://github.com/DDSNA/py-tbparse/blob/main/docs/renaming.md): clean names after a datasource switch, editing the suggestions, what will stay broken.
 - [Templates](https://github.com/DDSNA/py-tbparse/blob/main/docs/templates.md): make a template from a workbook and apply it to new data.
 - [`.twbx` files](https://github.com/DDSNA/py-tbparse/blob/main/docs/twbx.md): they are read straight from the zip; how to extract the contents.
@@ -79,10 +80,10 @@ scan_folder("./workbooks", table="datasources")   # one table, every workbook in
 
 ## Limits
 
-- **Nothing the tool writes has been opened in Tableau yet.** That covers renamed workbooks and workbooks made from templates. The XML follows what Tableau writes, but open one on a copy and check it before relying on it. The original file is never modified or overwritten.
+- **Little of what the tool writes has been opened in Tableau.** Everything it writes is checked against Tableau's published schema and for dangling references, on 200 real workbooks. A template applied to a CSV and to a workbook has been opened in Tableau once, for one workbook, and drew its sheets (see [verify-in-tableau.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/verify-in-tableau.md)); renamed workbooks and other shapes have not. Open one on a copy and check it before relying on it. The original file is never modified or overwritten.
 - **Only part of the R package is ported.** Missing: formatting, tooltips, colors, axes and sorts, dashboard layout and actions, calculation complexity, the replication brief and the Shiny inspector. The GUI covers some of what the inspector did.
 - Where the R version has a bug, this one does not copy it: joins and relationships on more than one key, nested joins, the include-parameters option, and calculations with brackets inside brackets.
-- The GUI is meant to run on your own machine for one person. It refuses requests that come from other websites, but there is no login, so do not put it on a shared network.
+- The GUI is meant to run on your own machine for one person. It refuses requests that come from other websites, but there is no login, so do not put it on a shared network. To share it, use the [Docker image](https://github.com/DDSNA/py-tbparse/blob/main/docs/deployment.md) behind a proxy that adds TLS and a login.
 
 ## Why a Tableau parser
 

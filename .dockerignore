@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+.venv
+.browser-libs
+.pytest_cache
+__pycache__
+*.pyc
+*.egg-info
+build
+dist
+tests
+docs
+scripts
+twbparser_py

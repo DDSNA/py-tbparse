@@ -14,11 +14,16 @@ import ipaddress
 import json
 import os
 import atexit
+import collections.abc
+import secrets
 import shutil
+import signal
 import tempfile
 import threading
+import time
 import webbrowser
 from pathlib import Path
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlparse, urlsplit
 
@@ -36,13 +41,57 @@ from .rename import (
     suggest_renames,
 )
 
-_STATE: dict = {"parser": None, "path": None, "uploaded": False, "report": None}
+_STATE_DEFAULTS = {"parser": None, "path": None, "uploaded": False, "report": None}
+
+# Server mode (`--server-mode`): the page is shared by several people behind a proxy, so each browser gets its
+# own workbook state, keyed by a random cookie. `_STATE` and `_UPLOAD` below look like plain dicts but read and
+# write the session of the request being handled (a thread-local); outside server mode, and outside a request,
+# they are the single process-wide dicts the local GUI has always used.
+_CONFIG: dict = {
+    "server_mode": False,
+    "allowed_hosts": frozenset(),
+    "trust_proxy": False,
+    "max_sessions": 20,
+    "session_ttl": 3600,
+}
+_SESSION_COOKIE = "tbparse_sid"
+_SESSIONS: dict = {}
+_SESSIONS_LOCK = threading.Lock()
+_CTX = threading.local()
+
+
+class _Scoped(collections.abc.MutableMapping):
+    def __init__(self, key: str, base: dict):
+        self._key = key
+        self.base = base
+
+    def _target(self) -> dict:
+        session = getattr(_CTX, "session", None)
+        return self.base if session is None else session[self._key]
+
+    def __getitem__(self, k):
+        return self._target()[k]
+
+    def __setitem__(self, k, v):
+        self._target()[k] = v
+
+    def __delitem__(self, k):
+        del self._target()[k]
+
+    def __iter__(self):
+        return iter(self._target())
+
+    def __len__(self):
+        return len(self._target())
+
+
+_STATE = _Scoped("state", dict(_STATE_DEFAULTS))
 
 # An uploaded workbook (drag and drop, file picker) has no path the user can name, so it is written to a
-# private temp directory, kept only until the next upload or exit.
+# private temp directory, kept only until the next upload, the session ending or exit.
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_DRAIN_BYTES = 32 * 1024 * 1024
-_UPLOAD: dict = {"dir": None}
+_UPLOAD = _Scoped("upload", {"dir": None})
 
 
 def _clear_upload() -> None:
@@ -51,7 +100,52 @@ def _clear_upload() -> None:
         _UPLOAD["dir"] = None
 
 
-atexit.register(_clear_upload)
+def _drop_session(session: dict) -> None:
+    if session["upload"]["dir"]:
+        shutil.rmtree(session["upload"]["dir"], ignore_errors=True)
+        session["upload"]["dir"] = None
+
+
+def _clear_all_uploads() -> None:
+    _clear_upload()
+    with _SESSIONS_LOCK:
+        for session in _SESSIONS.values():
+            _drop_session(session)
+        _SESSIONS.clear()
+
+
+def _new_session() -> dict:
+    # A new session starts from the preloaded workbook (if the operator gave one), never from another user's.
+    base = _STATE.base
+    return {
+        "state": dict(_STATE_DEFAULTS, parser=base["parser"], path=base["path"]),
+        "upload": {"dir": None},
+        "seen": time.monotonic(),
+    }
+
+
+def _session_for(sid: str | None, create: bool):
+    """The session for cookie value `sid`, or (when `create`) a new one. Returns (id, session, is_new);
+    id and session are None when there is none. Expired sessions are dropped first, and when the table is
+    full the least recently used one makes room."""
+    now = time.monotonic()
+    with _SESSIONS_LOCK:
+        for old_id in [k for k, v in _SESSIONS.items() if now - v["seen"] > _CONFIG["session_ttl"]]:
+            _drop_session(_SESSIONS.pop(old_id))
+        session = _SESSIONS.get(sid) if sid else None
+        if session is not None:
+            session["seen"] = now
+            return sid, session, False
+        if not create:
+            return None, None, False
+        while len(_SESSIONS) >= _CONFIG["max_sessions"]:
+            _drop_session(_SESSIONS.pop(min(_SESSIONS, key=lambda k: _SESSIONS[k]["seen"])))
+        sid = secrets.token_urlsafe(24)
+        _SESSIONS[sid] = session = _new_session()
+        return sid, session, True
+
+
+atexit.register(_clear_all_uploads)
 
 
 def _upload_problem(name: str, head: bytes) -> str | None:
@@ -207,12 +301,28 @@ def _host_allowed(host_header, server_address) -> bool:
         return False
     if not hostname:
         return False
+    # Names the operator listed (`--allowed-host`) are accepted on any port: behind a proxy the browser's
+    # Host carries the public port (or none), not the one this process listens on.
+    if hostname.lower() in _CONFIG["allowed_hosts"]:
+        return True
     bound_host, bound_port = server_address[0], server_address[1]
     if port != bound_port:
         return False
     if hostname in _LOOPBACK_NAMES or hostname == str(bound_host).lower():
         return True
     return bound_host in _WILDCARD_ADDRS and _is_ip_literal(hostname)
+
+
+def _origin_ok(origin, host) -> bool:
+    """Whether a POST's `Origin` header (absent for non-browser clients) names this same host. Behind a
+    TLS-terminating proxy (`--trust-proxy`) the browser's origin is https while the proxy forwards plain
+    http, so the https form of the same Host is accepted too."""
+    if origin is None:
+        return True
+    origin, host = origin.lower(), (host or "").strip().lower()
+    if origin == "http://" + host:
+        return True
+    return _CONFIG["trust_proxy"] and origin == "https://" + host
 
 
 # The page lives in real files under webui/ (index.html plus tokens.css, app.css and app.js),
@@ -233,7 +343,14 @@ def _read_webui(name: str) -> str:
     return (_WEBUI / name).read_text(encoding="utf-8")
 
 
-THEMES = ["shop", "matcha", "fjord", "pastel", "neon", "contrast"]
+THEMES = [
+    "shop", "matcha", "fjord", "contrast",
+    "harbor", "meadow", "lagoon", "slate", "graphite", "paper",
+    "glacier", "pine", "olive", "citrus", "ocean", "cobalt",
+    "navy", "midnight", "rose", "berry", "mint", "jade",
+    "moss", "steel", "mono", "ink", "frost", "birch",
+    "peacock", "marine", "canopy", "tide", "cornflower", "spruce",
+]
 
 # Runs in <head>, before anything is painted, so the page never shows the wrong colours first. It reads
 # the saved theme and mode (the localStorage read can throw in a private window), resolves Auto against
@@ -256,7 +373,8 @@ def _render_index() -> str:
     config = (
         "<script>\n"
         f"window.TABLE_NAMES = {_json_for_script(TABLE_NAMES)};\n"
-        f"window.PRELOAD_PATH = {_json_for_script(_STATE['path'])};\n"
+        f"window.PRELOAD_PATH = {_json_for_script(None if _CONFIG['server_mode'] else _STATE['path'])};\n"
+        f"window.SERVER_MODE = {_json_for_script(bool(_CONFIG['server_mode']))};\n"
         f"window.APP_VERSION = {_json_for_script(__version__)};\n"
         f"window.THEMES = {_json_for_script(THEMES)};\n"
         f"{_THEME_BOOT}\n"
@@ -297,6 +415,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         for k, v in (headers or {}).items():
             self.send_header(k, v)
+        if getattr(self, "_new_sid", None):
+            secure = "; Secure" if self.headers.get("X-Forwarded-Proto", "").lower() == "https" and _CONFIG["trust_proxy"] else ""
+            self.send_header(
+                "Set-Cookie",
+                f"{_SESSION_COOKIE}={self._new_sid}; Path=/; HttpOnly; SameSite=Strict; Max-Age={_CONFIG['session_ttl']}{secure}",
+            )
+            self._new_sid = None
         self.end_headers()
         self.wfile.write(data)
 
@@ -324,7 +449,48 @@ class Handler(BaseHTTPRequestHandler):
         self._send(403, "forbidden: unrecognized Host header", "text/plain")
         return True
 
+    def _bind_session(self) -> None:
+        """Point `_STATE`/`_UPLOAD` at this request's session (server mode only). A session is created only
+        for the page itself and for POSTs, and only for an accepted Host, so health checks, static files and
+        foreign requests cannot fill the table."""
+        _CTX.session = None
+        self._new_sid = None
+        if not _CONFIG["server_mode"]:
+            return
+        jar = SimpleCookie()
+        try:
+            jar.load(self.headers.get("Cookie") or "")
+        except Exception:
+            jar = SimpleCookie()
+        morsel = jar.get(_SESSION_COOKIE)
+        create = (
+            self.command == "POST" or urlparse(self.path).path == "/"
+        ) and _host_allowed(self.headers.get("Host"), self.server.server_address)
+        sid, session, is_new = _session_for(morsel.value if morsel else None, create)
+        if session is None:
+            session = _new_session()  # unregistered: reads see the preload or nothing, writes are dropped
+        elif is_new:
+            self._new_sid = sid
+        _CTX.session = session
+
     def do_GET(self):  # noqa: N802 (stdlib method name)
+        self._bind_session()
+        try:
+            self._do_get()
+        finally:
+            _CTX.session = None
+
+    def do_POST(self):  # noqa: N802
+        self._bind_session()
+        try:
+            self._do_post()
+        finally:
+            _CTX.session = None
+
+    def _do_get(self) -> None:
+        if urlparse(self.path).path == "/healthz":
+            self._send(200, "ok", "text/plain", headers={"Cache-Control": "no-store"})
+            return
         if self._reject_foreign_host():
             return
         parsed = urlparse(self.path)
@@ -510,8 +676,7 @@ class Handler(BaseHTTPRequestHandler):
             self._drain(length)
             self._send_json({"error": "Content-Type must be application/octet-stream"}, 415)
             return
-        origin = self.headers.get("Origin")
-        if origin is not None and origin.lower() != "http://" + self.headers["Host"].strip().lower():
+        if not _origin_ok(self.headers.get("Origin"), self.headers.get("Host")):
             self._drain(length)
             self._send_json({"error": "cross-origin request rejected"}, 403)
             return
@@ -558,7 +723,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json(_open_response(parser, dest, uploaded=True, name=name))
 
-    def do_POST(self):  # noqa: N802
+    def _do_post(self) -> None:
         if self.path == "/upload" and not _host_allowed(self.headers.get("Host"), self.server.server_address):
             self._drain(self._declared_length())
         if self._reject_foreign_host():
@@ -569,6 +734,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path not in ("/load", "/create-workbook"):
             self._send(404, "not found", "text/plain")
             return
+        if _CONFIG["server_mode"]:
+            # Both take a path on this machine's disk; on a shared server only uploads are allowed.
+            self._drain(self._declared_length())
+            self._send_json({"error": "Opening a path on the server is turned off here. Drop a file onto the page instead."}, 403)
+            return
 
         # A cross-site form/fetch can only POST without a CORS preflight
         # using a "simple" content type (text/plain, form encodings);
@@ -578,8 +748,7 @@ class Handler(BaseHTTPRequestHandler):
         if ctype != "application/json":
             self._send_json({"error": "Content-Type must be application/json"}, 415)
             return
-        origin = self.headers.get("Origin")
-        if origin is not None and origin.lower() != "http://" + self.headers["Host"].strip().lower():
+        if not _origin_ok(self.headers.get("Origin"), self.headers.get("Host")):
             self._send_json({"error": "cross-origin request rejected"}, 403)
             return
 
@@ -623,11 +792,58 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--port", type=int, default=0, help="port to bind (default: pick a free one)")
     ap.add_argument("--host", default="127.0.0.1", help="host to bind (default: 127.0.0.1)")
     ap.add_argument("--no-browser", action="store_true", help="don't auto-open a browser tab")
+    server = ap.add_argument_group(
+        "server mode",
+        "for running behind a reverse proxy (see docs/deployment.md); each option also has a "
+        "PY_TBPARSE_* environment variable",
+    )
+    server.add_argument(
+        "--server-mode", action="store_true", default=_env_flag("PY_TBPARSE_SERVER_MODE"),
+        help="one private session per browser; opening server paths and saving beside the original are off",
+    )
+    server.add_argument(
+        "--allowed-host", action="append", metavar="NAME",
+        default=[h for h in os.environ.get("PY_TBPARSE_ALLOWED_HOSTS", "").replace(",", " ").split() if h],
+        help="public host name the proxy forwards (repeatable; any port)",
+    )
+    server.add_argument(
+        "--trust-proxy", action="store_true", default=_env_flag("PY_TBPARSE_TRUST_PROXY"),
+        help="accept https Origins for an allowed host and mark the session cookie Secure (TLS ends at the proxy)",
+    )
+    server.add_argument(
+        "--max-sessions", type=int, default=int(os.environ.get("PY_TBPARSE_MAX_SESSIONS", "20")),
+        help="most browsers held at once; the least recently used is dropped (default: 20)",
+    )
+    server.add_argument(
+        "--session-ttl", type=int, default=int(os.environ.get("PY_TBPARSE_SESSION_TTL", "3600")),
+        help="seconds a session lives without a request (default: 3600)",
+    )
     return ap
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _raise_interrupt(signum, frame):
+    raise KeyboardInterrupt
 
 
 def main(argv=None) -> int:
     args = build_arg_parser().parse_args(argv)
+
+    _CONFIG.update(
+        server_mode=args.server_mode,
+        allowed_hosts=frozenset(h.lower() for h in args.allowed_host),
+        trust_proxy=args.trust_proxy,
+        max_sessions=max(1, args.max_sessions),
+        session_ttl=max(1, args.session_ttl),
+    )
+    if args.server_mode and args.workbook:
+        print("warning: a preloaded workbook is ignored in server mode (visitors drop their own files)")
+        args.workbook = None
+    if args.server_mode and not args.allowed_host and args.host in _WILDCARD_ADDRS:
+        print("note: no --allowed-host given; only requests addressed by IP are accepted")
 
     if args.workbook:
         try:
@@ -644,6 +860,9 @@ def main(argv=None) -> int:
     if not args.no_browser:
         threading.Timer(0.3, lambda: webbrowser.open(url)).start()
 
+    # `docker stop` sends SIGTERM, which a process running as PID 1 ignores unless it has a handler.
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, _raise_interrupt)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

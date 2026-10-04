@@ -31,6 +31,17 @@ def _refs(text: Optional[str]) -> list[str]:
     return ["[" + m.group(1) + "]" for m in _BRACKETED.finditer(text)]
 
 
+_INSTANCE = re.compile(r"^\[[a-z]+:(.+):(?:nk|ok|qk|fn|tn)\]$")
+
+
+def _base_field(ref: str) -> str:
+    """`[none:Region:nk]` (a field as a worksheet or a set uses it, with its derivation and type suffix)
+    -> `[Region]`; any other reference is returned as it is. In the corpus 43 of 139 references inside
+    sets and groups are of this form (`none`, and date parts such as `yr`, `tmn`)."""
+    m = _INSTANCE.match(ref)
+    return f"[{m.group(1)}]" if m else ref
+
+
 def _datasource_fields(ds) -> dict[str, dict]:
     """Every field-like thing a datasource defines, by local name."""
     fields: dict[str, dict] = {}
@@ -56,7 +67,7 @@ def _datasource_fields(ds) -> dict[str, dict]:
         entry["kind"] = "group"
         for gf in grp.iter("groupfilter"):
             for attr in ("level", "member", "expression"):
-                entry["deps"] |= set(_refs(gf.get(attr)))
+                entry["deps"] |= {_base_field(r) for r in _refs(gf.get(attr))}
     for path in ds.xpath("./drill-paths/drill-path"):
         for f in path.iter("field"):
             fields.setdefault(f.text or "", {"kind": "physical", "caption": None, "datatype": None, "deps": set()})

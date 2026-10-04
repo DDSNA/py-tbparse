@@ -7,7 +7,7 @@
 
 Written 2026-10-02 for the next agent. Verify against the repo before relying on anything: `git log`,
 `gh pr list -R DDSNA/py-tbparse`, `git ls-remote --heads origin`. How to work with the owner and in this sandbox:
-`CLAUDE.md` (local, not tracked; if it is missing, the rules are: commit as Dan with no Claude attribution, never
+`CLAUDE.md` (local, not tracked; if it is missing, the rules are: commit as DDSNA with no Claude attribution, never
 push / PR / merge / release unasked, work in a fresh worktree off `origin/main`, templating releases are 0.5.x).
 Architecture and testing conventions: `AGENTS.md`. The long plan with research and all work packages (WP0 to WP19):
 `docs/template-roadmap-plan.md` on the branch `docs/template-roadmap`.
@@ -153,11 +153,13 @@ the owner and for Tableau results.
   nothing. The corpus differential test passes, but it only applies the first datasource with fields and excuses
   fields the CSV cannot feed, so this is not proven either way. Look at multi-object workbooks (corpus files with
   `relation:collection` or `relation:join`) before relying on it.
-- `field_usage` did not report the set `BurstoutSet` as depending on a field in `filtering.twb`, so `explain` and
-  `broken_sheets` name the sheets and dashboard but no calculation or set there. Check how `_datasource_fields`
-  reads `<group>` elements.
-- `explain` does not follow parameters; `check_data` reads values only for a CSV and its key heuristic is a guess
-  at names (`*_id`, `*_key`, `*_code`).
+- Fixed in the WP1 review: `field_usage` did not tie a set to its field when the set names the field by a derived
+  name (`[none:Region:nk]`, 31% of group references in the corpus), so a sheet that used only the set did not make
+  the field `required`. `usage._base_field` now resolves it. Other derived forms (table calculations such as
+  `[pcdf:sum:Sales:qk]`) are not resolved.
+- `explain` does not list parameters (none in the corpus depends on a field; there are no parameter actions either);
+  `check_data` reads values only for a CSV and its key heuristic is a guess at names (`*_id`, `*_key`, `*_code`).
+- `role differs` can only fire when the new data is a workbook or `.tds` (a CSV has no roles).
 - Profiles must be written into the answers file by hand; there is no `template profile` command and no command that
   extracts a standalone `*.answers.json` from a workbook (the Python `read_answers` does).
 - `verify.py`'s `calc-reference` findings are warnings because a bracketed word inside a string counts as a
@@ -175,4 +177,4 @@ the owner and for Tableau results.
 3. Baseline: `PYTHONPATH=. /home/claude-user/ai-sandbox/py-tbparse/.venv/bin/python -m pytest -q` for the files you
    will touch. Write the failing test first.
 4. Build; run the corpus tests; run the differential checks if you write XML; update docs, CLI help, `AGENTS.md`.
-5. Commit as Dan (no attribution), check authors, and stop: push, PR and merge only when told.
+5. Commit as `DDSNA` (no attribution; see `AGENTS.md`), check authors, and stop: push, PR and merge only when told.
