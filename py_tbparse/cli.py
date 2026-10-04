@@ -300,7 +300,8 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
                           "its saved mapping and parameters are the starting point")
     ap_.add_argument("--profile", help="a named set of parameters and data inside the answers file")
     ap_.add_argument("--explain", action="store_true",
-                     help="also list everything this changes besides the connection (to stderr)")
+                     help="also list what this changes besides the connection: new field types, dropped "
+                          "fields and what they break (to stderr)")
     ap_.add_argument("--check", action="store_true",
                      help="also check the new data: missing dimensions, empty columns, repeated keys (to stderr)")
     ap_.add_argument("--deep", action="store_true", help="with --check, read the whole CSV, not its first 2000 rows")

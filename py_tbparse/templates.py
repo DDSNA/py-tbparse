@@ -748,8 +748,10 @@ def check_data(
 
 def explain(template: Template, data: DataSource, mapping: pd.DataFrame,
             datasource: Optional[str] = None) -> pd.DataFrame:
-    """Everything an apply changes besides the connection, so nothing is a surprise. Returns `change,
-    severity, kind, object, detail` (errors first).
+    """What an apply changes besides the connection, so nothing is a surprise. Returns `change,
+    severity, kind, object, detail` (errors first). Not covered: parameter values (you pass them, and the
+    answers record them; no parameter of any corpus workbook depends on a field), and the extracts and packaged
+    data that `make_template` already left out.
 
     `type-changed`: a field takes the type of the column that now feeds it. `field-dropped`: a field has no
     column. `affected`: what that breaks, one row per worksheet, dashboard, calculation, set or group and

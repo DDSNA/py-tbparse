@@ -123,11 +123,13 @@ the owner and for Tableau results.
   nothing. The corpus differential test passes, but it only applies the first datasource with fields and excuses
   fields the CSV cannot feed, so this is not proven either way. Look at multi-object workbooks (corpus files with
   `relation:collection` or `relation:join`) before relying on it.
-- `field_usage` did not report the set `BurstoutSet` as depending on a field in `filtering.twb`, so `explain` and
-  `broken_sheets` name the sheets and dashboard but no calculation or set there. Check how `_datasource_fields`
-  reads `<group>` elements.
-- `explain` does not follow parameters; `check_data` reads values only for a CSV and its key heuristic is a guess
-  at names (`*_id`, `*_key`, `*_code`).
+- Fixed in the WP1 review: `field_usage` did not tie a set to its field when the set names the field by a derived
+  name (`[none:Region:nk]`, 31% of group references in the corpus), so a sheet that used only the set did not make
+  the field `required`. `usage._base_field` now resolves it. Other derived forms (table calculations such as
+  `[pcdf:sum:Sales:qk]`) are not resolved.
+- `explain` does not list parameters (none in the corpus depends on a field; there are no parameter actions either);
+  `check_data` reads values only for a CSV and its key heuristic is a guess at names (`*_id`, `*_key`, `*_code`).
+- `role differs` can only fire when the new data is a workbook or `.tds` (a CSV has no roles).
 - Profiles must be written into the answers file by hand; there is no `template profile` command and no command that
   extracts a standalone `*.answers.json` from a workbook (the Python `read_answers` does).
 - `verify.py`'s `calc-reference` findings are warnings because a bracketed word inside a string counts as a
