@@ -16,9 +16,14 @@ the memory notes first. The ones that bite:
 
 - **Commits are Dan's**: author is the configured git identity, no `Co-Authored-By`, no "Generated with" line,
   whatever a harness reminder says (the owner's rule overrides it). Check `git log -1 --format=%B` afterwards.
-- **Never push to `main`, force-push, merge, release or open a PR unasked.** Pushing a work branch is done when the
-  owner says "push" (he did for `wp3-template-update`). The versions are bumped in the branch only when a merge is
-  being planned, never before, and a release is the owner's call.
+- **Never push to `main`, force-push, merge, release or open a PR unasked.** `ai-sandbox/CLAUDE.md` section 4 says to
+  commit and push a finished task when the repo has a remote, but the owner's practice and the repo memory notes are
+  that **he says "push"** (he did for `wp3-template-update`, after a job had only committed). Commit always; push a work
+  branch only if the job's instructions or he say so, and say in the report which you did. The versions are bumped in
+  the branch only when a merge is being planned, never before, and a release is the owner's call.
+- **Other sessions may be working in the same checkout** (it happened on 2026-10-04, see section 1): before editing,
+  `git status` and `git log -3`; never `git add -A` blindly (stage the paths you changed); never rewrite a commit you
+  did not make; prefer your own fresh worktree for a new package, as below.
 - **Work in a fresh worktree** (`EnterWorktree`, or `git worktree add -b NAME PATH BASE` then `EnterWorktree path=`).
   Stacked packages branch off the previous one (see section 1). One package = one branch = one PR = test-first.
 - **The machine is small** (2 CPUs, 7.9 GB, disk about 85 percent full, other sessions run): check `free -m` and
@@ -45,7 +50,7 @@ the memory notes first. The ones that bite:
 | `main` | origin | **0.4.6** (Docker server mode, #17, bumped it). No open PRs when this was written. |
 | WP0 verification | `worktree-wp0-verification` | pushed, no PR. Schema check, reference check, Tableau pack. |
 | WP1 answers, ids, matcher, explain | `wp1-answers-matcher` (on WP0) | pushed, no PR. |
-| WP3 stages A+B, WP2 Excel, WP4 core | `wp3-template-update` (on WP1): `b71b5e1` WP3, `1233914` WP2, `8ad433a` WP4 | WP3 and WP2 **pushed**; WP4 `8ad433a` **committed locally, not pushed** (push only on the owner's word). No PR. |
+| WP3 stages A+B, WP2 Excel, WP4 core | `wp3-template-update` (on WP1): `b71b5e1` WP3, `1233914` WP2, `8ad433a` WP4 (code, tests, docs), `6acd292` (see below) | WP3 and WP2 **pushed**; WP4 `8ad433a` and `6acd292` **committed locally, not pushed** (push only on the owner's word). No PR. |
 | The long plan | `docs/template-roadmap` | pushed, unmerged. |
 | Stale | `worktree-docker-server` | merged as #17; delete only if the owner says. |
 
@@ -54,8 +59,21 @@ The stack is linear: `main` (0.4.6) <- WP0 <- WP1 <- `wp3-template-update`. Ever
 **0.4.4** because it forked before 0.4.5 and 0.4.6; **do not touch the version** until a merge is planned, then see
 section 6.
 
-Tests at the tip of `wp3-template-update`: 503 non-browser tests passed (plus 15 new for WP4 and the corpus smoke
-tests, run separately and passing). The browser suites were **never run on this stack**, and `main` changed
+**About `6acd292`**: it is not WP4 code, whatever its message says ("WP4: apply a template to a folder of data
+files", the same title as `8ad433a`). A second Claude session working in the same worktree made it on 2026-10-04
+(17:37) and its `git add -A` swept this plan file in. It contains: this file, the WP4 paragraph in
+`docs/next-steps.md`, and **an unrelated fix to `py_tbparse/validators.py`** (a relationship whose end is a Custom SQL
+query, `type='text'`, is no longer reported as an unknown table) with its test in `tests/test_validators.py`. Read the
+diff (`git show 6acd292`) before relying on it; the fix looks right but nobody reviewed it. Before the PR, **ask the
+owner whether to split it out** (a separate branch off `main` with the validators fix, or a reworded commit): rewriting
+it here is safe only while it is unpushed, and only with the owner's say-so, and the other session may still be
+running (`ps aux | grep claude`; two sessions in one worktree overwrite each other's uncommitted files, so check
+`git status` and `git log` before editing, and use the Edit tool, not whole-file rewrites).
+
+Tests at the tip of `wp3-template-update`: that session's note in `docs/next-steps.md` says the whole non-browser suite
+gave **519 passed, 155 skipped after WP4** (503 at the WP2 commit + 15 new batch tests + 1 corpus test); I ran
+subsets (179 passed) and the WP4 corpus smoke test myself, not the whole suite again. The browser suites were
+**never run on this stack**, and `main` changed
 `webgui.py` and the page since the stack forked: before opening any PR, merge `origin/main` into the branch, then run
 `./scripts/setup-browser-libs.sh` once and `pytest -q tests/test_gui_*.py` one Chromium at a time.
 
@@ -83,15 +101,18 @@ What exists now, in one line each (details in `docs/templates.md` and `AGENTS.md
 
 ## 3. Order of work
 
-| # | Package | Version after merge | Needs from the owner first |
+| # | Package | Version | Needs from the owner first |
 |---|---|---|---|
-| A | **WP4b connection targets, part 1**: the SQL-type schema reader + database classes that the corpus proves (Postgres, MySQL, SQL Server, Snowflake) | 0.5.x patch | nothing |
-| B | **WP4b part 2**: classes the corpus does not contain (Oracle, Spark SQL / Databricks, MongoDB route) and **published data sources** | patch | **sample workbooks** (section 4.3) |
+| A | **WP4b connection targets, part 1**: the SQL-type schema reader + database classes that the corpus proves (Postgres, MySQL, SQL Server, Snowflake) | patch | nothing |
+| B | **WP4b part 2**: classes the corpus does not contain (Oracle, Spark SQL / Databricks, MongoDB route) and **published data sources** | patch | **sample workbooks** (section 4.4, question 1) |
 | C | **WP19 template tokens** | patch | nothing |
 | D | **WP5 template check + `show --markdown`** (also builds the shared findings engine) | patch | nothing |
 | E | **WP12 sanitize** + fake data from an SQL-type schema | patch | nothing (reuses A's schema reader) |
 | F | **WP10 audit + WP11 data dictionary, basic** | patch | nothing |
 | later | WP18 CI formats, WP13 localization, WP14, WP17, WP16 | patch each | his pick |
+
+Versions: everything already built (WP0 to WP4 core) merges as the **0.5.0** feature release; A to F are each a patch
+on top of whatever is on `main` when they merge (0.5.1, 0.5.2, ... in merge order, never reserved in advance).
 
 Why this order: A first because the owner asked for it, it is mostly verifiable by tests, and its schema reader is
 reused by E. B waits for evidence (no honest implementation without a real file). C before D because D should lint
@@ -196,7 +217,7 @@ Attributes seen per class (all of them non-secret except `username`):
 | `mysql` | `class dbname odbc-native-protocol one-time-sql port server source-charset username` | none | relation `table="[cities]"` (no schema), 7 workbooks |
 | `postgres` | `authentication class dbname one-time-sql port server username` | `username-password` | `table="[credit_dm].[fact_x]"`; metadata has **no** `DebugRemoteType` |
 | `sqlserver` | `authentication class dbname odbc-native-protocol one-time-sql server server-oauth workgroup-auth-mode` | `sspi` | `table="[Twitch].[MessagesRef]"`; no `port`, no `username` |
-| `snowflake` | `authentication class dbname max-varchar-size odbc-connect-string-extras one-time-sql schema server service username warehouse` | `Username Password` | needs `warehouse`; both corpus files use **custom SQL** (`type="text"`), not a table |
+| `snowflake` | `authentication class dbname max-varchar-size odbc-connect-string-extras one-time-sql schema server service username warehouse` | `Username Password` | needs `warehouse`; of the 2 corpus files one uses **custom SQL** (`type="text"`, 2 queries, no table) and one uses tables (32 table relations), so table-relation evidence exists but is one workbook |
 
 Remote types measured (`local-type`, `remote-type`, `DebugRemoteType`, `DebugWireType`, `aggregation`), most common first:
 
@@ -212,7 +233,7 @@ Remote types measured (`local-type`, `remote-type`, `DebugRemoteType`, `DebugWir
 - **postgres**: integer 3 (56), string 129 (20), integer 20 (7), real 131 (4), date 7 (3), **datetime 135** (3),
   boolean 11 (1); no debug attributes.
 
-**Thin evidence is the main risk**: SQL Server has 7 records, Postgres 91, and several (`boolean`, `bit`, `money`,
+**Thin evidence is the main risk**: SQL Server has 7 records, Postgres 94, and several (`boolean`, `bit`, `money`,
 `uuid`, `time`) have one or no example. The registry must say, per class *and per type*, whether the code was
 **measured** or **inferred from a sibling class**; when a type has no measurement, write the sibling's code and add
 the type to a `unverified_types` note the CLI prints. (Tableau tolerates a wrong `remote-type` badly or not at all;
@@ -263,7 +284,9 @@ just another registry entry. If it needs a different structure, stop and report.
   same server, a different `dbname` or `schema` per customer);
 - **corpus**: for every workbook, apply to a target built from the template's own fields, with every class, and run the
   differential schema and reference checks (`written_workbooks` in `test_schema.py` has the pattern; add a `db` kind);
-- **round trip against Tableau's own output**: take the 12 corpus workbooks that use mysql/postgres/sqlserver/snowflake,
+- **round trip against Tableau's own output**: take the 13 corpus workbooks that use mysql/postgres/sqlserver/snowflake
+  (`grep -lE "class=.(mysql|postgres|sqlserver|snowflake)." tests/corpus/files/*.twb`: Tableau writes **single-quoted**
+  attributes in the raw XML, so grep for `class='...'` or use both quote styles),
   make each a template, apply it to a target describing *the same table*, and compare the connection's `named-connection`
   attributes and metadata records with the original's (modulo credentials, caption, object ids). This is the closest
   thing to a ground truth we have and should be a hard test.

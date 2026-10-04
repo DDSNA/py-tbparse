@@ -1,5 +1,10 @@
 # py-tbparse: where things stand and what to do next
 
+> **Read `docs/template-next-plan.md` first** (2026-10-04): the decided, ordered and detailed plan for what to build
+> next (connection targets, tokens, template check, sanitize, basic audit and docs), the owner's decisions, versioning,
+> and the questions still open. This file keeps the history of WP0 to WP4 and the known gaps; its section 3 ("Next work
+> packages") is superseded by that plan.
+
 Written 2026-10-02 for the next agent. Verify against the repo before relying on anything: `git log`,
 `gh pr list -R DDSNA/py-tbparse`, `git ls-remote --heads origin`. How to work with the owner and in this sandbox:
 `CLAUDE.md` (local, not tracked; if it is missing, the rules are: commit as Dan with no Claude attribution, never
