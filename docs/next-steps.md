@@ -16,16 +16,13 @@ Architecture and testing conventions: `AGENTS.md`. The long plan with research a
 
 | What | Where | State |
 |---|---|---|
-| `main` | origin | **0.4.6** (0.4.5 is tagged `v0.4.5`; #17 Docker server mode bumped to 0.4.6). PRs #15 to #17 merged. Open: #18 and #19 (below). |
-| WP0: verification | branch `worktree-wp0-verification` (3 commits) | pushed, no PR of its own (its commits are in #18 and #19). Schema + reference checks, Tableau pack, 3 template-apply bugs fixed, 1 more found in Tableau. |
-| WP1: answers, ids, matcher, explain | branch `wp1-answers-matcher` (1 commit on top of WP0) | pushed, **PR #19 open (base `main`)**. Based on 0.4.4; a dry-run merge into current `main` is clean (no conflicts). |
-| WP3 (stages A, B) and WP2 (Excel) | branch `wp3-template-update`, two commits on top of WP1 (`b71b5e1` WP3, then WP2) | **pushed (2026-10-04, with WP4); PR #18 open, base `main`, carries the whole stack WP0 to WP4 (11 commits) and overlaps #19.** Built 2026-10-02 after this file was first written; see "Done since" below. WP2 stacks on WP3 (both touch `templates.py`); to get two PRs, cherry-pick the WP2 commit onto a branch off WP3. |
+| `main` | origin | **0.4.6**, released 2026-10-04 (tag `v0.4.6`, PyPI). It contains #17 (Docker server mode), #19 (WP0, WP1) and #18 (WP2, WP3, WP4 core, the Custom SQL validator fix), all merged 2026-10-04. |
+| WP19: template tokens | branch `wp19-tokens` | rebased on `main`, **PR #20 (draft)**. See `docs/template-next-plan.md` section 3. |
 | The plan | branch `docs/template-roadmap` | pushed, unmerged. |
-| WP19: template tokens | branch `wp19-tokens` (on `wp3-template-update`) | committed 2026-10-04, **not pushed, no PR**. See `docs/template-next-plan.md` section 3. |
-| Stale | `worktree-docker-server` (merged as #17) | can be deleted; ask the owner. |
+| Merged and deleted | `worktree-docker-server`, `worktree-wp0-verification`, `wp1-answers-matcher` | merged through #17 and #19; branches and worktrees removed 2026-10-04. |
 
-Tests on the WP1 branch: 449 non-browser tests pass (about 3.5 minutes, corpus included). **The browser (GUI)
-suites were not run on either branch** (no page code changed, but `main` has since changed `webgui.py` and the page).
+Tests on the WP1 branch (before it merged): 449 non-browser tests pass (about 3.5 minutes, corpus included). **The browser (GUI)
+suites were not run on those branches** (no page code changed, but `main` has since changed `webgui.py` and the page).
 
 What was built, in one paragraph each:
 

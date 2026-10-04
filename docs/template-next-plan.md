@@ -59,22 +59,13 @@ the memory notes first. The ones that bite:
 
 | What | Where | State |
 |---|---|---|
-| `main` | origin | **0.4.6** (Docker server mode, #17, bumped it), checked 2026-10-04 18:00. |
-| WP0 verification | `worktree-wp0-verification` | pushed (`3a75df5`), **no PR of its own**; its commits are inside #18 and #19. Schema check, reference check, Tableau pack. |
-| WP1 answers, ids, matcher, explain | `wp1-answers-matcher` (on WP0) | pushed (`00492d9`), **PR #19 open, base `main`** (6 commits: WP0 + WP1). |
-| WP3 stages A+B, WP2 Excel, WP4 core | `wp3-template-update` (on WP1): `b71b5e1` WP3, `1233914` WP2, `8ad433a` WP4 (code, tests, docs), `6acd292` (see below), then two docs commits | all **pushed**, local tip = `origin/wp3-template-update` (`f881e48` when checked 2026-10-04 18:00). **PR #18 open, base `main`**, 11 commits: the whole stack WP0 to WP4, not only WP3. |
-
-**The two open PRs overlap**: both target `main`, and #18 contains every commit of #19. They are not stacked, so
-merging #19 first makes #18 show only the rest, merging #18 first makes #19 empty. Which to land first is the owner's
-call (section 6). Every new commit on `wp3-template-update` updates #18 once pushed. Nothing past `f881e48` is pushed
-unless a later row or the git log says so.
+| `main` | origin | **0.4.6**, released 2026-10-04 (tag `v0.4.6`, PyPI). WP0 to WP4 core are merged (#19, then #18, both 2026-10-04) and the old branches `worktree-wp0-verification`, `wp1-answers-matcher` and `worktree-docker-server` are deleted. |
+| WP19 tokens | `wp19-tokens` | rebased on `main`, **PR #20 (draft)**. |
 | The long plan | `docs/template-roadmap` | pushed, unmerged. |
-| Stale | `worktree-docker-server` | merged as #17; delete only if the owner says. |
 
-The stack is linear: `main` (0.4.6) <- WP0 <- WP1 <- `wp3-template-update`. Everything below branches off the tip of
-`wp3-template-update` (or off `main` once the stack is merged; check). The branch's `pyproject.toml` still says
-**0.4.4** because it forked before 0.4.5 and 0.4.6; **do not touch the version** until a merge is planned, then see
-section 6.
+Packages A, D (and E, F) still branch from where they were made; rebase each onto `main` before its PR, and take only
+its own commits (`git rebase --onto origin/main <old base> <branch>`), because the old stack was squash-merged.
+The version on `main` is 0.4.6; the template line's next release number is still to be decided with the owner.
 
 **About `6acd292`**: it is not WP4 code, whatever its message says ("WP4: apply a template to a folder of data
 files", the same title as `8ad433a`). A second Claude session working in the same worktree made it on 2026-10-04
