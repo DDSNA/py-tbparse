@@ -33,6 +33,9 @@ from .templates import (
 )
 from .template_batch import DEFAULT_PATTERNS as DEFAULT_BATCH_PATTERNS, apply_template_folder
 from .template_update import template_update_report, update_from_answers
+from .docgen import template_markdown
+from .findings import exceeds, format_findings, summary as findings_summary
+from .template_check import check_template, rules_help
 from .templates import TemplateError
 from .rename import (
     STYLES,
@@ -294,6 +297,25 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     sh = sub.add_parser("show", help="list the fields and parameters a template needs")
     sh.add_argument("template")
     sh.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    sh.add_argument("--markdown", action="store_true",
+                    help="print a documentation page instead (fields, parameters, connections without secrets, "
+                         "sheets, dashboards)")
+    sh.add_argument("--output", "-o", help="with --markdown: write the page to this file instead of printing it")
+
+    ck = sub.add_parser(
+        "check", help="lint a template: leftovers, empty parameters, dangling references",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Look for what a template author probably did not mean. Findings go to stdout, a count to "
+                    "stderr; the exit code is 1 when a finding is at or above --fail-on, 2 when the template "
+                    "cannot be read or an option is wrong. Rule ids are stable: use them in CI configs.",
+        epilog="rules:\n" + rules_help(),
+    )
+    ck.add_argument("template")
+    ck.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    ck.add_argument("--fail-on", choices=["error", "warning", "info", "never"], default="error",
+                    help="exit 1 when a finding has this severity or worse (default: error)")
+    ck.add_argument("--only", help="comma-separated rule ids to run, e.g. T001,T003")
+    ck.add_argument("--skip", help="comma-separated rule ids not to run")
 
     up = sub.add_parser(
         "update", help="bring a workbook made by 'template apply' up to date with a newer template revision",
@@ -464,9 +486,28 @@ def _run_template_update(ap, args) -> int:
     return 0
 
 
+def _ids(text: str | None) -> list[str] | None:
+    return [i for i in text.split(",") if i.strip()] if text else None
+
+
+def _run_template_check(args) -> int:
+    try:
+        found = check_template(args.template, only=_ids(args.only), skip=_ids(args.skip) or ())
+    except (FileNotFoundError, ValueError, OSError, zipfile.BadZipFile, json.JSONDecodeError, etree.XMLSyntaxError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    _write(format_findings(found, args.format), None)
+    print(findings_summary(found), file=sys.stderr)
+    return 1 if exceeds(found, args.fail_on) else 0
+
+
 def _run_template(argv: list[str]) -> int:
     ap = build_template_arg_parser()
     args = ap.parse_args(argv)
+    if args.action == "show" and args.output and not args.markdown:
+        ap.error("--output needs --markdown")
+    if args.action == "check":
+        return _run_template_check(args)
     try:
         if args.action == "make":
             out = make_template(args.workbook, output_path=args.output, name=args.name,
@@ -486,6 +527,14 @@ def _run_template(argv: list[str]) -> int:
             return _run_apply_folder(ap, args)
 
         t = load_template(args.template)
+        if args.action == "show" and args.markdown:
+            page = template_markdown(t)
+            if args.output:
+                Path(args.output).write_text(page, encoding="utf-8")
+                print(f"wrote {args.output}", file=sys.stderr)
+            else:
+                sys.stdout.write(page)
+            return 0
         if args.action == "show":
             if t.manifest.get("description"):
                 print(t.manifest["description"], file=sys.stderr)

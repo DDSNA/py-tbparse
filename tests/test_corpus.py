@@ -170,3 +170,39 @@ def test_a_second_revision_identical_to_the_first_reports_no_change_on_every_wor
         assert report.empty, (path.name, report.to_dict("records"))
         out = update_from_answers(v2, first, allow_missing=True, output_path=str(work / "second.twbx"))
         assert out and Path(out).exists(), path.name
+
+
+def test_template_check_and_markdown_on_every_workbook(tmp_path):
+    """Every rule runs without crashing, the frame is deterministic, the Markdown page is well formed
+    and never carries a credential, over templates made from all 200 workbooks."""
+    import re
+
+    from py_tbparse.docgen import template_markdown
+    from py_tbparse.findings import FINDING_COLUMNS
+    from py_tbparse.template_check import check_template, template_rule_ids
+
+    seen = set()
+    for n, path in enumerate(FILES):
+        work = tmp_path / f"w{n}"
+        work.mkdir()
+        book = work / "book.twb"
+        shutil.copy(path, book)
+        template = load_template(make_template(str(book)))
+        found = check_template(template)
+        assert list(found.columns) == FINDING_COLUMNS
+        assert not found["detail"].str.startswith("rule failed").any(), (path.name, found[found["detail"].str.startswith("rule failed")].to_dict("records"))
+        assert set(found["rule"]) <= set(template_rule_ids())
+        assert found.equals(check_template(template)), path.name
+        seen |= set(found["rule"])
+        page = template_markdown(template)
+        assert page == template_markdown(template)
+        block = []
+        for line in page.splitlines() + [""]:
+            if line.startswith("|"):
+                block.append(len(re.split(r"(?<!\\)\|", line.strip())) - 2)
+            elif block:
+                assert len(set(block)) == 1, (path.name, block)
+                block = []
+        for secret in ("password=", "username="):
+            assert secret not in page, path.name
+    assert {"T001", "T010"} <= seen        # the rules that must fire on real workbooks did

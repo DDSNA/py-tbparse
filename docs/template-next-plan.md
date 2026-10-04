@@ -120,8 +120,8 @@ What exists now, in one line each (details in `docs/templates.md` and `AGENTS.md
 |---|---|---|---|
 | A | **WP4b connection targets, part 1**: the SQL-type schema reader + database classes that the corpus proves (Postgres, MySQL, SQL Server, Snowflake) | patch | nothing |
 | B | **WP4b part 2**: classes the corpus does not contain (Oracle, Spark SQL / Databricks, MongoDB route) and **published data sources** | patch | **sample workbooks** (section 4.4, question 1) |
-| C | **WP19 template tokens** | patch | nothing. **BUILT 2026-10-04** on branch `wp19-tokens` (off `wp3-template-update`, independent of A), committed, not pushed, no PR. See the note below the table. |
-| D | **WP5 template check + `show --markdown`** (also builds the shared findings engine) | patch | nothing |
+| C | **WP19 template tokens** | patch | nothing |
+| D | **WP5 template check + `show --markdown`** (also builds the shared findings engine): **built on branch `wp5-check`, not pushed**; T009 (tokens) waits for C | patch | nothing |
 | E | **WP12 sanitize** + fake data from an SQL-type schema | patch | nothing (reuses A's schema reader) |
 | F | **WP10 audit + WP11 data dictionary, basic** | patch | nothing |
 | later | WP18 CI formats, WP13 localization, WP14, WP17, WP16 | patch each | his pick |
