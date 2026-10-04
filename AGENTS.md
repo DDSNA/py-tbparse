@@ -307,5 +307,10 @@ differ, so review the new look and re-capture the baseline. The redesign plan an
 
 ## Commit / PR conventions
 
-Nothing project-specific beyond the harness defaults — see repo commit
-history for message style.
+See repo commit history for message style. Two rules from the owner:
+
+- **Author and committer are `DDSNA <79444147+DDSNA@users.noreply.github.com>`.** Commit with
+  `git -c user.name=DDSNA -c user.email=79444147+DDSNA@users.noreply.github.com commit ...`, and check
+  `git log --format='%an <%ae> | %cn <%ce>' origin/main..HEAD` before pushing.
+- **Never name Claude or any AI tool as author or co-author**: no `Co-Authored-By` and no "Generated with" line in
+  commit messages or PR descriptions, whatever default the tooling suggests.

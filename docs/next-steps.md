@@ -2,7 +2,7 @@
 
 Written 2026-10-02 for the next agent. Verify against the repo before relying on anything: `git log`,
 `gh pr list -R DDSNA/py-tbparse`, `git ls-remote --heads origin`. How to work with the owner and in this sandbox:
-`CLAUDE.md` (local, not tracked; if it is missing, the rules are: commit as Dan with no Claude attribution, never
+`CLAUDE.md` (local, not tracked; if it is missing, the rules are: commit as DDSNA with no Claude attribution, never
 push / PR / merge / release unasked, work in a fresh worktree off `origin/main`, templating releases are 0.5.x).
 Architecture and testing conventions: `AGENTS.md`. The long plan with research and all work packages (WP0 to WP19):
 `docs/template-roadmap-plan.md` on the branch `docs/template-roadmap`.
@@ -147,4 +147,4 @@ the owner and for Tableau results.
 3. Baseline: `PYTHONPATH=. /home/claude-user/ai-sandbox/py-tbparse/.venv/bin/python -m pytest -q` for the files you
    will touch. Write the failing test first.
 4. Build; run the corpus tests; run the differential checks if you write XML; update docs, CLI help, `AGENTS.md`.
-5. Commit as Dan (no attribution), check authors, and stop: push, PR and merge only when told.
+5. Commit as `DDSNA` (no attribution; see `AGENTS.md`), check authors, and stop: push, PR and merge only when told.
