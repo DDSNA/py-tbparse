@@ -41,6 +41,8 @@ Pin a version rather than `latest` for anything you run for a team. To use it wi
 `build: .` with `image: ghcr.io/ddsna/py-tbparse:<version>`. The image is built from the release's source, not
 from PyPI.
 
+The publish job uses the same `release` environment as the PyPI upload, so it waits for the same approval. The first push creates the package as private; the maintainer makes it public once in the package settings on GitHub so it can be pulled without logging in.
+
 ## What server mode changes
 
 The image starts `py-tbparse-gui` with `--server-mode --trust-proxy` (through environment variables).

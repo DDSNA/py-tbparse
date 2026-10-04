@@ -68,6 +68,7 @@ jobs:
   publish:
     needs: smoke
     runs-on: ubuntu-latest
+    environment: release  # same approval gate as the PyPI publish
     timeout-minutes: 20
     permissions:
       contents: read
