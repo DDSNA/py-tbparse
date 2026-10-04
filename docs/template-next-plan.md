@@ -113,7 +113,14 @@ What exists now, in one line each (details in `docs/templates.md` and `AGENTS.md
 - **Versions**: GUI work = **patch** bumps. The template line = **one feature (minor) bump, 0.5.0**, and **each later
   W = a patch bump** on top of it (0.5.1, 0.5.2, ...). Both lines bump patches, so numbers can collide: at merge time
   read `main`'s version and take the next free one (section 6).
-- `.xls`/`.xlsb` are refused (my assumption, never confirmed: ask once more at the next report).
+- **Answered 2026-10-04 (owner), these close questions 1 to 3 of section 7:**
+  - No sample workbooks will be provided: package B stays `evidence="docs"` (refused without `--experimental`), or is
+    skipped; never invent connection XML presented as proven.
+  - Do **not** split out commit `6acd292`; leave it in the stack.
+  - **One PR per package**, in order, each retargeted to `main` after the previous one merges.
+  - `.xls`/`.xlsb` stay refused **unless supporting them is a small effort**. Check before deciding: reading `.xls`
+    needs `xlrd` (a new optional dependency), and the corpus has no `.xls` connection to copy, so the output side is
+    unmeasured. Likely not small: keep refused and say why, unless the check shows otherwise.
 - Parked: downgrade writer, Power BI conversion, publishing to Tableau Server/Cloud (WP15 is report-only if ever done).
 
 ## 3. Order of work
@@ -490,10 +497,9 @@ snapshot of the docs for one fixture.
 
 ## 7. Questions for the owner (do not decide these)
 
-1. **Sample workbooks** for part B (section 4.4): Oracle, Spark SQL/Databricks, his MongoDB route, a published data
-   source (and Redshift/BigQuery if wanted). Without them part B stays `evidence="docs"` at best.
-2. How to land the stack (section 6) and the 0.5.0 timing.
-3. `.xls`/`.xlsb` stay refused? (assumed yes.)
+1. ~~Sample workbooks~~ answered: none (section 2).
+2. ~~Landing~~ answered: one PR per package. The 0.5.0 timing is still open.
+3. ~~`.xls`~~ answered: refused unless small effort (section 2).
 4. Tableau checks, only he can do them, the files come from `python scripts/make_verification_pack.py <new folder>`:
    `4-template-on-excel.twbx` (written, not yet opened), later `5-template-on-db.twbx`; a template over several tables;
    the plain object-model form (corpus example `AlexAlkhatib__alex-the-analyst__Classeur.twb`); file 1 (renamed) with
