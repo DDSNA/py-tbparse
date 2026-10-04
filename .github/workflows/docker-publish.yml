@@ -1,0 +1,115 @@
+name: Docker publish
+
+# DRAFT: not yet reviewed by the owner. Publishes the server image (Dockerfile, docs/deployment.md) to GHCR
+# when a GitHub Release is published, the same trigger as release.yml. The two workflows run side by side and
+# do not depend on each other: the Dockerfile builds the wheel from this checkout, not from PyPI, so the image
+# does not wait for (or fail with) the PyPI publish.
+#
+# Uses the built-in GITHUB_TOKEN, no stored secret. After the first push, set the package's visibility to
+# public (Packages > py-tbparse > Package settings) if the image should be pullable without a login.
+
+on:
+  release:
+    types: [published]
+
+env:
+  IMAGE: ghcr.io/ddsna/py-tbparse
+
+jobs:
+  smoke:
+    # Builds the image and checks it starts in server mode and answers /healthz. Nothing is pushed here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${TAG#v}"
+          project="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          if [ "$version" != "$project" ]; then
+            echo "Release tag $TAG does not match pyproject.toml version $project; the image would report $project." >&2
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (loaded locally, not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: py-tbparse:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start it in server mode and wait for /healthz
+        run: |
+          docker run -d --name tbparse -p 8080:8080 --read-only --tmpfs /tmp:size=64m \
+            -e PY_TBPARSE_ALLOWED_HOSTS=tbparse.example.com py-tbparse:smoke
+          ok=
+          for i in $(seq 1 30); do
+            if curl -fs http://127.0.0.1:8080/healthz; then ok=1; break; fi
+            sleep 1
+          done
+          test -n "$ok"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example.com' http://127.0.0.1:8080/)" = 403
+          curl -fs -H 'Host: tbparse.example.com' http://127.0.0.1:8080/ -o /dev/null
+
+      - name: Container log on failure
+        if: failure()
+        run: docker logs tbparse
+
+  publish:
+    needs: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write  # push to ghcr.io with GITHUB_TOKEN
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: echo "value=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ steps.version.outputs.value }}
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+          labels: |
+            org.opencontainers.image.title=py-tbparse
+            org.opencontainers.image.description=py-tbparse browser GUI in server mode
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha

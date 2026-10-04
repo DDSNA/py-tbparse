@@ -24,6 +24,23 @@ docker run -d --name tbparse -p 127.0.0.1:8080:8080 \
     py-tbparse
 ```
 
+## Published image
+
+Each GitHub Release also publishes the image to the GitHub Container Registry, tagged with the release version
+(without the leading `v`); `latest` follows the newest release that is not a pre-release.
+
+```bash
+docker pull ghcr.io/ddsna/py-tbparse:0.4.6
+docker run -d --name tbparse -p 127.0.0.1:8080:8080 \
+    --read-only --tmpfs /tmp:size=512m \
+    -e PY_TBPARSE_ALLOWED_HOSTS=tbparse.example.com \
+    ghcr.io/ddsna/py-tbparse:0.4.6
+```
+
+Pin a version rather than `latest` for anything you run for a team. To use it with the compose file, replace
+`build: .` with `image: ghcr.io/ddsna/py-tbparse:<version>`. The image is built from the release's source, not
+from PyPI.
+
 ## What server mode changes
 
 The image starts `py-tbparse-gui` with `--server-mode --trust-proxy` (through environment variables).
