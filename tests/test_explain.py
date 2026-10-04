@@ -213,5 +213,5 @@ def test_check_data_cannot_read_values_of_a_tableau_data_source(template, tmp_pa
     d = data(tmp_path, "Amount,order_id\n1,o1\n")
     d.kind = "tableau"                                            # no values to read; the grain check still runs
     out = check_data(template, d, suggest_mapping(template, d))
-    assert set(out["check"]) == {"dimension-missing"}
+    assert set(out["check"]) == {"dimension-missing", "values-not-read"}   # and it says it did not look at values
     assert isinstance(out, pd.DataFrame)

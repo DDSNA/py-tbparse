@@ -13,13 +13,15 @@ the CSV connection holds the CSV's absolute path. What to look at is in docs/ver
     2-template-on-csv     a template made from it, applied to a CSV with every column the template needs
     3-template-on-workbook  the same template applied to workbook 2 (its connection is borrowed)
     4-template-on-excel   the same template applied to an .xlsx with the same rows (only with openpyxl)
-    data/                 the sample CSV and .xlsx, with made-up values
+    5-template-on-db      the same template applied to a PostgreSQL table on a host that does not exist
+    data/                 the sample CSV, .xlsx and database target, with made-up values
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -52,6 +54,23 @@ def write_sample_csv(entry: dict, path: Path) -> None:
         out.writerow([f["remote"] for f in entry["fields"]])
         for row in range(ROWS):
             out.writerow([sample_value(f["datatype"], row) for f in entry["fields"]])
+
+
+SQL_TYPES = {"integer": "bigint", "real": "double precision", "string": "varchar(255)", "date": "date",
+             "datetime": "timestamp", "boolean": "boolean"}
+
+
+def write_sample_target(entry: dict, path: Path) -> None:
+    """A target file for a PostgreSQL table with the template's columns, on a host that cannot exist (the
+    `.invalid` top-level domain is reserved), so Tableau must ask for a login and then fail to connect."""
+    columns, seen = [], set()
+    for f in entry["fields"]:
+        if f["remote"] not in seen:
+            seen.add(f["remote"])
+            columns.append({"name": f["remote"], "type": SQL_TYPES.get(f["datatype"], "varchar(255)")})
+    path.write_text(json.dumps({
+        "format": "py-tbparse-target", "version": 1, "class": "postgres", "server": "db.example.invalid",
+        "dbname": "sales", "schema": "public", "table": "orders", "columns": columns}, indent=2) + "\n", encoding="utf-8")
 
 
 def write_sample_xlsx(entry: dict, path: Path) -> None:
@@ -132,6 +151,10 @@ def main(argv=None) -> int:
     apply_template(template, str(on_csv), datasource=entry["name"], output_path=str(on_workbook))
 
     files = [renamed, on_csv, on_workbook]
+    target_path = out / "data" / f"{src.stem}-postgres.target.json"
+    write_sample_target(entry, target_path)
+    on_db = out / "5-template-on-db.twbx"
+    apply_template(template, str(target_path), datasource=entry["name"], output_path=str(on_db))
     try:
         import openpyxl  # noqa: F401
     except ImportError:
@@ -142,6 +165,7 @@ def main(argv=None) -> int:
         on_excel = out / "4-template-on-excel.twbx"
         apply_template(template, str(xlsx_path), datasource=entry["name"], output_path=str(on_excel))
         files.append(on_excel)
+    files.append(on_db)
 
     print(f"Pack in {out}\n")
     print(f"renames applied: {report.get('applied', '?')} (skipped {report.get('skipped', '?')})")

@@ -139,8 +139,8 @@ def test_the_verification_pack_is_made_and_clean(tmp_path, capsys):
     assert pack["main"]([str(out)]) == 0
     assert sorted(p.name for p in out.iterdir()) == [
         "0-original.twb", "1-renamed.twb", "2-template-on-csv.twbx", "3-template-on-workbook.twbx",
-        "4-template-on-excel.twbx", "_work", "data"]
-    assert sorted(p.suffix for p in (out / "data").iterdir()) == [".csv", ".xlsx"]
+        "4-template-on-excel.twbx", "5-template-on-db.twbx", "_work", "data"]
+    assert sorted(p.suffix for p in (out / "data").iterdir()) == [".csv", ".json", ".xlsx"]
     text = capsys.readouterr().out
-    assert text.count("no new errors") == 4 and text.count("no new findings") == 4
+    assert text.count("no new errors") == 5 and text.count("no new findings") == 5
     assert pack["main"]([str(out)]) == 2                       # never writes into a folder with files

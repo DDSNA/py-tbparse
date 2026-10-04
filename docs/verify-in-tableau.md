@@ -44,13 +44,15 @@ It refuses a folder that is not empty and prints the schema and reference result
 | `2-template-on-csv.twbx` | A template made from the original, applied to `data/*-sample.csv` (made-up values, every column the template needs). |
 | `3-template-on-workbook.twbx` | The same template applied to file 2, so the connection is borrowed from a workbook instead of written from a CSV. |
 | `4-template-on-excel.twbx` | The same template applied to `data/*-sample.xlsx` (the CSV's rows in one sheet called `Data`, with real Excel dates and booleans); only made when `openpyxl` is installed. Not yet opened in Tableau: check that it opens without a prompt, that the sheets draw, and that date fields are dates. |
+| `5-template-on-db.twbx` | The same template applied to `data/*-postgres.target.json`: a PostgreSQL table (`public.orders`, host `db.example.invalid`, which cannot exist) with the template's columns. Not yet opened in Tableau. **Expected**: Tableau asks for a server login (there is no username or password in the file) and then cannot connect; it should still open the workbook and list the sheets and fields, as file 0 does for its own unreachable server. Look for a repair or "unsupported feature" message, a missing datasource, or fields marked with a red `!`. |
 
 ## What to look at
 
-For each of 1, 2 and 3, in this order. Stop at the first thing that is wrong and keep the message word for word.
+For each of 1, 2, 3 (and 4 and 5, when present), in this order. Stop at the first thing that is wrong and keep the message word for word.
 
 1. **Does it open?** No error dialog, no "repair" or "unsupported feature" message. A server-connection prompt on
-   files 0 and 1 is expected; on files 2 and 3 it is not (they read the CSV and contain no server).
+   files 0, 1 and 5 is expected (file 5's host does not exist); on files 2, 3 and 4 it is not (they read a file and
+   contain no server).
 2. **The data pane.** The datasource is listed with the name you expect. Fields have the captions the rename
    gave (file 1) and the types the template says (files 2 and 3: a date column shows the calendar icon,
    numbers the `#` icon). Look for a red `!` beside any field: that is a field Tableau cannot find.
