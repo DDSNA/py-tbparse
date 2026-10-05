@@ -17,6 +17,7 @@ from py_tbparse import connections
 from py_tbparse.cli import main
 from py_tbparse.connections import CLASSES, ConnClass, connection_attributes, load_target, relation_table, remote_type
 from py_tbparse.template_batch import apply_template_folder
+from py_tbparse.schema import read_schema
 from py_tbparse.templates import _db_connection, read_answers, read_data
 from schema_check import twb_bytes
 from test_schema import introduced
@@ -527,6 +528,25 @@ _SQL_OF = {"integer": "bigint", "real": "double", "string": "varchar(255)", "dat
            "boolean": "boolean"}
 
 
+def _target_columns(fields):
+    """One target column per remote name. A datasource can hold names that differ only by case (a join of two tables
+    with Town and TOWN is valid in Tableau), but a database table cannot: the schema check compares names without case."""
+    seen, columns = set(), []
+    for f in fields:
+        if f["remote"].lower() not in seen:
+            seen.add(f["remote"].lower())
+            columns.append({"name": f["remote"], "type": _SQL_OF.get(f["datatype"], "varchar(255)")})
+    return columns
+
+
+def test_the_columns_for_a_target_are_valid_when_names_differ_only_by_case():
+    fields = [{"remote": "Town", "datatype": "string"}, {"remote": "TOWN", "datatype": "string"},
+              {"remote": "Town", "datatype": "string"}, {"remote": "Year", "datatype": "integer"}]
+    columns = _target_columns(fields)
+    assert [c["name"] for c in columns] == ["Town", "Year"]
+    read_schema(columns)
+
+
 @corpus
 def test_targets_add_no_schema_or_reference_errors_on_the_corpus(tmp_path):
     problems, classes = [], set()
@@ -543,12 +563,7 @@ def test_targets_add_no_schema_or_reference_errors_on_the_corpus(tmp_path):
         cls = sorted(CLASSES)[n % len(CLASSES)]            # every class gets about a quarter of the workbooks
         classes.add(cls)
         body = copy.deepcopy(TARGETS[cls])
-        seen, columns = set(), []
-        for f in entry["fields"]:
-            if f["remote"] not in seen:
-                seen.add(f["remote"])
-                columns.append({"name": f["remote"], "type": _SQL_OF.get(f["datatype"], "varchar(255)")})
-        body["columns"] = columns
+        body["columns"] = _target_columns(entry["fields"])
         target = work / "t.target.json"
         target.write_text(json.dumps(body), encoding="utf-8")
         with warnings.catch_warnings():
