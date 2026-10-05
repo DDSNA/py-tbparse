@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import warnings
 import zipfile
 from pathlib import Path
 
@@ -317,6 +319,29 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     ck.add_argument("--only", help="comma-separated rule ids to run, e.g. T001,T003")
     ck.add_argument("--skip", help="comma-separated rule ids not to run")
 
+    sub.add_parser("targets", help="list the database connection classes a target file can use, and how well each is known")
+
+    tm = sub.add_parser(
+        "target-make", help="write (and check) a target file: a table in a database, to apply a template to",
+        description="A target file describes where the data lives and what its columns are; nothing is read from "
+                    "the database and no username or password is ever stored (Tableau asks for them when the "
+                    "workbook opens). The columns come from --schema-file (a CREATE TABLE statement or a JSON "
+                    "column list) or repeated --column NAME:TYPE.",
+    )
+    tm.add_argument("--class", dest="conn_class", required=True, metavar="CLASS", help="see 'template targets'")
+    tm.add_argument("--server", required=True)
+    tm.add_argument("--dbname", required=True, help="the database (MySQL: the schema too)")
+    tm.add_argument("--table", help="the table (default: its name in the CREATE TABLE)")
+    tm.add_argument("--schema", help="the schema of the table (not for MySQL)")
+    tm.add_argument("--port", help="the port (not for SQL Server; default: the class's)")
+    tm.add_argument("--warehouse", help="Snowflake only")
+    tm.add_argument("--authentication", help="only values Tableau was seen to write for the class")
+    tm.add_argument("--schema-file", metavar="PATH", help="a .sql file with one CREATE TABLE, or a .json column list")
+    tm.add_argument("--column", "-c", action="append", default=[], metavar="NAME:TYPE", help="a column (repeatable)")
+    tm.add_argument("--output", "-o", required=True, metavar="PATH", help="the target file (name it *.target.json)")
+    tm.add_argument("--overwrite", action="store_true")
+    tm.add_argument("--experimental", action="store_true", help="allow a connection class that was never checked against a workbook Tableau wrote (see 'template targets')")
+
     up = sub.add_parser(
         "update", help="bring a workbook made by 'template apply' up to date with a newer template revision",
         description="Without --write this only prints what the new revision changes for the workbook's saved "
@@ -332,6 +357,8 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     up.add_argument("--mapping", "-m", help="use this edited mapping CSV instead of the saved one")
     up.add_argument("--allow-missing", action="store_true",
                     help="write even if required fields have no column (their sheets will break)")
+    up.add_argument("--experimental", action="store_true",
+                    help="allow a connection class that was never checked against a workbook Tableau wrote (see 'template targets')")
     up.add_argument("--token", "-t", action="append", default=[], metavar="NAME=VALUE", help="fill a template {{token}} (repeatable), e.g. --token customer=ACME")
     up.add_argument("--write", "-w", nargs="?", const="", metavar="PATH",
                     help="make the workbook (default PATH: <workbook>_r<revision>.twbx; never overwrites)")
@@ -339,7 +366,8 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
 
     fo = sub.add_parser(
         "apply-folder", help="make one workbook per data file in a folder, with a summary.csv of what happened",
-        description="Each .csv/.tsv/.xlsx/.xlsm in DIR is matched on its own. A file whose required fields do not "
+        description="Each .csv/.tsv/.xlsx/.xlsm in DIR (and each *.target.json, a database table: see "
+                    "'template target-make') is matched on its own. A file whose required fields do not "
                     "all find a column is skipped and reported (see --min-mapped). Exit status 1 if any file was "
                     "not written.",
     )
@@ -349,7 +377,7 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     fo.add_argument("--inputs", "-i", metavar="CSV", help="a sidecar CSV: a 'file' column, an optional 'sheet' column, "
                                                           "and one column per parameter caption, one row per file")
     fo.add_argument("--pattern", action="append", default=[], metavar="GLOB",
-                    help="which files to take (repeatable; default: *.csv *.tsv *.xlsx *.xlsm)")
+                    help="which files to take (repeatable; default: *.csv *.tsv *.xlsx *.xlsm *.target.json)")
     fo.add_argument("--answers", "-a", metavar="PATH", help="saved answers: their mapping is the prior for every file")
     fo.add_argument("--profile", help="a named set of parameters inside the answers file")
     fo.add_argument("--mapping", "-m", help="apply this one edited mapping CSV to every file")
@@ -363,6 +391,8 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     fo.add_argument("--on-error", choices=["skip", "stop"], default="skip", help="what to do with a file that fails")
     fo.add_argument("--workers", type=int, default=1, help="processes to use (default 1; at most the CPU count)")
     fo.add_argument("--overwrite", action="store_true", help="replace outputs and summary.csv that already exist")
+    fo.add_argument("--experimental", action="store_true",
+                    help="allow a connection class that was never checked against a workbook Tableau wrote (see 'template targets')")
     fo.add_argument("--token", "-t", action="append", default=[], metavar="NAME=VALUE",
                     help="fill a {{token}} for every file (repeatable); the sidecar can override it per file")
     fo.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
@@ -373,8 +403,11 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     )
     ap_.add_argument("template")
     ap_.add_argument("--data", "-d", help="the new data: a .csv, an .xlsx/.xlsm (see --sheet; needs "
-                                          "py-tbparse[excel]), or a .twb/.twbx/.tds connected to it "
+                                          "py-tbparse[excel]), a *.target.json that describes a database table "
+                                          "('template target-make'), or a .twb/.twbx/.tds connected to it "
                                           "(leave out when --answers or --profile name the data)")
+    ap_.add_argument("--experimental", action="store_true",
+                     help="allow a connection class that was never checked against a workbook Tableau wrote (see 'template targets')")
     ap_.add_argument("--sheet", help="the worksheet of an Excel --data file, by name or by index from 0 "
                                      "(needed when several are visible)")
     ap_.add_argument("--answers", "-a", metavar="PATH",
@@ -430,13 +463,75 @@ def _run_apply_folder(ap, args) -> int:
         args.template, args.directory, output_dir=args.output_dir, patterns=args.pattern or DEFAULT_BATCH_PATTERNS,
         mapping=args.mapping, params=_param_args(ap, args.param), answers=args.answers, profile=args.profile,
         sheet=_sheet_arg(args.sheet), inputs=args.inputs, datasource=args.datasource, min_mapped=args.min_mapped,
-        on_error=args.on_error, overwrite=args.overwrite, workers=args.workers, tokens=_token_args(ap, args.token))
+        on_error=args.on_error, overwrite=args.overwrite, workers=args.workers, experimental=args.experimental, tokens=_token_args(ap, args.token))
     _write(_df_text(table, args.format), None)
     counts = table["status"].value_counts().to_dict()
     where = args.output_dir or str(Path(args.directory) / "out")
     print(f"{counts.get('ok', 0)} written, {counts.get('skipped', 0)} skipped, {counts.get('error', 0)} failed; "
           f"summary in {Path(where) / 'summary.csv'}", file=sys.stderr)
     return 0 if (table["status"] == "ok").all() else 1
+
+
+def _run_targets() -> int:
+    from .connections import CLASSES
+    rows = [{"class": c.name, "evidence": c.evidence, "schema": c.schema, "needs": " ".join(("server", "dbname", "table") + c.needs),
+             "port": c.default_port or "-", "authentication": ", ".join(c.authentication) or "-"}
+            for c in CLASSES.values()]
+    _write(_df_text(pd.DataFrame(rows).sort_values("class"), "table"), None)
+    print("evidence 'corpus': the connection is copied from workbooks Tableau wrote. Types that no corpus workbook "
+          "shows for a class are copied from a sibling class and reported as unverified. No target file has been "
+          "opened in Tableau yet.", file=sys.stderr)
+    return 0
+
+
+def _run_target_make(ap, args) -> int:
+    from .connections import TARGET_FORMAT, check_target
+    from .schema import read_schema
+    out = Path(args.output)
+    if out.exists() and not args.overwrite:
+        raise FileExistsError(f"refusing to overwrite {out} (pass --overwrite)")
+    if bool(args.schema_file) == bool(args.column):
+        ap.error("give the columns with --schema-file or with --column NAME:TYPE, not both or neither")
+    body = {"format": TARGET_FORMAT, "version": 1, "class": args.conn_class, "server": args.server, "dbname": args.dbname}
+    table = args.table
+    if args.schema_file:
+        schema_path = Path(args.schema_file)
+        found = read_schema(str(schema_path))
+        table = table or found.table
+        shown = os.path.relpath(schema_path, out.resolve().parent)
+        body["schema_file"] = Path(shown).as_posix()
+    else:
+        columns = []
+        for item in args.column:
+            if ":" not in item:
+                ap.error(f"--column expects NAME:TYPE, got {item!r}")
+            name, sql_type = item.rsplit(":", 1)
+            columns.append({"name": name.strip(), "type": sql_type.strip()})
+        body["columns"] = columns
+    if not table:
+        ap.error("--table is needed (the schema file names none)")
+    body["table"] = table
+    for key in ("schema", "port", "warehouse", "authentication"):
+        if getattr(args, key):
+            body[key] = getattr(args, key)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(body, indent=2, ensure_ascii=False) + "\n"
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        target = check_target(json.loads(text), out, experimental=args.experimental)   # nothing is written if it fails
+    tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, out)                   # an existing good file is replaced only by a complete, checked one
+    finally:
+        tmp.unlink(missing_ok=True)
+    for w in caught:
+        print(f"note: {w.message}", file=sys.stderr)
+    if target["unverified_types"]:
+        print(f"note: not seen in Tableau's own output for class {target['class']}: {', '.join(target['unverified_types'])}",
+              file=sys.stderr)
+    print(f"wrote {out} ({len(target['columns'])} column(s)); not opened in Tableau", file=sys.stderr)
+    return 0
 
 
 def _sheet_arg(value):
@@ -466,7 +561,7 @@ def _run_template_update(ap, args) -> int:
         out = update_from_answers(
             t, args.workbook, output_path=args.write or None, report=report, allow_missing=args.allow_missing,
             mapping=load_mapping(args.mapping) if args.mapping else None, old=args.old, data=args.data,
-            datasource=args.datasource, sheet=_sheet_arg(args.sheet), tokens=_token_args(ap, args.token))
+            datasource=args.datasource, sheet=_sheet_arg(args.sheet), experimental=args.experimental, tokens=_token_args(ap, args.token))
     except TemplateError:
         if report.get("changes") is not None and len(report["changes"]):
             _write(_df_text(report["changes"], args.format), None, stream=sys.stderr)
@@ -521,6 +616,10 @@ def _run_template(argv: list[str]) -> int:
                   file=sys.stderr)
             return 0
 
+        if args.action == "targets":
+            return _run_targets()
+        if args.action == "target-make":
+            return _run_target_make(ap, args)
         if args.action == "update":
             return _run_template_update(ap, args)
         if args.action == "apply-folder":
@@ -556,7 +655,7 @@ def _run_template(argv: list[str]) -> int:
         plan = resolve_apply(t, args.data, mapping=load_mapping(args.mapping) if args.mapping else None,
                              params=params, datasource=args.datasource, data_datasource=args.data_datasource,
                              answers=args.answers, profile=args.profile, fuzzy_cutoff=args.cutoff,
-                             sheet=_sheet_arg(args.sheet), tokens=_token_args(ap, args.token))
+                             sheet=_sheet_arg(args.sheet), experimental=args.experimental, tokens=_token_args(ap, args.token))
         data, mapping = plan.data, plan.mapping
         datasource = plan.entry["name"]
         _write(_df_text(mapping, args.format), None)

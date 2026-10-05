@@ -482,11 +482,12 @@ class DataSource:
     """New data for a template: its fields, and how to connect to it."""
 
     path: str
-    kind: str  # "csv", "excel" or "tableau"
+    kind: str  # "csv", "excel", "tableau" or "db" (a target file describing a database table)
     fields: list[dict] = _field(default_factory=list)  # {name, datatype}
     element: object = None  # the Tableau <datasource> for kind "tableau"
     sheet: Optional[str] = None  # the worksheet, for kind "excel"
     grid: Optional[str] = None   # where the header and data sit on that sheet, as Excel writes it: "A1:D11"
+    target: Optional[dict] = None  # the checked target file, for kind "db" (see connections.load_target)
 
     def names(self) -> list[str]:
         return [f["name"] for f in self.fields]
@@ -634,18 +635,31 @@ def _read_excel(p: Path, sheet: Union[str, int, None]) -> DataSource:
         book.close()
 
 
-def read_data(path: str, datasource: Optional[str] = None, sheet: Union[str, int, None] = None) -> DataSource:
+def read_data(path: str, datasource: Optional[str] = None, sheet: Union[str, int, None] = None,
+              experimental: bool = False) -> DataSource:
     """Describe new data for `apply_template`: a CSV file, an Excel file
     (`.xlsx`/`.xlsm`, needs `py-tbparse[excel]`; `sheet=` picks a worksheet by
     name or by index from 0, and is required when several are visible), or a
     Tableau workbook (`.twb`/`.twbx`) or data source (`.tds`) already
-    connected to it (pick one of several datasources with `datasource=`)."""
+    connected to it (pick one of several datasources with `datasource=`), or a
+    target file (`.json` with `"format": "py-tbparse-target"`, see
+    `connections.load_target`) that describes a table in a database: its
+    columns are the ones the file lists, nothing is read from the database.
+    `experimental=True` allows a connection class not verified against
+    Tableau's own output."""
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"no such file: {path}")
     suffix = p.suffix.lower()
     if suffix in (".xlsx", ".xlsm", ".xls", ".xlsb"):
         return _read_excel(p, sheet)
+    if suffix == ".json":
+        from .connections import load_target, warn_about
+        target = load_target(str(p), experimental=experimental)
+        warn_about(target, str(p))
+        return DataSource(path=str(p.resolve()), kind="db", target=target,
+                          fields=[{"name": c["name"], "datatype": c["datatype"], "sql_type": c["type"]}
+                                  for c in target["columns"]])
     if suffix in (".csv", ".txt", ".tsv"):
         sep = "\t" if suffix == ".tsv" else ","
         df = pd.read_csv(p, sep=sep, nrows=2000, encoding="utf-8-sig")
@@ -658,7 +672,7 @@ def read_data(path: str, datasource: Optional[str] = None, sheet: Union[str, int
         root = etree.parse(str(p)).getroot()
         candidates = [root] if root.tag == "datasource" else root.xpath("//datasource[@name]")
     else:
-        raise TemplateError(f"unsupported data file {p.name}: use a .csv, .xlsx, .twb, .twbx or .tds")
+        raise TemplateError(f"unsupported data file {p.name}: use a .csv, .xlsx, .json (a target file), .twb, .twbx or .tds")
     if datasource:
         candidates = [d for d in candidates if datasource in (d.get("name"), d.get("caption"), d.get("formatted-name"))]
     candidates = [d for d in candidates if d.find("connection") is not None]
@@ -875,7 +889,7 @@ def check_data(
     a reason to refuse an apply. Returns `check, severity, field, column, detail`.
 
     `dimension-missing`: a dimension the template's sheets use has no column, so the data may be at another
-    grain. For a CSV also `empty-column` (a required field's column has no values) and `duplicate-key`
+    grain. For data that is not a CSV, `values-not-read` says its values were not looked at. For a CSV also `empty-column` (a required field's column has no values) and `duplicate-key`
     (a column that looks like a key, `*_id`, `*_key`, `*_code`..., repeats a value). A CSV is judged on its
     first 2000 rows unless `deep`, which reads all of it."""
     entry = template.datasource(datasource)
@@ -887,6 +901,12 @@ def check_data(
             rows.append({"check": "dimension-missing", "severity": "warning", "field": f["name"], "column": "",
                          "detail": f"{', '.join(f.get('used_by') or [])} group or filter by {_label(f)}, "
                                    "which the data has no column for; its rows may be at a different grain"})
+    if data.kind != "csv":
+        what = {"db": "a database table (the target file describes its columns; nothing is read from the database)",
+                "excel": "an Excel sheet", "tableau": "a Tableau data source"}.get(data.kind, data.kind)
+        rows.append({"check": "values-not-read", "severity": "info", "field": "", "column": "",
+                     "detail": f"the values of {what} are not read (only a CSV's are), so empty columns and "
+                               "repeated keys were not checked"})
     if data.kind == "csv":
         sep = "\t" if Path(data.path).suffix.lower() == ".tsv" else ","
         frame = pd.read_csv(data.path, sep=sep, dtype=str, keep_default_na=False, encoding="utf-8-sig",
@@ -1128,12 +1148,14 @@ def _excel_connection(data: DataSource, local_of: dict[str, str], model: Optiona
 
 
 def _file_connection(data: DataSource, local_of: dict[str, str], model: Optional[str], object_id: str, caption: str,
-                     table: str, conn_id: str, named: dict, rel_table: str, cols: dict, record,
-                     named_caption: Optional[str] = None):
-    """The part of a file connection `_csv_connection` and `_excel_connection` share: the named connection, the
-    relation (twice for the prefixed object model), one metadata record per column and, for an object model, the
-    table column and object graph. `record(field)` gives the remote type, aggregation and, if the driver writes
-    one, the `DebugRemoteType` text."""
+                     table: str, conn_id: str, named: dict, rel_table: str, cols: Optional[dict], record,
+                     named_caption: Optional[str] = None, ordinal_base: int = 0):
+    """The part of a connection `_csv_connection`, `_excel_connection` and `_db_connection` share: the named
+    connection, the relation (twice for the prefixed object model), one metadata record per column and, for an
+    object model, the table column and object graph. `record(field)` gives the remote type, aggregation and, if
+    the driver writes one, the `DebugRemoteType` text (or a pair: that and the `DebugWireType`). `cols` are the
+    attributes of the relation's `<columns>` child, which a database relation does not have (None); metadata
+    ordinals count from `ordinal_base` (a text file's from 0, a database's from 1, as Tableau writes them)."""
     modern = model is not None
     om = (lambda name: f"{_OM}.true...{name}") if model == "prefixed" else (lambda name: name)
     conn = etree.Element("connection", {"class": "federated"})
@@ -1143,9 +1165,10 @@ def _file_connection(data: DataSource, local_of: dict[str, str], model: Optional
 
     def relation():
         rel = etree.Element("relation", connection=conn_id, name=table, table=rel_table, type="table")
-        columns = etree.SubElement(rel, "columns", cols)
-        for i, f in enumerate(data.fields):
-            etree.SubElement(columns, "column", datatype=f["datatype"], name=f["name"], ordinal=str(i))
+        if cols is not None:
+            columns = etree.SubElement(rel, "columns", cols)
+            for i, f in enumerate(data.fields):
+                etree.SubElement(columns, "column", datatype=f["datatype"], name=f["name"], ordinal=str(i))
         return rel
 
     if model == "prefixed":
@@ -1161,14 +1184,17 @@ def _file_connection(data: DataSource, local_of: dict[str, str], model: Optional
         rec = etree.SubElement(records, "metadata-record", {"class": "column"})
         for tag, text in (
             ("remote-name", f["name"]), ("remote-type", remote_type),
-            ("local-name", local_of[f["name"]]), ("parent-name", f"[{table}]"),
-            ("remote-alias", f["name"]), ("ordinal", str(i)), ("local-type", f["datatype"]),
+            ("local-name", local_of[f["name"]]), ("parent-name", "[" + table.replace("]", "]]") + "]"),
+            ("remote-alias", f["name"]), ("ordinal", str(i + ordinal_base)), ("local-type", f["datatype"]),
             ("aggregation", aggregation), ("contains-null", "true"),
         ):
             etree.SubElement(rec, tag).text = text
-        if debug:
+        debug_remote, debug_wire = (debug, "") if isinstance(debug, str) else (debug or ("", ""))
+        if debug_remote or debug_wire:
             attrs = etree.SubElement(rec, "attributes")
-            etree.SubElement(attrs, "attribute", datatype="string", name="DebugRemoteType").text = f'"{debug}"'
+            for name, text in (("DebugRemoteType", debug_remote), ("DebugWireType", debug_wire)):
+                if text:
+                    etree.SubElement(attrs, "attribute", datatype="string", name=name).text = f'"{text}"'
         if modern:
             etree.SubElement(rec, om("object-id")).text = f"[{object_id}]"
     if not modern:
@@ -1181,6 +1207,29 @@ def _file_connection(data: DataSource, local_of: dict[str, str], model: Optional
     props = etree.SubElement(obj, "properties", context="")
     props.append(relation())
     return conn, [table_col, graph]
+
+
+def _db_connection(data: DataSource, local_of: dict[str, str], model: Optional[str] = "prefixed",
+                   object_id: Optional[str] = None):
+    """A federated connection to one table of a database, in the shape Tableau writes (the four classes of
+    `connections.CLASSES` are copied from the corpus). The target says which server, database, schema and table; the
+    named connection carries Tableau's attributes for the class and never a username or password, and the relation
+    has no `<columns>` child. Same object-model forms as `_csv_connection`."""
+    from .connections import _AGGREGATION, connection_attributes, relation_table, remote_type
+    target = data.target
+    cls, name = target["class"], target["table"]
+    key = "|".join([cls, target["server"], target["dbname"], target.get("schema", ""), name])
+    object_id = object_id or (f"{re.sub(r'[^0-9A-Za-z_]', '_', name)}_" + hashlib.md5(key.encode("utf-8")).hexdigest().upper())
+    sql_of = {f["name"]: f["sql_type"] for f in data.fields}
+
+    def record(f):
+        remote, _local, _aggregation = remote_type(cls, sql_of[f["name"]])
+        return str(remote.remote), _AGGREGATION[f["datatype"]], (remote.debug, remote.wire)
+
+    return _file_connection(
+        data, local_of, model, object_id, caption=name, table=name, conn_id=_connection_id(cls, key),
+        named=connection_attributes(target), named_caption=target["server"],
+        rel_table=relation_table(cls, target), cols=None, record=record, ordinal_base=1)
 
 
 def _tableau_connection(data: DataSource, local_of: dict[str, str]):
@@ -1341,6 +1390,7 @@ def resolve_apply(
     profile: Optional[str] = None,
     fuzzy_cutoff: float = 0.85,
     sheet: Union[str, int, None] = None,
+    experimental: bool = False,
     tokens: Optional[dict[str, str]] = None,
 ) -> ApplyPlan:
     """What `apply_template` would do, without writing: the same arguments, the same precedence (explicit
@@ -1376,7 +1426,7 @@ def resolve_apply(
             sheet = (prior.get("data") or {}).get("sheet")
         data = file
     if not isinstance(data, DataSource):
-        data = read_data(data, datasource=data_datasource, sheet=sheet)
+        data = read_data(data, datasource=data_datasource, sheet=sheet, experimental=experimental)
     stale: list = []
     if mapping is None:
         mapping = suggest_mapping(template, data, datasource=entry["name"], fuzzy_cutoff=fuzzy_cutoff)
@@ -1407,6 +1457,7 @@ def apply_template(
     answers: Union[str, os.PathLike, dict, None] = None,
     profile: Optional[str] = None,
     sheet: Union[str, int, None] = None,
+    experimental: bool = False,
     tokens: Optional[dict[str, str]] = None,
 ) -> str:
     """Make a new workbook from a template and new data; return its path.
@@ -1435,7 +1486,9 @@ def apply_template(
 
     The template datasource's connection is replaced by one to the new data
     (a CSV file, one worksheet of an Excel file -- `sheet=`, see `read_data` --
-    or the connection of the given workbook / .tds); every
+    a table of a database that a target file describes -- see
+    `connections.load_target`; no credentials are written, Tableau asks for them
+    -- or the connection of the given workbook / .tds); every
     field keeps the local name its sheets and formulas use. The answers
     (template, data, mapping, parameters) are saved inside the output as
     `template-answers.json`. Output is a `.twbx` (default
@@ -1444,7 +1497,7 @@ def apply_template(
     """
     plan = resolve_apply(template, data, mapping=mapping, params=params, datasource=datasource,
                          data_datasource=data_datasource, answers=answers, profile=profile, sheet=sheet,
-                         tokens=tokens)
+                         experimental=experimental, tokens=tokens)
     template, data, entry, mapping, params = plan.template, plan.data, plan.entry, plan.mapping, plan.params
     saved, stale, changed = plan.saved, plan.stale, plan.changed
     by_field = {f["name"]: f for f in entry["fields"]}
@@ -1482,7 +1535,11 @@ def apply_template(
     doc = copy.deepcopy(template.parser.xml_doc)
     token_values = _fill_tokens(doc, template, plan.tokens)
     ds_el = doc.xpath("/workbook/datasources/datasource[@name=$n]", n=entry["name"])[0]
-    if data.kind in ("csv", "excel"):
+    if data.kind == "db":
+        old_ids = ds_el.xpath("./*[substring(name(), string-length(name()) - 11) = 'object-graph']"
+                              "/objects/object/@id")
+        conn, extras = _db_connection(data, local_of, model=_object_model(doc), object_id=old_ids[0] if old_ids else None)
+    elif data.kind in ("csv", "excel"):
         # a column with no values takes the type of the field it feeds (else string)
         typed = copy.copy(data)
         typed.fields = [{**f, "datatype": f["datatype"] or (
@@ -1571,6 +1628,8 @@ def apply_template(
     _write_new(out, packed, overwrite)
     if report is not None:
         report.update(mapped=len(chosen), missing=len(missing), parameters=len(applied_params))
+        if data.kind == "db":
+            report.update(unverified_types=list(data.target.get("unverified_types", [])))
         if saved is not None:
             report.update(stale_mapping=stale, schema_changed=changed)
     return str(out)

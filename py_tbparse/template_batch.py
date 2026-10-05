@@ -19,6 +19,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
+from .connections import is_target_file
 from .templates import (
     Template,
     TemplateError,
@@ -29,7 +30,7 @@ from .templates import (
     resolve_apply,
 )
 
-DEFAULT_PATTERNS = ("*.csv", "*.tsv", "*.xlsx", "*.xlsm")
+DEFAULT_PATTERNS = ("*.csv", "*.tsv", "*.xlsx", "*.xlsm", "*.target.json")
 SUMMARY_COLUMNS = ["input", "output", "status", "mapped", "missing", "broken_sheets", "warnings", "error"]
 SUMMARY_NAME = "summary.csv"
 _SIDECAR_RESERVED = ("file", "sheet")
@@ -72,10 +73,14 @@ def read_inputs(path: Union[str, os.PathLike], template: Template) -> dict[str, 
 
 
 def _find_inputs(directory: str, patterns: Iterable[str]) -> list[str]:
+    """The files matching `patterns`; a `*.target.json` file is always taken (a bad one becomes an error row, it does
+    not vanish); any other `.json` file only if it is a target file (a database table), so a stray settings file is not
+    turned into a workbook."""
     paths: list[str] = []
     for pattern in patterns:
         paths.extend(glob.glob(os.path.join(glob.escape(directory), pattern)))
-    return sorted(set(paths))
+    return sorted(p for p in set(paths) if not p.lower().endswith(".json") or p.lower().endswith(".target.json")
+                  or is_target_file(p))
 
 
 def _output_names(paths: list[str], prefix: str, output_dir: Path) -> dict[str, Path]:
@@ -84,6 +89,8 @@ def _output_names(paths: list[str], prefix: str, output_dir: Path) -> dict[str, 
     names: dict[str, Path] = {}
     for path in paths:
         stem = Path(path).stem
+        if stem.endswith(".target"):
+            stem = stem[: -len(".target")]
         taken[stem] = taken.get(stem, 0) + 1
         suffix = "" if taken[stem] == 1 else f"_{taken[stem]}"
         names[path] = output_dir / f"{prefix}_{stem}{suffix}.twbx"
@@ -114,7 +121,7 @@ def _apply_one(job: dict) -> dict:
             warnings.simplefilter("always")
             plan = resolve_apply(template, job["path"], mapping=job["mapping"], params=job["params"],
                                  datasource=job["datasource"], answers=job["answers"], profile=job["profile"],
-                                 sheet=job["sheet"], tokens=job["tokens"])
+                                 sheet=job["sheet"], experimental=job["experimental"], tokens=job["tokens"])
         notes += [str(w.message) for w in caught]
         notes += [f"saved mapping for {f} no longer fits" for f in plan.stale]
         if plan.changed:
@@ -140,7 +147,7 @@ def _apply_one(job: dict) -> dict:
         out = apply_template(template, plan.data, mapping=plan.mapping, params=plan.params,
                              output_path=job["output"], datasource=entry["name"],
                              allow_missing=job["min_mapped"] is not None, overwrite=job["overwrite"],
-                             answers=job["answers"], profile=job["profile"], tokens=plan.tokens)
+                             answers=job["answers"], profile=job["profile"], experimental=job["experimental"], tokens=plan.tokens)
         row.update(output=os.path.basename(out), status="ok")
     except FileExistsError as e:
         row.update(status="skipped", error=f"{e} (pass overwrite to replace it)")
@@ -167,6 +174,7 @@ def apply_template_folder(
     overwrite: bool = False,
     workers: int = 1,
     summary_path: Union[str, os.PathLike, bool, None] = None,
+    experimental: bool = False,
     tokens: Optional[dict[str, str]] = None,
 ) -> pd.DataFrame:
     """Make one workbook per data file in `directory` from `template`; return the summary, one row per file.
@@ -184,6 +192,8 @@ def apply_template_folder(
     Outputs are `<template>_<file stem>.twbx` in `output_dir` (default `DIR/out`), never overwritten unless
     `overwrite`. `on_error="stop"` raises `TemplateError` at the first file that is not `ok`. `workers` above 1
     uses that many processes (at most the CPU count); files are independent, so the result is the same.
+    A `*.target.json` file (see `connections.load_target`) is a database table: one workbook per target, so one
+    template serves many customers on one database (a different `dbname` or `schema` in each file).
     """
     if on_error not in ("skip", "stop"):
         raise ValueError("on_error must be 'skip' or 'stop'")
@@ -219,6 +229,7 @@ def apply_template_folder(
             "params": {**(params or {}), **extra.get("params", {})}, "datasource": datasource, "answers": answers,
             "tokens": {**(tokens or {}), **extra.get("tokens", {})},
             "profile": profile, "sheet": extra.get("sheet") or sheet, "min_mapped": min_mapped, "overwrite": overwrite,
+            "experimental": experimental,
         })
     workers = max(1, min(int(workers), os.cpu_count() or 1, len(jobs) or 1))
     if workers > 1 and on_error == "skip":

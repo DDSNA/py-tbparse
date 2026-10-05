@@ -131,6 +131,23 @@ template tokens (`tokens.py`, WP19), `check_template` and `template_markdown` (W
 | F | **WP10 audit + WP11 data dictionary, basic** | patch | nothing |
 | later | WP18 CI formats, WP13 localization, WP14, WP17, WP16 | patch each | his pick |
 
+**Package A as built (branch `wp4b-targets`).** Code: `py_tbparse/schema.py` (types, DDL subset, `read_schema`),
+`py_tbparse/connections.py` (registry, `load_target`), `templates._db_connection`, `read_data` of a `*.target.json`,
+`apply-folder` over targets, CLI `template targets`, `template target-make`, `--experimental`; `scripts/survey_connections.py`;
+`5-template-on-db.twbx` in the verification pack. Tests: `tests/test_sqlschema.py` (102), `tests/test_targets.py` (46,
+including the corpus-wide schema/reference differential with one class per workbook, and a comparison of our
+connection with Tableau's own for every single table it can describe: 33 tables in 4 classes, SQL Server only 1).
+Whole non-browser suite: **668 passed**, browser suites not run. **Not opened in Tableau.** What the survey changed
+in this plan (it was written before it): Snowflake's relation is three-part `[db].[schema].[table]`; database
+metadata ordinals count from 1; a record has `width`/`precision`/`collation` children that are **not** written
+(the optional ones); four MySQL relations have a `<columns>` child, but only for a hand-set `date-parse-format`;
+Tableau names a relation `finanzas1` when the same table is added twice (not handled: one relation per target);
+SQL Server's measured authentication is `sspi` (Windows login), the only value accepted without `--experimental`;
+most database datasources in the corpus read several tables, which a target (one table) cannot describe: **multi-table
+database templates are unsupported**, like multi-table CSV. Type codes that no corpus workbook shows for a class are
+borrowed from a sibling and reported as `unverified_types` (MySQL `bigint`, `timestamp`, `boolean`, almost everything for
+SQL Server...). Part B (Oracle, Spark, Databricks, Mongo, published data sources) still waits for the owner's samples.
+
 **Package C as built (merged as #20).** `py_tbparse/tokens.py`; manifest `tokens`; `make_template(tokens=)`;
 `apply_template(tokens=)`, answers, profiles, `--token` on `make`, `apply`, `apply-folder` and `update`; sidecar columns;
 `template update` rows (`kind=token`, impact `needs-value`); `template show`. Tests: `tests/test_tokens.py` (41, including

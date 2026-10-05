@@ -327,6 +327,7 @@ def update_from_answers(
     data=None,
     datasource: Optional[str] = None,
     sheet: Union[str, int, None] = None,
+    experimental: bool = False,
     tokens: Optional[dict[str, str]] = None,
 ) -> Optional[str]:
     """Apply a newer revision of a template to the data and answers of a workbook made from an older one;
@@ -381,7 +382,7 @@ def update_from_answers(
     for n in dropped_tokens:
         del saved_tokens[n]
     plan = resolve_apply(new, data, mapping=mapping, datasource=datasource, answers=carried, sheet=sheet,
-                         tokens=tokens)
+                         experimental=experimental, tokens=tokens)
     prior = _answers_entry(carried, plan.entry["name"])
     # a saved column whose type no longer fits the field is not kept: the field is asked for again
     conflicts = []
