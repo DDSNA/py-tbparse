@@ -6,7 +6,8 @@ spaces around it are ignored; names are case-sensitive). A literal `{{` is writt
 
 Tokens live only where a person types text (the places below), never in a formula or in SQL: replacing inside a
 formula would change what a calculation means, so a token found there is reported by `formula_hits` and left alone.
-Each place has its own XPath; nothing is a blind string replace over the XML.
+Each place has its own XPath; nothing is a blind string replace over the XML. A token typed in any other text run
+(a tooltip, an annotation, an axis title) is left as typed and reported by `unscanned_hits`.
 
 A token has to sit inside one text run. Tableau starts a new run where the formatting changes, so format a whole
 token the same way (a token cut by a format change is found by `broken_hits` and reported).
@@ -109,6 +110,12 @@ def places(doc) -> list[Place]:
         label = col.get("caption") or col.get("name", "").strip("[]")
         if col.get("value") is not None:
             targets = [(col, "value")] + [(c, "formula") for c in col.xpath("./calculation[@formula]")]
+            # the copies a worksheet keeps in its dependencies: the same value and the same mirrored formula
+            for copy in doc.xpath("//datasource-dependencies[@datasource=$p]/column[@name=$n][@param-domain-type]",
+                                  p=_PARAMETERS, n=col.get("name")):
+                if copy.get("value") is not None:
+                    targets.append((copy, "value"))
+                targets += [(c, "formula") for c in copy.xpath("./calculation[@formula]")]
             out.append(Place("parameter-value", label, targets, quoted=True))
         for member in col.xpath("./members/member"):
             if member.get("value") is not None:
@@ -116,6 +123,17 @@ def places(doc) -> list[Place]:
             if member.get("alias") is not None:
                 out.append(Place("parameter-value", label, [(member, "alias")]))
     return out
+
+
+# characters XML 1.0 cannot hold (lxml refuses them): control characters other than tab, newline and return, the
+# surrogates and U+FFFE / U+FFFF
+_ILLEGAL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
+
+
+def illegal_character(text: str) -> Optional[str]:
+    """The first character of `text` that an XML document cannot hold, written as `U+000B`, or None."""
+    m = _ILLEGAL.search(text)
+    return f"U+{ord(m.group(0)):04X}" if m else None
 
 
 def declared(doc) -> tuple[dict[str, list[dict]], bool]:
@@ -158,10 +176,26 @@ def formula_hits(doc) -> list[tuple[str, str]]:
     hits = []
     for calc in doc.xpath("//column/calculation[@formula]"):
         col = calc.getparent()
-        if col.get("param-domain-type") and col.getparent().get("name") == _PARAMETERS:
+        parent = col.getparent()
+        if col.get("param-domain-type") and _PARAMETERS in (parent.get("name"), parent.get("datasource")):
             continue
         if tokens_in(calc.get("formula")):
             hits.append((col.get("caption") or col.get("name", ""), calc.get("formula")))
+    return hits
+
+
+def unscanned_hits(doc) -> list[tuple[str, str]]:
+    """Tokens typed in text the feature does not scan, `(where, text)`: any text run that is not one of the places
+    (a tooltip, an annotation, an axis title, a dashboard title zone, a worksheet caption). They stay as typed."""
+    found = places(doc)    # kept alive: an lxml element is only the same object while something holds it
+    covered = {el for place in found for el, attr in place.targets if attr is None}
+    hits = []
+    for run in doc.xpath("//run"):
+        if run in covered or not tokens_in(run.text):
+            continue
+        owner = next((a for a in run.iterancestors() if a.tag in ("worksheet", "dashboard")), None)
+        where = f"{owner.tag} {owner.get('name', '')}".strip() if owner is not None else "the workbook"
+        hits.append((where, run.text))
     return hits
 
 

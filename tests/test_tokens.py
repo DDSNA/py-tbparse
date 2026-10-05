@@ -475,10 +475,14 @@ def test_the_command_line_makes_shows_and_applies_with_tokens(book, tmp_path, ca
 
 
 @corpus
-def test_no_corpus_workbook_has_token_syntax_and_apply_never_touches_their_text(tmp_path, monkeypatch):
-    """So a template made from any of the 200 workbooks has no `tokens`, and apply leaves its text as it was; if a
-    future corpus addition has `{{`, this fails so that someone looks."""
-    monkeypatch.setattr(tokens, "expand", lambda *a, **k: pytest.fail("expand ran"))
+def test_no_corpus_workbook_has_token_syntax_and_apply_never_touches_their_text(tmp_path):
+    """So a template made from any of the 200 workbooks has no `tokens`, and the text a person typed (every text run
+    and every string parameter value) comes out of apply as it went in; if a future corpus addition has `{{`, this
+    fails so that someone looks."""
+    def typed(xml):
+        doc = etree.fromstring(xml)
+        return (doc.xpath("//run/text()"),
+                doc.xpath("//datasource[@name='Parameters']/column[@param-domain-type]/@value"))
     seen = 0
     for n, path in enumerate(sorted(CORPUS.glob("*.twb"))):
         assert b"{{" not in path.read_bytes(), path.name
@@ -492,7 +496,8 @@ def test_no_corpus_workbook_has_token_syntax_and_apply_never_touches_their_text(
         entry = next((e for e in t.manifest["datasources"] if e["fields"]), None)
         if entry is not None:
             data, name = csv_for(t, work)
-            apply_template(t, data, datasource=name, allow_missing=True, output_path=str(work / "out.twbx"))
+            out = apply_template(t, data, datasource=name, allow_missing=True, output_path=str(work / "out.twbx"))
+            assert typed(twb_of(out)) == typed(twb_of(t.path)), path.name
             seen += 1
         shutil.rmtree(work)
     assert seen > 100

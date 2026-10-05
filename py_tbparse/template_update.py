@@ -26,6 +26,7 @@ from .templates import (
     _answers_entries,
     _answers_entry,
     _type_status,
+    allowed_as_saved,
     apply_template,
     default_output_path,
     load_answers,
@@ -135,6 +136,13 @@ def _field_impact(saved: Optional[_Saved], ds: str, change: str, o: Optional[dic
     return AUTO_CARRY if mapped else ""    # renamed (the mapping moves with it), caption, role
 
 
+def _accepts(manifest: dict, p: dict, literal: str, saved: Optional[_Saved]) -> bool:
+    """True if a saved parameter value (a Tableau literal, filled with the saved run's token values) is still one the
+    parameter allows: the allowed list is read with those token values too, so `ACME HQ` fits `{{customer}} HQ`."""
+    allowed = p.get("allowed")
+    return not allowed or literal in allowed or literal in allowed_as_saved(manifest, p, saved.tokens if saved else None)
+
+
 def _diff(old: dict, new: dict, saved: Optional[_Saved]) -> tuple[list[dict], dict[str, dict[str, str]]]:
     """The rows of the report and the renames found, `{datasource: {old field name: new field name}}`."""
     rows: list[dict] = []
@@ -192,7 +200,7 @@ def _diff(old: dict, new: dict, saved: Optional[_Saved]) -> tuple[list[dict], di
         if o["value"] != n["value"]:
             row("parameter", "", caption, "default", o["value"], n["value"], AUTO_CARRY if held else "")
         if (o.get("allowed") or []) != (n.get("allowed") or []):
-            fits = not held or not n.get("allowed") or saved.params[caption] in n["allowed"]
+            fits = not held or _accepts(new, n, saved.params[caption], saved)
             row("parameter", "", caption, "allowed values", "; ".join(o.get("allowed") or []) or "any",
                 "; ".join(n.get("allowed") or []) or "any", (AUTO_CARRY if held else "") if fits else TYPE_CONFLICT)
     old_t = {t["name"]: t for t in old.get("tokens") or []}
@@ -242,7 +250,7 @@ def _state_rows(new: dict, saved: _Saved) -> list[dict]:
         if caption not in params:
             rows.append({"kind": "parameter", "datasource": "", "item": caption, "change": "not in the template",
                          "old": literal, "new": "", "impact": ORPHANED})
-        elif params[caption].get("allowed") and literal not in params[caption]["allowed"]:
+        elif not _accepts(new, params[caption], literal, saved):
             rows.append({"kind": "parameter", "datasource": "", "item": caption, "change": "value not allowed",
                          "old": literal, "new": "; ".join(params[caption]["allowed"]), "impact": TYPE_CONFLICT})
     declared = {t["name"]: t for t in new.get("tokens") or []}
@@ -372,7 +380,7 @@ def update_from_answers(
     dropped = []
     for caption, literal in list(saved_params.items()):
         p = params_by.get(caption)
-        if p is None or (p.get("allowed") and literal not in p["allowed"]):
+        if p is None or not _accepts(new.manifest, p, literal, saved):
             dropped.append(caption)
             del saved_params[caption]
 
