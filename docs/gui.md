@@ -23,3 +23,15 @@ The sidebar lists every table with its row count. Tables stay fast however big t
 The screenshots are of a made-up demo workbook (`docs/demo/coffee-shop.twb`, built by `scripts/make_demo_workbook.py`); `scripts/readme_screenshots.py` retakes them.
 
 It has no login, so run it on your own machine only. To share it, see [Running as a server](deployment.md) and the Limits section of the [README](https://github.com/DDSNA/py-tbparse/blob/main/README.md#limits).
+
+## Templates
+
+The **Templates** button in the top bar opens a view for filling a template with new data. It works with no workbook open, and **Back to workbook** (or **Back to start**) takes you out again. The address `#templates` opens it directly. The view has three steps, one card each:
+
+1. **Template.** Drop a `.twbx` made with `py-tbparse template make`, press **Choose template...**, or (on your own computer) type its path and press Open. The card then shows the template's name, revision, description, how many required fields, parameters and tokens it has, and what the template check found, problems first. It lists the first 50 findings, **Show more** adds 50 at a time up to 500, and `py-tbparse template check` gives the whole list. A template with several data sources asks which one gets the new data.
+2. **New data.** Drop or choose a `.csv`, `.tsv`, `.txt`, an Excel file (`.xlsx`, `.xlsm`; with several sheets you pick one) or a Tableau `.twb`, `.twbx` or `.tds` (with several data sources you pick one). The card shows the kind and the number of columns, with the column names (the first 200) behind **Show the columns**. For a text or Excel file there is an optional field, **Where will this file be on your computer?**: the workbook remembers where its data file is, so type the folder (or the full path) where the file will live. Left empty, the workbook only knows the file name and Tableau asks where the file is when you open it. Database target files (`.json`) are not supported here yet.
+3. **Review and create.** This card unlocks when the first two are done. Matching the template's fields to your columns and creating the workbook are not built yet: today it only shows which template and data you chose.
+
+Later steps stay locked, with a one-line reason, until the earlier ones are done. **Change** on a card lets you pick another file. A file dropped on the page goes to the card it lands on, or else to the first empty step (a `.twbx` is the template when none is chosen yet), and the drop overlay says which. Your choices are kept on the server for your session, so a reload brings them back. Files are limited to 200 MB each.
+
+In a shared server ([Running as a server](deployment.md)) there are no path boxes: only dropped or chosen files work, and every visitor has their own choices, deleted when their session ends.

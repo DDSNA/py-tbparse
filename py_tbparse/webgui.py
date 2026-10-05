@@ -552,6 +552,7 @@ _ASSETS = {
     "app.js": "text/javascript; charset=utf-8",
     "table.js": "text/javascript; charset=utf-8",
     "graph.js": "text/javascript; charset=utf-8",
+    "templates.js": "text/javascript; charset=utf-8",
 }
 
 
