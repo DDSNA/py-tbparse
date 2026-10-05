@@ -42,6 +42,7 @@ NEEDS_MAPPING = "needs-mapping"  # a required field has no column
 ORPHANED = "orphaned"            # the saved choice names something the template no longer has
 TYPE_CONFLICT = "type-conflict"  # the saved choice no longer fits (column type, allowed value)
 OPTIONAL = "optional"            # a new field no sheet needs; it gets a suggestion, or stays unmapped
+NEEDS_VALUE = "needs-value"      # a new token with no default and no saved value: it must be given
 
 
 def _manifest_of(source: Union[Template, dict, str, os.PathLike, None]) -> Optional[dict]:
@@ -105,6 +106,7 @@ class _Saved:
         self.data = data
         self.mapping = {e["datasource"]: dict(e.get("mapping") or {}) for e in _answers_entries(answers)}
         self.params = dict(answers.get("parameters") or {})
+        self.tokens = dict(answers.get("tokens") or {})
 
     def column_type(self, datasource: str, field: str) -> Optional[str]:
         column = self.mapping.get(datasource, {}).get(field)
@@ -193,6 +195,19 @@ def _diff(old: dict, new: dict, saved: Optional[_Saved]) -> tuple[list[dict], di
             fits = not held or not n.get("allowed") or saved.params[caption] in n["allowed"]
             row("parameter", "", caption, "allowed values", "; ".join(o.get("allowed") or []) or "any",
                 "; ".join(n.get("allowed") or []) or "any", (AUTO_CARRY if held else "") if fits else TYPE_CONFLICT)
+    old_t = {t["name"]: t for t in old.get("tokens") or []}
+    new_t = {t["name"]: t for t in new.get("tokens") or []}
+    for name in sorted(old_t.keys() - new_t.keys()):
+        row("token", "", name, "removed", old_t[name].get("default"), None,
+            ORPHANED if saved is not None and name in saved.tokens else "")
+    for name in new_t:
+        held = saved is not None and name in saved.tokens
+        if name not in old_t:
+            row("token", "", name, "added", None, new_t[name].get("default"),
+                "" if saved is None else (AUTO_CARRY if held else (NEEDS_VALUE if new_t[name].get("default") is None else AUTO_CARRY)))
+        elif old_t[name].get("default") != new_t[name].get("default"):
+            row("token", "", name, "default", old_t[name].get("default"), new_t[name].get("default"),
+                "" if saved is None else (AUTO_CARRY if held or new_t[name].get("default") is not None else NEEDS_VALUE))
     for kind, key in (("worksheet", "worksheets"), ("dashboard", "dashboards")):
         for name in sorted(set(old.get(key, [])) - set(new.get(key, []))):
             row(kind, "", name, "removed", None, None)
@@ -230,6 +245,15 @@ def _state_rows(new: dict, saved: _Saved) -> list[dict]:
         elif params[caption].get("allowed") and literal not in params[caption]["allowed"]:
             rows.append({"kind": "parameter", "datasource": "", "item": caption, "change": "value not allowed",
                          "old": literal, "new": "; ".join(params[caption]["allowed"]), "impact": TYPE_CONFLICT})
+    declared = {t["name"]: t for t in new.get("tokens") or []}
+    for name, value in sorted(saved.tokens.items()):
+        if name not in declared:
+            rows.append({"kind": "token", "datasource": "", "item": name, "change": "not in the template",
+                         "old": value, "new": "", "impact": ORPHANED})
+    for name, t in declared.items():
+        if t.get("default") is None and name not in saved.tokens:
+            rows.append({"kind": "token", "datasource": "", "item": name, "change": "no value saved",
+                         "old": "", "new": "required", "impact": NEEDS_VALUE})
     return rows
 
 
@@ -304,6 +328,7 @@ def update_from_answers(
     datasource: Optional[str] = None,
     sheet: Union[str, int, None] = None,
     experimental: bool = False,
+    tokens: Optional[dict[str, str]] = None,
 ) -> Optional[str]:
     """Apply a newer revision of a template to the data and answers of a workbook made from an older one;
     return the new workbook's path, or None when the answers were made from exactly this template (then
@@ -311,13 +336,15 @@ def update_from_answers(
 
     Saved column choices follow a field that was renamed in the template. It stops with `TemplateError`
     when a required field has no column (a new one, or one whose saved column no longer fits), unless
-    `allow_missing` (its sheets will break) or an edited `mapping` supplies it. A saved parameter value the
+    `allow_missing` (its sheets will break) or an edited `mapping` supplies it. A token the new revision
+    added that has no default and no saved value stops it too (`impact` `needs-value`): pass `tokens=`; a saved
+    token value the template no longer has is dropped and reported. A saved parameter value the
     template no longer accepts is dropped, so the parameter takes the template's default; `report` says
     which. `data` overrides the data file the answers name (`sheet` picks its worksheet, for Excel). The output defaults to
     `<workbook>_r<revision>.twbx` beside the workbook; nothing is overwritten unless `overwrite`.
 
     `report` is filled with `status`, `changes` (the stage A table), `needs_mapping`, `conflicts`,
-    `dropped_parameters`, `columns_added`, `columns_removed`, `id_checked` (False when the template or the
+    `dropped_parameters`, `dropped_tokens`, `needs_value`, `columns_added`, `columns_removed`, `id_checked` (False when the template or the
     answers predate template ids, so they could not be matched) and `output`.
     """
     new, answers, before, saved = _prepare(template, workbook, old, data)
@@ -349,8 +376,13 @@ def update_from_answers(
             dropped.append(caption)
             del saved_params[caption]
 
+    saved_tokens = carried.get("tokens") or {}
+    token_names = {t["name"] for t in new.manifest.get("tokens") or []}
+    dropped_tokens = [n for n in list(saved_tokens) if n not in token_names]
+    for n in dropped_tokens:
+        del saved_tokens[n]
     plan = resolve_apply(new, data, mapping=mapping, datasource=datasource, answers=carried, sheet=sheet,
-                         experimental=experimental)
+                         experimental=experimental, tokens=tokens)
     prior = _answers_entry(carried, plan.entry["name"])
     # a saved column whose type no longer fits the field is not kept: the field is asked for again
     conflicts = []
@@ -368,10 +400,16 @@ def update_from_answers(
     before_cols = (prior.get("data") or {}).get("columns")
     report.update(
         status="updated", changes=changes, conflicts=conflicts, dropped_parameters=dropped, id_checked=id_checked,
+        dropped_tokens=dropped_tokens,
+        needs_value=[t["name"] for t in new.manifest.get("tokens") or []
+                     if t.get("default") is None and t["name"] not in plan.tokens],
         needs_mapping=[f["name"] for f in needs],
         columns_added=sorted(set(plan.data.names()) - set(before_cols)) if before_cols is not None else None,
         columns_removed=sorted(set(before_cols) - set(plan.data.names())) if before_cols is not None else None,
     )
+    if report["needs_value"]:
+        raise TemplateError("update stopped: no value for token(s) " + ", ".join(report["needs_value"])
+                            + " (the new revision added them with no default; pass tokens=)")
     if needs and not allow_missing:
         sheets = sorted({s for f in needs for s in f.get("used_by") or []})
         raise TemplateError(
@@ -388,6 +426,6 @@ def update_from_answers(
         raise FileExistsError(f"refusing to overwrite an input: {output_path}")
     out = apply_template(new, plan.data, mapping=plan.mapping, params=plan.params, output_path=output_path,
                          datasource=plan.entry["name"], allow_missing=allow_missing, overwrite=overwrite,
-                         answers=carried)
+                         answers=carried, tokens=plan.tokens)
     report["output"] = out
     return out

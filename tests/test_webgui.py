@@ -566,3 +566,71 @@ def test_the_page_loads_table_js_before_app_js(server):
     # app.js builds a VTable at load, so the class must exist by then
     assert "new VTable(" in _page_script(server)
     assert "window.VTable = VTable;" in _page_script(server, "table.js")
+
+
+# ---- early refusals of a POST read the whole body first (the Windows reset race) ----
+
+class _RecordingFile:
+    """A request body that records how much was left unread when the reply was sent."""
+
+    def __init__(self, size):
+        self.left = size
+        self.left_at_reply = None
+
+    def read(self, n=-1):
+        n = self.left if n is None or n < 0 else min(n, self.left)
+        self.left -= n
+        return b"x" * n
+
+
+def _refusal_handler(path, headers, size):
+    h = object.__new__(webgui.Handler)
+    h.path = path
+    h.headers = {"Content-Length": str(size), **headers}
+    h.rfile = _RecordingFile(size)
+    h.close_connection = False
+    h.server = type("S", (), {"server_address": ("127.0.0.1", 1)})()
+    sent = []
+
+    def record(*args, **kwargs):
+        h.rfile.left_at_reply = h.rfile.left
+        sent.append(args)
+
+    h._send = record
+    h._send_json = record
+    return h, sent
+
+
+_LOCAL = {"Host": "127.0.0.1:1"}
+
+
+@pytest.mark.parametrize(
+    "path,headers",
+    [
+        pytest.param("/nope", {**_LOCAL, "Content-Type": "application/json"}, id="404"),
+        pytest.param("/load", {**_LOCAL, "Content-Type": "text/plain"}, id="415"),
+        pytest.param("/load", {**_LOCAL, "Content-Type": "application/json", "Origin": "http://attacker.example"}, id="403-origin"),
+        pytest.param("/load", {"Host": "attacker.example", "Content-Type": "application/json"}, id="403-host"),
+        pytest.param("/upload", {"Host": "attacker.example"}, id="403-host-upload"),
+    ],
+)
+def test_post_refusals_drain_the_whole_body_before_replying(monkeypatch, path, headers):
+    monkeypatch.setitem(webgui._CONFIG, "server_mode", False)
+    h, sent = _refusal_handler(path, headers, 3 * 1024 * 1024 + 7)
+    h._do_post()
+    assert len(sent) == 1
+    assert h.rfile.left_at_reply == 0, "the reply was sent while body bytes were still unread"
+
+
+@pytest.mark.parametrize(
+    "path,headers",
+    [
+        ("/nope", {"Content-Type": "application/json"}),
+        ("/load", {"Content-Type": "text/plain"}),
+        ("/load", {"Content-Type": "application/json", "Origin": "http://attacker.example"}),
+    ],
+)
+def test_post_refusal_status_survives_a_large_body(server, path, headers):
+    body = json.dumps({"path": "x", "pad": "a" * (4 * 1024 * 1024)}).encode()
+    status, _ = _raw(server, "POST", path, {"Host": urlsplit(server).netloc, **headers}, body)
+    assert status in (403, 404, 415)

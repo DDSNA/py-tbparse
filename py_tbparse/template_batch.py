@@ -41,17 +41,24 @@ _FILE_ERRORS = (TemplateError, ValueError, OSError, KeyError, zipfile.BadZipFile
 
 def read_inputs(path: Union[str, os.PathLike], template: Template) -> dict[str, dict]:
     """The sidecar CSV: one row per data file. `file` names the file (its name, or its path below the folder),
-    an optional `sheet` picks an Excel worksheet, and every other column is a parameter caption of the template;
-    an empty cell leaves that parameter alone. Returns `{file: {"sheet": ..., "params": {...}}}`."""
+    an optional `sheet` picks an Excel worksheet, and every other column is a parameter caption or a token name of
+    the template; an empty cell leaves that parameter or token alone. Returns
+    `{file: {"sheet": ..., "params": {...}, "tokens": {...}}}`."""
     frame = pd.read_csv(path, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     frame.columns = [str(c).strip() for c in frame.columns]
     if "file" not in frame.columns:
         raise TemplateError(f"{Path(path).name} needs a 'file' column; it has: {', '.join(frame.columns) or 'none'}")
     captions = {p["caption"] for p in template.manifest.get("parameters", [])}
-    unknown = [c for c in frame.columns if c not in _SIDECAR_RESERVED and c not in captions]
+    token_names = {t["name"] for t in template.manifest.get("tokens") or []}
+    both = sorted(captions & token_names & set(frame.columns))
+    if both:
+        raise TemplateError(f"{Path(path).name}: column(s) {', '.join(both)} are both a parameter and a token of the "
+                            "template, so the column is ambiguous; rename one")
+    unknown = [c for c in frame.columns if c not in _SIDECAR_RESERVED and c not in captions and c not in token_names]
     if unknown:
-        raise TemplateError(f"{Path(path).name}: column(s) {', '.join(unknown)} are not parameters of the template; "
-                            f"it has: {', '.join(sorted(captions)) or 'none'} (plus file, sheet)")
+        raise TemplateError(f"{Path(path).name}: column(s) {', '.join(unknown)} are neither parameters nor tokens of the "
+                            f"template; it has parameters: {', '.join(sorted(captions)) or 'none'}; tokens: "
+                            f"{', '.join(sorted(token_names)) or 'none'} (plus file, sheet)")
     out: dict[str, dict] = {}
     for row in frame.to_dict("records"):
         name = Path(row["file"].strip()).as_posix()
@@ -60,7 +67,8 @@ def read_inputs(path: Union[str, os.PathLike], template: Template) -> dict[str, 
         if name in out:
             raise TemplateError(f"{Path(path).name} lists {name} twice")
         out[name] = {"sheet": row.get("sheet", "").strip() or None,
-                     "params": {c: row[c] for c in frame.columns if c not in _SIDECAR_RESERVED and row[c] != ""}}
+                     "params": {c: row[c] for c in frame.columns if c in captions and row[c] != ""},
+                     "tokens": {c: row[c] for c in frame.columns if c in token_names and row[c] != ""}}
     return out
 
 
@@ -111,7 +119,7 @@ def _apply_one(job: dict) -> dict:
             warnings.simplefilter("always")
             plan = resolve_apply(template, job["path"], mapping=job["mapping"], params=job["params"],
                                  datasource=job["datasource"], answers=job["answers"], profile=job["profile"],
-                                 sheet=job["sheet"], experimental=job["experimental"])
+                                 sheet=job["sheet"], experimental=job["experimental"], tokens=job["tokens"])
         notes += [str(w.message) for w in caught]
         notes += [f"saved mapping for {f} no longer fits" for f in plan.stale]
         if plan.changed:
@@ -137,7 +145,7 @@ def _apply_one(job: dict) -> dict:
         out = apply_template(template, plan.data, mapping=plan.mapping, params=plan.params,
                              output_path=job["output"], datasource=entry["name"],
                              allow_missing=job["min_mapped"] is not None, overwrite=job["overwrite"],
-                             answers=job["answers"], profile=job["profile"], experimental=job["experimental"])
+                             answers=job["answers"], profile=job["profile"], experimental=job["experimental"], tokens=plan.tokens)
         row.update(output=os.path.basename(out), status="ok")
     except FileExistsError as e:
         row.update(status="skipped", error=f"{e} (pass overwrite to replace it)")
@@ -165,6 +173,7 @@ def apply_template_folder(
     workers: int = 1,
     summary_path: Union[str, os.PathLike, bool, None] = None,
     experimental: bool = False,
+    tokens: Optional[dict[str, str]] = None,
 ) -> pd.DataFrame:
     """Make one workbook per data file in `directory` from `template`; return the summary, one row per file.
 
@@ -176,7 +185,8 @@ def apply_template_folder(
     choices as the prior and suggests only for the rest). By default a file whose required fields do not all
     find a column is skipped: no half-broken workbook. `min_mapped=0.9` instead writes any file where at least
     that share of required fields map, and reports the sheets that break. `params` apply to every file; the
-    `inputs` sidecar CSV (see `read_inputs`) gives each file its own parameter values and Excel sheet.
+    `inputs` sidecar CSV (see `read_inputs`) gives each file its own parameter values, token values and Excel sheet.
+    `tokens` fills the template's `{{tokens}}` for every file.
     Outputs are `<template>_<file stem>.twbx` in `output_dir` (default `DIR/out`), never overwritten unless
     `overwrite`. `on_error="stop"` raises `TemplateError` at the first file that is not `ok`. `workers` above 1
     uses that many processes (at most the CPU count); files are independent, so the result is the same.
@@ -215,6 +225,7 @@ def apply_template_folder(
         jobs.append({
             "path": path, "template": template_path, "output": str(names[path]), "mapping": frame_mapping,
             "params": {**(params or {}), **extra.get("params", {})}, "datasource": datasource, "answers": answers,
+            "tokens": {**(tokens or {}), **extra.get("tokens", {})},
             "profile": profile, "sheet": extra.get("sheet") or sheet, "min_mapped": min_mapped, "overwrite": overwrite,
             "experimental": experimental,
         })

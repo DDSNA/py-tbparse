@@ -35,6 +35,9 @@ from .templates import (
 )
 from .template_batch import DEFAULT_PATTERNS as DEFAULT_BATCH_PATTERNS, apply_template_folder
 from .template_update import template_update_report, update_from_answers
+from .docgen import template_markdown
+from .findings import exceeds, format_findings, summary as findings_summary
+from .template_check import check_template, rules_help
 from .templates import TemplateError
 from .rename import (
     STYLES,
@@ -289,10 +292,32 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     mk.add_argument("--name", help="template name (default: the workbook's)")
     mk.add_argument("--description", help="what the template is for")
     mk.add_argument("--keep-data", action="store_true", help="keep extracts and packaged data as sample data")
+    mk.add_argument("--token", "-t", action="append", default=[], metavar="NAME=DEFAULT",
+                    help="a default for a {{token}} the workbook uses (repeatable); a token with none must be "
+                         "given when the template is applied")
 
     sh = sub.add_parser("show", help="list the fields and parameters a template needs")
     sh.add_argument("template")
     sh.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    sh.add_argument("--markdown", action="store_true",
+                    help="print a documentation page instead (fields, parameters, connections without secrets, "
+                         "sheets, dashboards)")
+    sh.add_argument("--output", "-o", help="with --markdown: write the page to this file instead of printing it")
+
+    ck = sub.add_parser(
+        "check", help="lint a template: leftovers, empty parameters, dangling references",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Look for what a template author probably did not mean. Findings go to stdout, a count to "
+                    "stderr; the exit code is 1 when a finding is at or above --fail-on, 2 when the template "
+                    "cannot be read or an option is wrong. Rule ids are stable: use them in CI configs.",
+        epilog="rules:\n" + rules_help(),
+    )
+    ck.add_argument("template")
+    ck.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    ck.add_argument("--fail-on", choices=["error", "warning", "info", "never"], default="error",
+                    help="exit 1 when a finding has this severity or worse (default: error)")
+    ck.add_argument("--only", help="comma-separated rule ids to run, e.g. T001,T003")
+    ck.add_argument("--skip", help="comma-separated rule ids not to run")
 
     sub.add_parser("targets", help="list the database connection classes a target file can use, and how well each is known")
 
@@ -334,6 +359,7 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
                     help="write even if required fields have no column (their sheets will break)")
     up.add_argument("--experimental", action="store_true",
                     help="allow a connection class that was never checked against a workbook Tableau wrote (see 'template targets')")
+    up.add_argument("--token", "-t", action="append", default=[], metavar="NAME=VALUE", help="fill a template {{token}} (repeatable), e.g. --token customer=ACME")
     up.add_argument("--write", "-w", nargs="?", const="", metavar="PATH",
                     help="make the workbook (default PATH: <workbook>_r<revision>.twbx; never overwrites)")
     up.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
@@ -367,6 +393,8 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     fo.add_argument("--overwrite", action="store_true", help="replace outputs and summary.csv that already exist")
     fo.add_argument("--experimental", action="store_true",
                     help="allow a connection class that was never checked against a workbook Tableau wrote (see 'template targets')")
+    fo.add_argument("--token", "-t", action="append", default=[], metavar="NAME=VALUE",
+                    help="fill a {{token}} for every file (repeatable); the sidecar can override it per file")
     fo.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
 
     ap_ = sub.add_parser(
@@ -392,6 +420,7 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     ap_.add_argument("--check", action="store_true",
                      help="also check the new data: missing dimensions, empty columns, repeated keys (to stderr)")
     ap_.add_argument("--deep", action="store_true", help="with --check, read the whole CSV, not its first 2000 rows")
+    ap_.add_argument("--token", "-t", action="append", default=[], metavar="NAME=VALUE", help="fill a template {{token}} (repeatable), e.g. --token customer=ACME")
     ap_.add_argument("--datasource", help="which template datasource to fill (when it has several)")
     ap_.add_argument("--data-datasource", help="which datasource of a --data workbook to use")
     ap_.add_argument("--mapping", "-m", help="use this edited mapping CSV instead of the suggestion")
@@ -409,6 +438,16 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _token_args(ap, items: list[str]) -> dict[str, str]:
+    values = {}
+    for item in items:
+        if "=" not in item:
+            ap.error(f"--token expects NAME=VALUE, got {item!r}")
+        name, value = item.split("=", 1)
+        values[name.strip()] = value
+    return values
+
+
 def _param_args(ap, items: list[str]) -> dict[str, str]:
     params = {}
     for item in items:
@@ -424,7 +463,7 @@ def _run_apply_folder(ap, args) -> int:
         args.template, args.directory, output_dir=args.output_dir, patterns=args.pattern or DEFAULT_BATCH_PATTERNS,
         mapping=args.mapping, params=_param_args(ap, args.param), answers=args.answers, profile=args.profile,
         sheet=_sheet_arg(args.sheet), inputs=args.inputs, datasource=args.datasource, min_mapped=args.min_mapped,
-        on_error=args.on_error, overwrite=args.overwrite, workers=args.workers, experimental=args.experimental)
+        on_error=args.on_error, overwrite=args.overwrite, workers=args.workers, experimental=args.experimental, tokens=_token_args(ap, args.token))
     _write(_df_text(table, args.format), None)
     counts = table["status"].value_counts().to_dict()
     where = args.output_dir or str(Path(args.directory) / "out")
@@ -498,7 +537,7 @@ def _sheet_arg(value):
     return int(value) if value is not None and value.lstrip("-").isdigit() else value
 
 
-def _run_template_update(args) -> int:
+def _run_template_update(ap, args) -> int:
     t = load_template(args.template)
     report: dict = {}
     if args.write is None:
@@ -512,12 +551,15 @@ def _run_template_update(args) -> int:
         if (table["impact"] == "needs-mapping").any():
             print("new required fields need a column: edit a mapping (template apply --mapping-out) and pass --mapping, "
                   "or use --allow-missing", file=sys.stderr)
+        if (table["impact"] == "needs-value").any():
+            print("new tokens need a value: pass --token NAME=VALUE (or give the token a default in the template)",
+                  file=sys.stderr)
         return 0
     try:
         out = update_from_answers(
             t, args.workbook, output_path=args.write or None, report=report, allow_missing=args.allow_missing,
             mapping=load_mapping(args.mapping) if args.mapping else None, old=args.old, data=args.data,
-            datasource=args.datasource, sheet=_sheet_arg(args.sheet), experimental=args.experimental)
+            datasource=args.datasource, sheet=_sheet_arg(args.sheet), experimental=args.experimental, tokens=_token_args(ap, args.token))
     except TemplateError:
         if report.get("changes") is not None and len(report["changes"]):
             _write(_df_text(report["changes"], args.format), None, stream=sys.stderr)
@@ -529,6 +571,7 @@ def _run_template_update(args) -> int:
         print("note: the template or the answers have no template id, so they could not be matched", file=sys.stderr)
     for label, key in (("columns added", "columns_added"), ("columns gone", "columns_removed"),
                        ("saved parameter values dropped", "dropped_parameters"),
+                       ("saved token values dropped", "dropped_tokens"),
                        ("saved columns that no longer fit", "conflicts")):
         if report.get(key):
             print(f"note: {label}: {', '.join(report[key])}", file=sys.stderr)
@@ -536,16 +579,39 @@ def _run_template_update(args) -> int:
     return 0
 
 
+def _ids(text: str | None) -> list[str] | None:
+    return [i for i in text.split(",") if i.strip()] if text else None
+
+
+def _run_template_check(args) -> int:
+    try:
+        found = check_template(args.template, only=_ids(args.only), skip=_ids(args.skip) or ())
+    except (FileNotFoundError, ValueError, OSError, zipfile.BadZipFile, json.JSONDecodeError, etree.XMLSyntaxError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    _write(format_findings(found, args.format), None)
+    print(findings_summary(found), file=sys.stderr)
+    return 1 if exceeds(found, args.fail_on) else 0
+
+
 def _run_template(argv: list[str]) -> int:
     ap = build_template_arg_parser()
     args = ap.parse_args(argv)
+    if args.action == "show" and args.output and not args.markdown:
+        ap.error("--output needs --markdown")
+    if args.action == "check":
+        return _run_template_check(args)
     try:
         if args.action == "make":
             out = make_template(args.workbook, output_path=args.output, name=args.name,
-                                description=args.description, keep_data=args.keep_data)
+                                description=args.description, keep_data=args.keep_data,
+                                tokens=_token_args(ap, args.token) or None)
             t = load_template(out)
             req = int(t.fields()["required"].sum())
-            print(f"wrote {out} ({req} required field(s), {len(t.parameters())} parameter(s))", file=sys.stderr)
+            tokens = t.manifest.get("tokens")
+            print(f"wrote {out} ({req} required field(s), {len(t.parameters())} parameter(s)"
+                  + (f", {len(tokens)} token(s): {', '.join(x['name'] for x in tokens)}" if tokens else "") + ")",
+                  file=sys.stderr)
             return 0
 
         if args.action == "targets":
@@ -553,11 +619,19 @@ def _run_template(argv: list[str]) -> int:
         if args.action == "target-make":
             return _run_target_make(ap, args)
         if args.action == "update":
-            return _run_template_update(args)
+            return _run_template_update(ap, args)
         if args.action == "apply-folder":
             return _run_apply_folder(ap, args)
 
         t = load_template(args.template)
+        if args.action == "show" and args.markdown:
+            page = template_markdown(t)
+            if args.output:
+                Path(args.output).write_text(page, encoding="utf-8")
+                print(f"wrote {args.output}", file=sys.stderr)
+            else:
+                sys.stdout.write(page)
+            return 0
         if args.action == "show":
             if t.manifest.get("description"):
                 print(t.manifest["description"], file=sys.stderr)
@@ -565,6 +639,9 @@ def _run_template(argv: list[str]) -> int:
             if args.format == "table" and len(t.parameters()):
                 print("\nParameters:")
                 _write(_df_text(t.parameters(), args.format), None)
+            if args.format == "table" and len(t.tokens()):
+                print("\nTokens ({{name}}; give them with --token NAME=VALUE):")
+                _write(_df_text(t.tokens(), args.format), None)
             return 0
 
         params = {}
@@ -576,7 +653,7 @@ def _run_template(argv: list[str]) -> int:
         plan = resolve_apply(t, args.data, mapping=load_mapping(args.mapping) if args.mapping else None,
                              params=params, datasource=args.datasource, data_datasource=args.data_datasource,
                              answers=args.answers, profile=args.profile, fuzzy_cutoff=args.cutoff,
-                             sheet=_sheet_arg(args.sheet), experimental=args.experimental)
+                             sheet=_sheet_arg(args.sheet), experimental=args.experimental, tokens=_token_args(ap, args.token))
         data, mapping = plan.data, plan.mapping
         datasource = plan.entry["name"]
         _write(_df_text(mapping, args.format), None)
@@ -608,7 +685,7 @@ def _run_template(argv: list[str]) -> int:
         report: dict = {}
         out = apply_template(t, data, mapping=mapping, params=plan.params, output_path=args.write or None,
                              datasource=datasource, allow_missing=args.allow_missing, report=report,
-                             answers=args.answers, profile=args.profile)
+                             answers=args.answers, profile=args.profile, tokens=plan.tokens)
         print(f"wrote {out} ({report['mapped']} field(s) mapped, {report['missing']} missing, "
               f"{report['parameters']} parameter(s) set)", file=sys.stderr)
         return 0
