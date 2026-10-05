@@ -251,6 +251,10 @@ def test_sticky_header_and_pinned_column_stay_where_they_belong(page, wenjie_pat
     _open_column_menu(page, "c2")
     page.click("#menu >> text=Pin to the left")
     page.wait_for_function("() => document.querySelector('#tableWrap th .th-label').textContent === 'c2'", timeout=10_000)
+    # The view fades and rises in (translateY 8px) when a table opens, and a bounding box includes that
+    # transform. Measured mid-animation, wrap_box was a few px lower than where the wrap ends up, which
+    # looked like the pinned corner moving. Wait for the animation to finish before taking it.
+    page.wait_for_function("() => document.getAnimations().every((a) => a.playState !== 'running')", timeout=10_000)
     wrap_box = page.locator("#tableWrap").bounding_box()
     page.evaluate("() => { const w = document.getElementById('tableWrap'); w.scrollTop = 3000; w.scrollLeft = 400; }")
     page.wait_for_function("() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))")
