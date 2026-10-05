@@ -154,3 +154,46 @@ def test_rel_field_expr_keeps_nested_bracket_calc_whole():
 
     node = etree.fromstring('<expression op="[LOWER([Region])]"/>')
     assert _rel_field_expr(node) == "LOWER([Region])"
+
+
+_JOIN_XML = """
+<workbook>
+  <relation type="join" join="inner">
+    <clause type="join"><expression op="="/></clause>
+    <relation connection="c1" name="a" table="[dbo].[a]" type="table"/>
+    <relation type="join" join="left">
+      <relation connection="c1" name="b" table="[dbo].[b]" type="table"/>
+      <relation connection="c1" name="c" table="[dbo].[c]" type="table"/>
+    </relation>
+  </relation>
+</workbook>
+"""
+
+
+def test_a_join_row_is_named_after_the_tables_it_joins():
+    rel = extract_relations(xml_from_string(_JOIN_XML))
+    assert not (rel["name"].isna() & rel["table"].isna()).any()
+    joins = rel[rel["type"] == "join"]
+    assert joins["name"].tolist() == ["inner join of a, b and c", "left join of b and c"]
+    assert joins["join"].tolist() == ["inner", "left"]
+
+
+def test_a_join_row_does_not_carry_the_text_of_its_subtree():
+    rel = extract_relations(xml_from_string(_JOIN_XML))
+    assert (rel[rel["type"] == "join"]["custom_sql"] == "").all()
+
+
+def test_table_rows_are_unchanged_by_joins():
+    rel = extract_relations(xml_from_string(_JOIN_XML))
+    tables = rel[rel["type"] == "table"]
+    assert tables["name"].tolist() == ["a", "b", "c"]
+    assert tables["table"].tolist() == ["[dbo].[a]", "[dbo].[b]", "[dbo].[c]"]
+
+
+def test_a_custom_sql_relation_keeps_its_sql_and_a_join_over_it_names_it():
+    xml = ("<workbook><relation type='join' join='inner'>"
+           "<relation name='Custom SQL Query' type='text'>select 1</relation>"
+           "<relation name='t' table='[t]' type='table'/></relation></workbook>")
+    rel = extract_relations(xml_from_string(xml))
+    assert rel[rel["type"] == "text"]["custom_sql"].tolist() == ["select 1"]
+    assert rel[rel["type"] == "join"]["name"].tolist() == ["inner join of Custom SQL Query and t"]
