@@ -15,7 +15,7 @@ import re
 from typing import Iterable, Optional, Sequence
 
 from .templates import Template, safe_connection
-from .verify import dashboard_targets
+from .dashboards import dashboard_targets
 
 _CELL_ESCAPES = {"\\": "\\\\", "|": "\\|", "*": "\\*", "_": "\\_", "<": "&lt;", ">": "&gt;",
                  "&": "&amp;", "`": "\\`", "[": "\\[", "]": "\\]", "~": "\\~"}

@@ -14,6 +14,25 @@ import pandas as pd
 
 _DASHBOARD_COLUMNS = ["name"]
 _SHEETS_COLUMNS = ["dashboard", "sheet", "zone_id", "x", "y", "w", "h"]
+# Zones of these kinds are named after the worksheet they show or control.
+_SHEET_ZONE_TYPES = {None, "filter", "color", "size", "shape", "highlighter", "map", "legend"}
+
+
+def _zone_sheet(z) -> str:
+    return z.get("worksheet") or z.get("name")
+
+
+def dashboard_zones(db) -> list:
+    """The zones of a `<dashboard>` element that show or control a sheet (or dashboard), in document order.
+    A zone names it in `@worksheet` or, in some files, only in `@name`; layout containers, text and the
+    like are skipped."""
+    return [z for z in db.xpath(".//zone[@name or @worksheet]")
+            if (z.get("type-v2") or z.get("type")) in _SHEET_ZONE_TYPES]
+
+
+def dashboard_targets(db) -> list[str]:
+    """The sheet names `dashboard_zones` shows, in document order (repeats kept)."""
+    return [_zone_sheet(z) for z in dashboard_zones(db)]
 
 
 def _int_attr(node, name) -> Optional[int]:
@@ -80,12 +99,11 @@ def dashboard_sheets(xml_doc, dashboard: Optional[str] = None) -> pd.DataFrame:
     rows = []
     for d in d_nodes:
         d_name = d.get("name")
-        ws_zones = d.xpath(".//zone[@worksheet]")
-        for z in ws_zones:
+        for z in dashboard_zones(d):
             rows.append(
                 {
                     "dashboard": d_name,
-                    "sheet": z.get("worksheet"),
+                    "sheet": _zone_sheet(z),
                     "zone_id": z.get("id"),
                     "x": _int_attr(z, "x"),
                     "y": _int_attr(z, "y"),

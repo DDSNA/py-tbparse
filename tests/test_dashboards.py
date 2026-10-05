@@ -105,3 +105,59 @@ def test_xpath_string_literal_both_quote_types_round_trips():
             f'<w><d name="{name.replace(chr(34), "&quot;")}"/></w>'.encode()
         )
         assert doc.xpath(f".//d[@name={literal}]"), f"round-trip failed for {name!r}"
+
+
+# Some files name a zone's sheet only in @name (no @worksheet); layout zones are not sheets.
+_NAME_ONLY_XML = """
+<workbook>
+  <worksheets><worksheet name="Sheet 1"/><worksheet name="Sheet 2"/></worksheets>
+  <dashboards>
+    <dashboard name="setTest">
+      <zones>
+        <zone id="1" type-v2="layout-basic" name="Container" x="0" y="0" w="10" h="10">
+          <zone id="3" name="Sheet 1" x="1" y="2" w="3" h="4"/>
+          <zone id="5" name="Sheet 2" x="5" y="6" w="7" h="8"/>
+          <zone id="6" type-v2="text" name="Note"/>
+          <zone id="7" type-v2="filter" name="Sheet 2" param="[x]"/>
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>
+"""
+
+
+def test_dashboard_sheets_reads_zones_named_only_by_name():
+    sheets = dashboard_sheets(xml_from_string(_NAME_ONLY_XML))
+    assert sheets["sheet"].tolist() == ["Sheet 1", "Sheet 2", "Sheet 2"]
+    assert sheets["zone_id"].tolist() == ["3", "5", "7"]
+    assert sheets.iloc[0][["x", "y", "w", "h"]].tolist() == [1, 2, 3, 4]
+
+
+def test_dashboard_sheets_skips_layout_and_text_zones():
+    sheets = dashboard_sheets(xml_from_string(_NAME_ONLY_XML))
+    assert "Container" not in sheets["sheet"].tolist() and "Note" not in sheets["sheet"].tolist()
+
+
+def test_the_report_usage_and_docgen_agree_on_a_dashboards_sheets(tmp_path):
+    from py_tbparse import TwbParser
+    from py_tbparse.dashboards import dashboard_targets
+    from py_tbparse.report import workbook_report
+    from py_tbparse.usage import _dashboards_of
+    path = tmp_path / "wb.twb"
+    path.write_text(_NAME_ONLY_XML)
+    parser = TwbParser(str(path))
+    db = parser.xml_doc.xpath("/workbook/dashboards/dashboard")[0]
+    assert dashboard_targets(db) == ["Sheet 1", "Sheet 2", "Sheet 2"]
+    assert workbook_report(parser)["dashboards"] == [{"name": "setTest", "sheets": ["Sheet 1", "Sheet 2"]}]
+    assert _dashboards_of(parser.xml_doc) == {"Sheet 1": {"setTest"}, "Sheet 2": {"setTest"}}
+    assert not [h for h in workbook_report(parser)["health"] if h["id"] == "sheets-off-dashboards"]
+
+
+def test_the_shipped_name_only_fixture_has_its_sheets_on_the_dashboard():
+    from pathlib import Path
+    from py_tbparse import TwbParser
+    from py_tbparse.report import workbook_report
+    parser = TwbParser(str(Path(__file__).parent / "fixtures" / "public" / "filtering.twb"))
+    assert workbook_report(parser)["dashboards"] == [{"name": "setTest", "sheets": ["Sheet 1", "Sheet 2"]}]
+    assert parser.get_dashboard_sheets()["sheet"].tolist() == ["Sheet 1", "Sheet 2"]

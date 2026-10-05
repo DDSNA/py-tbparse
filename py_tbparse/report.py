@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 
+from .dashboards import dashboard_targets
 from .parser import TwbParser
 from .usage import missing_references
 
@@ -31,9 +32,9 @@ def _sheets_by_dashboard(parser: TwbParser) -> list[dict]:
     out = []
     for db in doc.xpath("/workbook/dashboards/dashboard[@name]"):
         seen: list[str] = []
-        for z in db.xpath(".//zone[@worksheet]"):
-            if z.get("worksheet") not in seen:
-                seen.append(z.get("worksheet"))
+        for sheet in dashboard_targets(db):
+            if sheet not in seen:
+                seen.append(sheet)
         out.append({"name": db.get("name"), "sheets": seen})
     return sorted(out, key=lambda d: d["name"].lower())
 
