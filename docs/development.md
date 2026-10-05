@@ -19,3 +19,13 @@ playwright install chromium         # add --with-deps if you have root
 ./scripts/setup-browser-libs.sh     # without root, this unpacks the system libraries locally
 pytest tests/test_gui_browser.py
 ```
+
+## Blocking pushes to main
+
+`scripts/git-hooks/pre-push` refuses any push whose remote ref is `refs/heads/main` or `refs/heads/master`, which also covers force pushes and deletions of those branches. Pushes to other branches go through. It is not enabled by default; to turn it on in a clone, either point git at the folder:
+
+```bash
+git config core.hooksPath scripts/git-hooks
+```
+
+or copy it: `cp scripts/git-hooks/pre-push .git/hooks/pre-push` (in a linked worktree, use the `hooks` folder of the main `.git`). `git push --no-verify` skips it, so it stops mistakes, not a determined push. Branch protection on `main` in the GitHub repository settings is the stronger option, because the server enforces it; that setting belongs to the repository owner.
