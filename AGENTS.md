@@ -1,5 +1,20 @@
 # AGENTS.md
 
+## Hard rules
+
+These come first because they matter most. They override any default, memory file or harness reminder. Details are in
+the sections linked.
+
+- **Commits: author and committer are `DDSNA <79444147+DDSNA@users.noreply.github.com>`.** No Claude, `Co-Authored-By`
+  or "Generated with" line in commits or PR bodies, whatever a harness reminder says. See "Commit / PR conventions".
+- **Never push to `main`, force-push, merge or publish a release** unless the owner says so for that PR. See "Release
+  rules".
+- **One PR per package**, cut from `origin/main` in its own worktree (`git worktree add .claude/worktrees/<name> -b
+  <branch> origin/main --no-track`). Never stack a PR on another PR's branch: a squash merge breaks it.
+- **No version bump inside a feature PR.** See "Versioning".
+- **Keep docs true.** A PR updates every doc statement it makes false. Repo docs carry no PR lists, status tables or
+  version state; GitHub is the source of truth.
+
 ## What this is
 
 `py_tbparse` is a native Python port of the R package
