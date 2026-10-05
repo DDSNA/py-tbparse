@@ -26,8 +26,19 @@ _RELATIONSHIP_COLUMNS = [
 ]
 
 
+def _join_name(node) -> str:
+    """A readable name for a join container: "inner join of a, b and c" (every table below it)."""
+    leaves = [n.get("name") or n.get("table") or "?" for n in node.xpath(".//relation[@type!='join' or not(@type)]")]
+    kind = node.get("join")
+    head = f"{kind} join" if kind else "join"
+    if not leaves:
+        return head
+    return f"{head} of {leaves[0]}" if len(leaves) == 1 else f"{head} of {', '.join(leaves[:-1])} and {leaves[-1]}"
+
+
 def extract_relations(xml_doc) -> pd.DataFrame:
-    """Port of `extract_relations()`."""
+    """Port of `extract_relations()`. A join container has no name or table of its own, so it is named
+    after the tables it joins, and (unlike the R original) it does not carry the text of its subtree."""
     nodes = xml_doc.xpath(".//relation")
     if not nodes:
         return pd.DataFrame(columns=_RELATION_COLUMNS)
@@ -35,16 +46,17 @@ def extract_relations(xml_doc) -> pd.DataFrame:
     rows = []
     for node in nodes:
         attrs = dict(node.attrib)
+        is_join = attrs.get("type") == "join"
         rows.append(
             {
-                "name": attr_safe_get(attrs, "name"),
+                "name": _join_name(node) if is_join and "name" not in attrs else attr_safe_get(attrs, "name"),
                 "table": attr_safe_get(attrs, "table"),
                 "connection": attr_safe_get(attrs, "connection"),
                 "type": attr_safe_get(attrs, "type"),
                 "join": attr_safe_get(attrs, "join"),
                 # R's xml_text() always returns a string (never NULL), so
                 # a relation with no text keeps "" rather than becoming NA.
-                "custom_sql": "".join(node.itertext()),
+                "custom_sql": "" if is_join else "".join(node.itertext()),
             }
         )
     return pd.DataFrame(rows, columns=_RELATION_COLUMNS).drop_duplicates()
