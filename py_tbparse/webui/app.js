@@ -22,7 +22,7 @@ const INFO = {
   'missing-references': ['Missing references', 'Calculations that name a field the workbook does not have.'],
   'field-renames': ['Field renames', 'Suggested clean names. Create a copy of the workbook with them applied.'],
   'joins': ['Joins', 'Join clauses from the physical layer.'],
-  'relations': ['Relations', 'Physical tables, custom SQL relations and the joins that combine them.'],
+  'relations': ['Relations', 'Physical tables, custom SQL relations, the joins that combine them and collections (the group of tables under one logical model, listed by member).'],
   'relationships': ['Relationships', 'Logical-layer relationships (Tableau 2020.2+).'],
   'inferred-relationships': ['Inferred relationships', 'Likely links guessed from matching field names.'],
   'dashboards': ['Dashboards', 'Dashboards defined in the workbook.'],

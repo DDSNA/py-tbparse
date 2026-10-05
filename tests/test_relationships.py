@@ -197,3 +197,56 @@ def test_a_custom_sql_relation_keeps_its_sql_and_a_join_over_it_names_it():
     rel = extract_relations(xml_from_string(xml))
     assert rel[rel["type"] == "text"]["custom_sql"].tolist() == ["select 1"]
     assert rel[rel["type"] == "join"]["name"].tolist() == ["inner join of Custom SQL Query and t"]
+
+
+_COLLECTION_XML = """
+<workbook>
+  <relation type='collection'>
+    <relation connection='c1' name='Orders' table='[Orders$]' type='table'/>
+    <relation connection='c1' name='People' table='[People$]' type='table'/>
+    <relation connection='c2' name='Returns' table='[Returns$]' type='table'/>
+  </relation>
+</workbook>
+"""
+
+
+def test_collection_is_named_after_its_members_and_has_no_sql_text():
+    # A collection holds the physical tables under one logical model; it has no name or table itself.
+    rel = extract_relations(xml_from_string(_COLLECTION_XML))
+    row = rel[rel["type"] == "collection"].iloc[0]
+    assert row["name"] == "collection of Orders, People and Returns"
+    assert row["custom_sql"] == ""
+    assert list(rel.columns) == ["name", "table", "connection", "type", "join", "custom_sql"]
+    # members still have their own rows
+    assert set(rel[rel["type"] == "table"]["name"]) == {"Orders", "People", "Returns"}
+
+
+def test_empty_and_single_member_collection_names():
+    one = extract_relations(xml_from_string(
+        "<workbook><relation type='collection'><relation name='A' table='[A]' type='table'/></relation></workbook>"))
+    assert one[one["type"] == "collection"].iloc[0]["name"] == "collection of A"
+    none = extract_relations(xml_from_string("<workbook><relation type='collection'/></workbook>"))
+    assert none.iloc[0]["name"] == "empty collection"
+
+
+def test_collection_with_prefixed_tag_in_real_fixture(wenjie_xml):
+    # tests/fixtures/test_for_wenjie.twb writes the collection as a namespaced element the plain
+    # `relation` query does not see; its members must still be listed and it must not add an empty row. (Only `relation`-tagged collections get their own row; the prefixed one is not matched by the query, as before.)
+    rel = extract_relations(wenjie_xml)
+    assert not rel["name"].isna().all()
+    assert rel[rel["type"] == "collection"]["name"].notna().all()
+
+
+def test_join_name_ignores_nested_collection_rows():
+    rel = extract_relations(xml_from_string(
+        "<workbook><relation type='join' join='inner'>"
+        "<relation name='A' table='[A]' type='table'/><relation name='B' table='[B]' type='table'/>"
+        "</relation></workbook>"))
+    assert rel.iloc[0]["name"] == "inner join of A and B"
+
+
+def test_collection_never_reaches_the_graph(wenjie_xml):
+    from py_tbparse import extract_joins, extract_relationships
+    from py_tbparse.graph import to_dot
+    dot = to_dot(extract_joins(wenjie_xml), extract_relationships(wenjie_xml))
+    assert "collection" not in dot and dot.startswith("digraph") and dot.rstrip().endswith("}")

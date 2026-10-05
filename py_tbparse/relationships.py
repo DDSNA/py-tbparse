@@ -26,19 +26,33 @@ _RELATIONSHIP_COLUMNS = [
 ]
 
 
+def _member_names(node) -> list[str]:
+    return [n.get("name") or n.get("table") or "?" for n in node.xpath(".//relation[not(@type='join' or @type='collection')]")]
+
+
+def _list_names(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
 def _join_name(node) -> str:
     """A readable name for a join container: "inner join of a, b and c" (every table below it)."""
-    leaves = [n.get("name") or n.get("table") or "?" for n in node.xpath(".//relation[@type!='join' or not(@type)]")]
+    leaves = _member_names(node)
     kind = node.get("join")
     head = f"{kind} join" if kind else "join"
-    if not leaves:
-        return head
-    return f"{head} of {leaves[0]}" if len(leaves) == 1 else f"{head} of {', '.join(leaves[:-1])} and {leaves[-1]}"
+    return f"{head} of {_list_names(leaves)}" if leaves else head
+
+
+def _collection_name(node) -> str:
+    """A readable name for a collection (the group of physical tables one logical model sits on):
+    "collection of a, b and c". A collection has no name or table of its own in the XML."""
+    leaves = _member_names(node)
+    return f"collection of {_list_names(leaves)}" if leaves else "empty collection"
 
 
 def extract_relations(xml_doc) -> pd.DataFrame:
     """Port of `extract_relations()`. A join container has no name or table of its own, so it is named
-    after the tables it joins, and (unlike the R original) it does not carry the text of its subtree."""
+    after the tables it joins; a `collection` (type `collection`, the group of physical tables under a
+    logical model) is named "collection of ..." after its member tables the same way. Neither carries the text of its subtree (unlike the R original)."""
     nodes = xml_doc.xpath(".//relation")
     if not nodes:
         return pd.DataFrame(columns=_RELATION_COLUMNS)
@@ -47,16 +61,22 @@ def extract_relations(xml_doc) -> pd.DataFrame:
     for node in nodes:
         attrs = dict(node.attrib)
         is_join = attrs.get("type") == "join"
+        is_collection = attrs.get("type") == "collection"
+        is_container = is_join or is_collection
         rows.append(
             {
-                "name": _join_name(node) if is_join and "name" not in attrs else attr_safe_get(attrs, "name"),
+                "name": (
+                    _join_name(node) if is_join and "name" not in attrs
+                    else _collection_name(node) if is_collection and "name" not in attrs
+                    else attr_safe_get(attrs, "name")
+                ),
                 "table": attr_safe_get(attrs, "table"),
                 "connection": attr_safe_get(attrs, "connection"),
                 "type": attr_safe_get(attrs, "type"),
                 "join": attr_safe_get(attrs, "join"),
                 # R's xml_text() always returns a string (never NULL), so
                 # a relation with no text keeps "" rather than becoming NA.
-                "custom_sql": "" if is_join else "".join(node.itertext()),
+                "custom_sql": "" if is_container else "".join(node.itertext()),
             }
         )
     return pd.DataFrame(rows, columns=_RELATION_COLUMNS).drop_duplicates()
