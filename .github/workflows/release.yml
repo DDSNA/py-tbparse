@@ -21,6 +21,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Tag must match the package version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${TAG#v}"
+          project="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          if [ "$version" != "$project" ]; then
+            echo "Release tag $TAG does not match pyproject.toml version $project." >&2
+            exit 1
+          fi
+
       - name: Install package with test extras
         run: pip install -e ".[test]"
 
