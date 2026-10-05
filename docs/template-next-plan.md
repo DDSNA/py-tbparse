@@ -4,9 +4,9 @@
 
 1. Read sections 0 and 1 of this file, then `AGENTS.md`. Run the verify commands below; the branch state may have moved.
 2. Make your own worktree off `origin/main` (`git worktree add -b NAME PATH origin/main`).
-3. Next, in the owner's order (section 3): fix PRs off `main` for the review findings of #20 (issues #24 to #27), #23
-   (#28 to #30) and, after rebasing PR #21 onto `main`, #31 to #33; then package F (WP10/WP11 basic) and the T009 token
-   rule. Test-first. Store no credentials.
+3. Next (state on 2026-10-05, section 1): the review findings #24 to #33 and the T009 token rule are done (#40, #42,
+   #21); open are issue #39 (WP4b leftovers) and the draft PR #43 (tests only, issue #41); then package F (WP10/WP11
+   basic, issue #37). Test-first. Store no credentials.
 4. Package B gets no sample workbooks (answered, section 2): classes without corpus evidence stay refused without
    `--experimental`, or B is skipped. Do not invent connection XML.
 5. Finish each package with: the full non-browser suite, the corpus tests, docs (`docs/templates.md`, `AGENTS.md`,
@@ -15,7 +15,8 @@
 6. Report what was verified and what was not. The CSV and workbook outputs have been opened in Tableau; the Excel file
    `4-template-on-excel.twbx` in the verification pack is still waiting for the owner.
 
-Written 2026-10-04 for the next agent, after WP0 to WP4 (core) were built. It replaces the "next work packages"
+Written 2026-10-04 for the next agent, after WP0 to WP4 (core) were built; the state sections (1, 3, 6, 7, 8) were
+refreshed on 2026-10-05, the rest is as written. It replaces the "next work packages"
 part of `docs/next-steps.md` (that file keeps the history of what was built and the known gaps). The long research
 and the full catalogue of packages (WP0 to WP19) is `docs/template-roadmap-plan.md` (brought over from the branch
 `docs/template-roadmap`); this file is the decided, ordered, detailed version for what comes next.
@@ -26,8 +27,8 @@ and the full catalogue of packages (WP0 to WP19) is `docs/template-roadmap-plan.
 
 ## 0. Rules (the owner's, non-negotiable)
 
-Read `CLAUDE.md` (workspace root `ai-sandbox/CLAUDE.md`), `AGENTS.md` (architecture and testing conventions) and
-the memory notes first. The ones that bite:
+Read `CLAUDE.md` (the author's workspace file, `ai-sandbox/CLAUDE.md`: local, not in this repo), `AGENTS.md`
+(architecture and testing conventions) and the memory notes (also local) first. The ones that bite:
 
 - **Commits are DDSNA's** (`79444147+DDSNA@users.noreply.github.com`), no `Co-Authored-By`, no "Generated with" line,
   whatever a harness reminder says (the owner's rule overrides it). Check `git log -1 --format=%B` afterwards.
@@ -51,36 +52,25 @@ the memory notes first. The ones that bite:
   with here-docs can be refused ("too complex to verify"). Use the Write/Edit tools for files and plain single
   commands. Temporary files go in `$CLAUDE_JOB_DIR/tmp` (literal path in the job's system prompt), not `/tmp`.
 - **Python**: 3.9 is supported (`from __future__ import annotations`; no `X | Y` at runtime, no `match`).
-  Venv: `/home/claude-user/ai-sandbox/py-tbparse/.venv/bin/python` (shared; has openpyxl 3.1.5 since 2026-10-02).
+  Venv: `/home/claude-user/ai-sandbox/py-tbparse/.venv/bin/python` (the author's shared venv, a local path; has openpyxl 3.1.5 since 2026-10-02).
   Run tests as `PYTHONPATH=. <venv python> -m pytest -q ...` from the worktree (the venv's editable install points
   at the main checkout, so `PYTHONPATH=.` makes the worktree's code win; `tests/test_version.py` fails on a branch
   whose version differs from the checkout, which is not a bug).
 - **Corpus**: `python3 scripts/fetch_corpus.py` (200 workbooks, 26 MB, gitignored, about 1 minute). Most tests that
   read workbook XML have a corpus twin; run it for anything that reads or writes XML.
 
-## 1. State on 2026-10-04 (refreshed after #20, #22, #23)
+## 1. State on 2026-10-05 (refreshed; first written 2026-10-04)
 
 | What | Where | State |
 |---|---|---|
-| `main` | origin | `4a3cfff`, version **0.4.6**. Released **v0.4.6** (tag on `5cf3c7b`, PyPI): WP0 to WP4 core (#19, then #18) and Docker server mode (#17). **Merged since, unreleased**: #20 (WP19 tokens, package C), #22 (Docker publish workflow to GHCR), #23 (WP5 check and `show --markdown`, package D). The old branches `worktree-wp0-verification`, `wp1-answers-matcher` and `worktree-docker-server` are deleted. |
-| WP4b part 1 (package A) | `wp4b-targets` | **PR #21 (draft)**, conflicts with `main`: rebase, then fix #31 to #33. |
-| Review findings | issues | unfixed: #24 to #27 (tokens), #28 to #30 (check, markdown), #31 to #33 (WP4b; #33 is labelled documentation). |
+| `main` | origin | `adce403`, version **0.4.6**. Released **v0.4.6** (tag on `5cf3c7b`, PyPI): WP0 to WP4 core (#19, then #18) and Docker server mode (#17). **Merged since, unreleased**: #20 (WP19 tokens, package C), #21 (WP4b part 1, package A), #22 (Docker publish workflow to GHCR), #23 (WP5 check and `show --markdown`, package D), #35 (drain the request body before an early POST refusal), #38 (release workflow tag check), #40 (token findings #24 to #27) and #42 (check and markdown findings #28 to #30, T009, issue #36). |
+| Open | PR #43 (draft), issues #37, #39, #41 | #43: tests only (corpus target test, `Town`/`TOWN`, issue #41). #37: WP10 audit and WP11 data dictionary. #39: WP4b leftovers (MySQL backslash escape, unverified remote types). Issues #24 to #33 and #36 are closed. |
 | The long plan | `docs/template-roadmap-plan.md` | brought over from the branch `docs/template-roadmap`. |
 
-The owner's fix order was #20, #23, #21; the first two merged with their findings filed as issues, so the fixes are now
-separate PRs off `main`. A new package branches off `origin/main`; PR #21 needs `git rebase origin/main` (conflicts).
-Releases: a patch per package from 0.4.7, on the owner's word (section 6).
-
-**About `6acd292`**: it is not WP4 code, whatever its message says ("WP4: apply a template to a folder of data
-files", the same title as `8ad433a`). A second Claude session working in the same worktree made it on 2026-10-04
-(17:37) and its `git add -A` swept this plan file in. It contains: this file, the WP4 paragraph in
-`docs/next-steps.md`, and **an unrelated fix to `py_tbparse/validators.py`** (a relationship whose end is a Custom SQL
-query, `type='text'`, is no longer reported as an unknown table) with its test in `tests/test_validators.py`. Read the
-diff (`git show 6acd292`) before relying on it; the fix looks right but nobody reviewed it. Before the PR, **ask the
-owner whether to split it out** (a separate branch off `main` with the validators fix, or a reworded commit): rewriting
-it is no longer safe now that it is pushed (rewriting needs a force-push, which is the owner's call), and the other session may still be
-running (`ps aux | grep claude`; two sessions in one worktree overwrite each other's uncommitted files, so check
-`git status` and `git log` before editing, and use the Edit tool, not whole-file rewrites).
+For anything newer than this table, use `git log`, `gh pr list` and `gh issue list`. The old state notes of
+2026-10-04 (PR #21 as a draft with conflicts, the findings as open issues, the commit `6acd292` that a second session
+made and that holds an unrelated Custom SQL validator fix) are history: all of it merged through #18 to #21, and
+`git log` has the details.
 
 History (before #18 merged). Tests at the tip of `wp3-template-update`: that session's note in `docs/next-steps.md` says the whole non-browser suite
 gave **519 passed, 155 skipped after WP4** (503 at the WP2 commit + 15 new batch tests + 1 corpus test); I ran
@@ -105,10 +95,11 @@ template tokens (`tokens.py`, WP19), `check_template` and `template_markdown` (W
   guessed from nothing.
 - **Audit and documentation tooling is wanted, at a basic level for now** (WP10 audit, WP11 data dictionary; pruning
   and scores later).
-- **Versions** (overtaken): the earlier rule was GUI work = patch bumps, the template line = one 0.5.0 minor, then
-  patches. WP0 to WP4 shipped as **0.4.6** instead, and the owner then chose a **patch release per package from
-  0.4.7**, **no version bump inside a PR**, releases **only on his explicit word**. Whether 0.5.0 is still used, and by
-  which line, is open (section 7).
+- **Versions** (superseded by "Versioning" in `AGENTS.md`, 2026-10-05: 0.5.0 is the first templating release, later
+  templating releases are 0.5.x, 0.4.x stays for UI-redesign releases). Earlier rules, kept as history: GUI work =
+  patch bumps and the template line = one 0.5.0 minor; WP0 to WP4 shipped as **0.4.6** instead; on 2026-10-04 the
+  owner chose a patch release per package from 0.4.7 (no longer current), **no version bump inside a PR**, releases
+  **only on his explicit word** (both still current).
 - **Answered 2026-10-04 (owner), these close questions 1 to 3 of section 7:**
   - No sample workbooks will be provided: package B stays `evidence="docs"` (refused without `--experimental`), or is
     skipped; never invent connection XML presented as proven.
@@ -123,15 +114,18 @@ template tokens (`tokens.py`, WP19), `check_template` and `template_markdown` (W
 
 | # | Package | Version | Needs from the owner first |
 |---|---|---|---|
-| A | **WP4b connection targets, part 1**: the SQL-type schema reader + database classes that the corpus proves (Postgres, MySQL, SQL Server, Snowflake): **PR #21 (draft)**, needs a rebase; findings #31 to #33 open | patch | nothing |
+| A | **WP4b connection targets, part 1**: the SQL-type schema reader + database classes that the corpus proves (Postgres, MySQL, SQL Server, Snowflake): **merged as #21**, unreleased; findings #31 to #33 closed, leftovers in issue #39 | 0.5.x | nothing |
 | B | **WP4b part 2**: classes the corpus does not contain (Oracle, Spark SQL / Databricks, MongoDB route) and **published data sources** | patch | no samples will come (answered): `evidence="docs"` and refused without `--experimental`, or skipped |
-| C | **WP19 template tokens**: **merged as #20**, unreleased; findings #24 to #27 open | patch | question 5 (more token places) |
-| D | **WP5 template check + `show --markdown`** (also builds the shared findings engine): **merged as #23**, unreleased; findings #28 to #30 open. **T009 (the token rule) is planned next, not built yet** (still reserved in `template_check.py`) | patch | nothing |
-| E | **WP12 sanitize** + fake data from an SQL-type schema | patch | nothing (reuses A's schema reader) |
-| F | **WP10 audit + WP11 data dictionary, basic** | patch | nothing |
-| later | WP18 CI formats, WP13 localization, WP14, WP17, WP16 | patch each | his pick |
+| C | **WP19 template tokens**: **merged as #20**, unreleased; findings #24 to #27 fixed in #40 | 0.5.x | question 5 (more token places) |
+| D | **WP5 template check + `show --markdown`** (also builds the shared findings engine): **merged as #23**, unreleased; findings #28 to #30 fixed and T009 (the token rule) built in #42 | 0.5.x | nothing |
+| E | **WP12 sanitize** + fake data from an SQL-type schema | 0.5.x | nothing (reuses A's schema reader) |
+| F | **WP10 audit + WP11 data dictionary, basic** (issue #37) | 0.5.x | nothing |
+| later | WP18 CI formats, WP13 localization, WP14, WP17, WP16 | 0.5.x | his pick |
 
-**Package A as built (branch `wp4b-targets`).** Code: `py_tbparse/schema.py` (types, DDL subset, `read_schema`),
+The Version column is "the next templating release line" per "Versioning" in `AGENTS.md`: the first one is 0.5.0, on the
+owner's word; which package goes into which release is not decided.
+
+**Package A as built (merged as #21).** Code: `py_tbparse/schema.py` (types, DDL subset, `read_schema`),
 `py_tbparse/connections.py` (registry, `load_target`), `templates._db_connection`, `read_data` of a `*.target.json`,
 `apply-folder` over targets, CLI `template targets`, `template target-make`, `--experimental`; `scripts/survey_connections.py`;
 `5-template-on-db.twbx` in the verification pack. Tests: `tests/test_sqlschema.py` (102), `tests/test_targets.py` (46,
@@ -158,13 +152,10 @@ text**: places are title, text, field-caption, datasource-caption, parameter-val
 filter defaults are not v1); a template with only escapes has `tokens: []` and still unescapes; `make --revision-of` keeps
 the defaults of surviving tokens; a name that is both a parameter caption and a token is an ambiguous sidecar column;
 **question 5 below (worksheet/dashboard names, parameter captions, default filter values as token places) is still
-open and is not built.** A (PR #21) and C both edit `templates.py`, `cli.py`, `template_batch.py` and
-`template_update.py`; C is on `main` now, so PR #21's rebase has conflicts to resolve.
+open and is not built.**
+Versions: WP0 to WP4 core shipped as **0.4.6**; see "Versioning" in `AGENTS.md` for what comes next. No version bump inside a PR.
 
-Versions: WP0 to WP4 core shipped as **0.4.6**. Each package is a patch release from **0.4.7** on, cut only on the
-owner's word, with no version bump inside the PR (the 0.5.0 question is open, section 7).
-
-Why this order: A first because the owner asked for it, it is mostly verifiable by tests, and its schema reader is
+Why this order (as decided on 2026-10-04; A, C and D are built): A first because the owner asked for it, it is mostly verifiable by tests, and its schema reader is
 reused by E. B waits for evidence (no honest implementation without a real file). C before D because D should lint
 tokens. D before F because F reuses D's engine. Packages C, D, E, F do not depend on A or B and can be reordered or
 done while waiting for the owner's samples; if the samples have not arrived when A is done, do C next.
@@ -505,16 +496,15 @@ snapshot of the docs for one fixture.
 
 ## 6. Versions, landing and the PRs
 
-- **Owner's rule (2026-10-04)**: a **patch release per package from 0.4.7**; **no version bump inside a PR** (the
-  version in `pyproject.toml`, which `__version__` reads back, is bumped for a release, not by a package PR); a release
-  only on the owner's explicit word. The earlier "template line = 0.5.0" rule is overtaken (WP0 to WP4 shipped as
-  0.4.6); whether 0.5.0 is used at all, and by which line, is open (section 7; the GUI plan mentions 0.5.0/0.6.0 only
-  in `docs/ui-redesign-plan.md`).
+- **Versions: see "Versioning" in `AGENTS.md`** (2026-10-05), which supersedes the 2026-10-04 rule of a patch release
+  per package from 0.4.7. Still current: **no version bump inside a PR** (the version in `pyproject.toml`, which
+  `__version__` reads back, is bumped for a release, not by a package PR); a release only on the owner's explicit
+  word.
 - **One PR per package** (answered), off `origin/main`; run the whole non-browser suite, and the browser suites when
   page code or `webgui.py` changed, before the PR. Squash-merge is what the owner uses; web-UI squash merges are
-  authored "Dan", not DDSNA (open, section 7). `main` has no branch protection (checked 2026-10-04).
-- Release notes follow `/home/claude-user/ai-sandbox/release-0.4.5.md`;
-  the pre-release checklist is `release-plan-0.4.5.md` and `AGENTS.md` (build the wheel, install it in a throwaway
+  authored "Dan", not DDSNA (open, section 7). `main` had no branch protection when checked on 2026-10-04.
+- Release notes followed a local file of the author's (`release-0.4.5.md`, not in the repo);
+  the pre-release checklist is in `AGENTS.md` (build the wheel, install it in a throwaway
   venv, run `py-tbparse --help` and `py-tbparse-gui --help`, run pytest against an extracted sdist). A release is the
   owner's call, never yours. The `excel` extra and `openpyxl` in `[test]` are new in `pyproject.toml`: the wheel
   smoke test must also run with openpyxl **absent** (the Excel tests skip, the hint message appears).
@@ -523,9 +513,7 @@ snapshot of the docs for one fixture.
 ## 7. Questions for the owner (do not decide these)
 
 1. ~~Sample workbooks~~ answered: none (section 2).
-2. ~~Landing~~ answered: one PR per package. **Still open**: the 0.5.0 conflict (the docs said the template line is the
-   0.5.0 minor; the owner chose a patch per package from 0.4.7; the GUI plan has 0.5.0/0.6.0 in
-   `docs/ui-redesign-plan.md`).
+2. ~~Landing~~ answered: one PR per package. ~~The 0.5.0 conflict~~ answered 2026-10-05: see "Versioning" in `AGENTS.md`.
 3. ~~`.xls`~~ answered: refused unless small effort (section 2).
 4. Tableau checks, only he can do them, the files come from `python scripts/make_verification_pack.py <new folder>`:
    `4-template-on-excel.twbx` (written, not yet opened), later `5-template-on-db.twbx`; a template over several tables;
@@ -535,14 +523,14 @@ snapshot of the docs for one fixture.
 5. Package C: are **worksheet/dashboard names** as token locations wanted (costs a reference rewrite) or are titles,
    captions, text and parameters enough?
 6. Package F: when "basic" is done, does he want `prune` (hide unused fields) next, or WP18 CI formats?
-7. Merged branches still on origin (`wp3-template-update`, `wp19-tokens`, `docker-publish`, `wp5-check`;
-   `worktree-docker-server` is already gone), and the shared checkout and venv updates (`git pull --ff-only`,
+7. Merged branches still on origin (`wp3-template-update`, `fix-tokens-24-27`, `fix-check-engine`, on 2026-10-05; the
+   others of 2026-10-04 are gone), and the shared checkout and venv updates (`git pull --ff-only`,
    `.venv/bin/pip install -e .`): his to do or to allow.
 8. Release and CI setup (record only; no workflow change without his word): branch protection / required CI checks on
-   `main` (none today); the `release` environment has no protection rules, so neither the PyPI nor the Docker job waits
-   for an approval; `release.yml` has no check that the tag matches `pyproject.toml` (`docker-publish.yml` has one);
-   `docker-publish.yml`'s header still says DRAFT and has never run; the GHCR package is set public after its first
-   push; web-UI squash merges are authored "Dan", not DDSNA.
+   `main` (none when checked on 2026-10-04); the Docker publish job uses the `release` environment and runs without
+   manual approval; both `release.yml` and `docker-publish.yml` fail when the tag differs from `pyproject.toml`
+   (#38); `docker-publish.yml` has never run; the GHCR package is set public after its first push; web-UI squash
+   merges are authored "Dan", not DDSNA.
 
 ## 8. Known gaps carried forward (do not forget, do not hide)
 
@@ -557,12 +545,13 @@ snapshot of the docs for one fixture.
 - The answers now keep a copy of the template manifest (`answers.template.manifest`): answers files are larger and
   contain field names and connection facts (no credentials); do not log them in public places.
 - `tests/test_version.py` fails on a branch whose version differs from the shared venv's editable install: not a bug.
-- Tokens do not cover worksheet/dashboard names, parameter captions or default filter values (question 5); the T009
-  token rule is planned next, not built yet.
-- CI on `main` (`4a3cfff`, run 37229010116, attempt 1): Windows / Python 3.12 failed; per a read-only review it is
-  `tests/test_webgui.py::test_load_requires_json_content_type[text/plain]`, a server race (`webgui._do_post` answers
-  404/415/403 without draining the request body; `_drain` exists in `webgui.py`). It passed on the re-run; the race is
-  still open, fix pending.
+- Tokens do not cover worksheet/dashboard names, parameter captions or default filter values (question 5). The T009
+  token rule exists (#42).
+- CI on `main` (`4a3cfff`, run 37229010116, attempt 1): Windows / Python 3.12 failed once in
+  `tests/test_webgui.py::test_load_requires_json_content_type[text/plain]`, a server race; it passed on the re-run.
+  #35 drains the request body before an early refusal; not re-checked on CI here.
+- Answers and credentials: a parameter or token value is saved as typed and never scanned, and `make_template` blanks
+  only the `username` and `password` attributes of `<connection>` elements (see `docs/templates.md`).
 
 ## 9. Checklists
 

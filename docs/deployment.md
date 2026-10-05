@@ -4,7 +4,7 @@ The browser GUI is built for one person on their own machine. The Docker image r
 service instead: a team opens a URL, drops in their workbooks and looks at them. TLS ends at a reverse proxy in
 front of it; the app speaks plain HTTP on port 8080.
 
-**There is no login.** Anyone who can reach the URL can upload files and use the CPU. Put the proxy's own
+**There is no login** (see Limits in the [README](https://github.com/DDSNA/py-tbparse/blob/main/README.md#limits)). Anyone who can reach the URL can upload files and use the CPU. Put the proxy's own
 authentication (basic auth, SSO, a VPN) in front of it, and do not expose it to the public internet without one.
 
 ## Quick start
@@ -43,8 +43,7 @@ Pin a version rather than `latest` for anything you run for a team. To use it wi
 `build: .` with `image: ghcr.io/ddsna/py-tbparse:<version>`. The image is built from the release's source, not
 from PyPI.
 
-The publish job uses the same `release` environment as the PyPI upload; that environment has no protection rules
-yet (checked 2026-10-04), so neither job waits for an approval until the maintainer adds one. The first push creates the package as private; the maintainer makes it public once in the package settings on GitHub so it can be pulled without logging in.
+The publish job uses the same `release` environment as the PyPI upload and runs without manual approval. The first push creates the package as private; the maintainer makes it public once in the package settings on GitHub so it can be pulled without logging in.
 
 ## What server mode changes
 
