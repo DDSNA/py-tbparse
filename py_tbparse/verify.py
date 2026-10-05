@@ -69,15 +69,19 @@ def _sheet_fields(doc, by_ds) -> list[dict]:
     return rows
 
 
+def dashboard_targets(db) -> list[str]:
+    """The sheets (or dashboards) a `<dashboard>` element shows, in document order: a zone names one in
+    `@worksheet` or, in some files, only in `@name` (layout containers, text and the like are skipped)."""
+    return [z.get("worksheet") or z.get("name") for z in db.xpath(".//zone[@name or @worksheet]")
+            if (z.get("type-v2") or z.get("type")) in _SHEET_ZONE_TYPES]
+
+
 def _dashboard_sheets(doc) -> list[dict]:
     rows = []
     sheets = set(doc.xpath("/workbook/worksheets/worksheet/@name"))
     known = sheets | set(doc.xpath("/workbook/dashboards/dashboard/@name"))
     for db in doc.xpath("/workbook/dashboards/dashboard[@name]"):
-        for z in db.xpath(".//zone[@name or @worksheet]"):
-            if (z.get("type-v2") or z.get("type")) not in _SHEET_ZONE_TYPES:
-                continue
-            target = z.get("worksheet") or z.get("name")
+        for target in dashboard_targets(db):
             if target not in known:
                 rows.append(_row("dashboard-sheet", "error", "", db.get("name"),
                                  f"a zone shows {target!r}, which is not a worksheet or dashboard"))

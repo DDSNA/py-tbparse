@@ -88,11 +88,22 @@ _STOPS = {"not", "null", "primary", "default", "references", "unique", "check", 
 _IDENT = re.compile(r'\s*(?:"((?:[^"]|"")+)"|`((?:[^`]|``)+)`|\[((?:[^\]]|\]\])+)\]|([A-Za-z_][\w$]*))')
 
 
-def _quoted_end(text: str, i: int) -> Optional[int]:
+def _quoted_end(text: str, i: int, backslash: bool = False) -> Optional[int]:
     """If a quoted region (`'..'`, `".."`, `` `..` `` or `[..]`, where `]]` is an escaped bracket) starts at `i`, the
     index just after it (the end of the text when it is never closed); else None. A `[` is an identifier quote only
-    where an identifier can start, so `int[]` and `text[3]` are not."""
+    where an identifier can start, so `int[]` and `text[3]` are not. With `backslash` (MySQL), a backslash in a
+    `'..'` or `".."` string escapes the next character, so `'it\\'s'` is one string."""
     c = text[i]
+    if backslash and c in "'\"":
+        j = i + 1
+        while j < len(text):
+            if text[j] == "\\":
+                j += 2
+            elif text[j] == c:
+                return j + 1
+            else:
+                j += 1
+        return len(text)
     if c in "'\"`":
         j = text.find(c, i + 1)
         return len(text) if j < 0 else j + 1
@@ -109,12 +120,12 @@ def _quoted_end(text: str, i: int) -> Optional[int]:
     return None
 
 
-def _blank_comments(sql: str) -> str:
+def _blank_comments(sql: str, backslash: bool = False) -> str:
     """The statement with `--` and `/* */` comments replaced by spaces (newlines kept, so line numbers hold),
     leaving quoted text alone."""
     out, i, n = [], 0, len(sql)
     while i < n:
-        j = _quoted_end(sql, i)
+        j = _quoted_end(sql, i, backslash)
         if j is not None:
             out.append(sql[i:j])
             i = j
@@ -152,11 +163,11 @@ def _ident(text: str, pos: int) -> Optional[tuple[str, int]]:
     return name, m.end()
 
 
-def _top_level_items(body: str, offset: int) -> list[tuple[str, int]]:
+def _top_level_items(body: str, offset: int, backslash: bool = False) -> list[tuple[str, int]]:
     """The comma-separated items of a table body, each with the position it starts at in the whole text."""
     items, depth, start, i = [], 0, 0, 0
     while i < len(body):
-        j = _quoted_end(body, i)
+        j = _quoted_end(body, i, backslash)
         if j is not None:
             i = j
             continue
@@ -213,11 +224,11 @@ def _is_constraint(item: str) -> bool:
 _NEW_TABLE = re.compile(r"\bcreate\s+(?:or\s+replace\s+)?(?:(?:global\s+|local\s+)?(?:temp|temporary)\s+|transient\s+)?table\b", re.I)
 
 
-def _end_of_statement(text: str, start: int) -> Optional[int]:
+def _end_of_statement(text: str, start: int, backslash: bool = False) -> Optional[int]:
     """The index of the first `;` at or after `start` that is outside quotes, or None."""
     i = start
     while i < len(text):
-        j = _quoted_end(text, i)
+        j = _quoted_end(text, i, backslash)
         if j is not None:
             i = j
         elif text[i] == ";":
@@ -234,10 +245,24 @@ def parse_ddl(sql: str) -> tuple[Optional[str], list[dict]]:
     table constraints (`PRIMARY KEY`, `FOREIGN KEY`, `UNIQUE`, `CONSTRAINT`, `CHECK`, indexes) are skipped; `--` and
     `/* */` comments; identifiers quoted with `"x"`, `` `x` `` or `[x]` (`]]` is a literal `]`); a schema in front of the table's name is dropped;
     table options after the closing parenthesis (`ENGINE=...`, `PARTITION BY ...`) are ignored; a column may be named
-    `key`, `index`, `check` ... when a type follows. MySQL backslash escapes inside strings (`'it\\'s'`) are not understood.
+    `key`, `index`, `check` ... when a type follows. A backslash in a string is a plain character, as in PostgreSQL and
+    SQL Server (`'C:\\'` is a whole string); only when the statement does not read that way is it read again with MySQL's
+    escapes (`'it\\'s'`), so a default value with an escaped quote parses.
     Anything else (a second table, `CREATE INDEX`, a column with no type, an unclosed parenthesis) is an error that
     names the line, never a guess."""
-    text = _blank_comments(sql)
+    try:
+        return _parse_ddl(sql, False)
+    except TemplateError as first:
+        if "\\" not in sql:
+            raise
+        try:
+            return _parse_ddl(sql, True)
+        except TemplateError:
+            raise first from None
+
+
+def _parse_ddl(sql: str, backslash: bool) -> tuple[Optional[str], list[dict]]:
+    text = _blank_comments(sql, backslash)
     head = re.search(r"\bcreate\s+(?:or\s+replace\s+)?(?:(?:global\s+|local\s+)?(?:temp|temporary)\s+|transient\s+)?"
                      r"table\s+(?:if\s+not\s+exists\s+)?", text, re.I)
     if not head:
@@ -259,7 +284,7 @@ def parse_ddl(sql: str) -> tuple[Optional[str], list[dict]]:
         raise TemplateError(f"line {_line(text, pos)}: expected '(' after the table name")
     depth, end, i = 0, None, pos
     while i < len(text):
-        j = _quoted_end(text, i)
+        j = _quoted_end(text, i, backslash)
         if j is not None:
             i = j
             continue
@@ -276,7 +301,7 @@ def parse_ddl(sql: str) -> tuple[Optional[str], list[dict]]:
         raise TemplateError(f"line {_line(text, pos)}: unclosed parenthesis in CREATE TABLE")
     # Table options (ENGINE=..., PARTITION BY ..., WITH (...), TABLESPACE ...) may follow the closing parenthesis and
     # are ignored; a second CREATE TABLE, or any further statement after a `;`, is refused.
-    stop = _end_of_statement(text, end + 1)
+    stop = _end_of_statement(text, end + 1, backslash)
     options = text[end + 1:stop]
     second = _NEW_TABLE.search(options)
     if second:
@@ -290,7 +315,7 @@ def parse_ddl(sql: str) -> tuple[Optional[str], list[dict]]:
         raise TemplateError(f"line {_line(text, at)}: only one table is supported, found {what}: "
                             f"{rest.strip().splitlines()[0][:40]!r}")
     columns: list[dict] = []
-    for item, at in _top_level_items(text[pos + 1:end], pos + 1):
+    for item, at in _top_level_items(text[pos + 1:end], pos + 1, backslash):
         if not item.strip():
             continue
         lead = at + len(item) - len(item.lstrip())

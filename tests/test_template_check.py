@@ -67,8 +67,8 @@ def ids(df, rule=None):
 
 
 def test_the_template_rules_have_stable_ids():
-    assert template_rule_ids() == ["T001", "T002", "T003", "T004", "T005", "T006", "T007", "T008", "T010"]
-    assert "T009" in RESERVED         # the token rule (WP19): reserved, so the number is never reused
+    assert template_rule_ids() == ["T001", "T002", "T003", "T004", "T005", "T006", "T007", "T008", "T009", "T010"]
+    assert "T009" not in RESERVED     # built now (issue #36); the number was reserved so it is never reused
 
 
 def test_a_clean_template_has_no_findings(clean):
@@ -81,9 +81,11 @@ def test_check_accepts_a_loaded_template(clean):
     assert check_template(load_template(clean)).empty
 
 
-def test_reserved_id_is_explained(clean):
-    with pytest.raises(ValueError, match="T009.*token"):
-        check_template(clean, only=["T009"])
+def test_reserved_id_is_explained(clean, monkeypatch):
+    monkeypatch.setitem(RESERVED, "T950", "a future rule")
+    for kw in ({"only": ["T950"]}, {"skip": "t950"}):
+        with pytest.raises(ValueError, match="T950.*future rule"):
+            check_template(clean, **kw)
 
 
 # --- T001 -------------------------------------------------------------------
@@ -103,6 +105,37 @@ def test_t001_absolute_path_and_passing_case(clean, tmp_path):
     df = check_template(bad, only=["T001"])
     assert "directory" in df.iloc[0]["detail"] and "filename" in df.iloc[0]["detail"]
     assert check_template(clean, only=["T001"]).empty
+
+
+def test_t001_relative_packaged_path_is_quiet(tmp_path):
+    # Cache.twbx made without --keep-data keeps `dbname=Data/en_US-US/Sales Target.tde`: the normal packaged form
+    path = _template(tmp_path, "Cache.twbx")
+    assert check_template(path, only=["T001"]).empty
+
+
+def test_t001_absolute_path_inside_a_file_connection_still_warns(clean, tmp_path):
+    def local(m):
+        m["datasources"][0]["connections"] = [{"class": "hyper", "dbname": "C:\\Users\\ann\\Extracts\\Sales.hyper"}]
+    df = check_template(_rewrite(shutil.copy(clean, tmp_path / "abs.twbx"), local), only=["T001"])
+    assert len(df) == 1 and "Sales.hyper" in df.iloc[0]["detail"] and "ann" not in df.iloc[0]["detail"]
+
+
+def test_t001_reads_the_workbook_not_only_the_manifest(tmp_path):
+    path = _template(tmp_path)                         # sqlserver, from filtering.twb
+    def emptied(m):
+        for ds in m["datasources"]:
+            ds["connections"] = []
+    df = check_template(_rewrite(path, emptied), only=["T001"])
+    assert len(df) == 1 and "b5dpm3ihhu.database.windows.net" in df.iloc[0]["detail"]
+
+
+def test_t001_detail_hides_credentials_and_folders(clean, tmp_path):
+    def local(m):
+        m["datasources"][0]["connections"] = [{"class": "textscan", "directory": "/home/ann/data", "filename": "/home/ann/data/s.csv",
+                                               "server": "https://u:pw@host.example/", "username": "ann", "password": "pw"}]
+    out = check_template(_rewrite(shutil.copy(clean, tmp_path / "creds.twbx"), local), only=["T001"]).iloc[0]["detail"]
+    assert "ann" not in out and "pw" not in out and "/home" not in out
+    assert "s.csv" in out and "directory" in out
 
 
 # --- T002 -------------------------------------------------------------------
@@ -203,6 +236,23 @@ def test_t007_dangling_reference(clean, tmp_path):
     assert check_template(clean, only=["T007"]).empty
 
 
+def test_t007_rows_keep_their_datasource(clean, tmp_path):
+    def two_datasources_same_calc(doc):
+        for ds in doc.xpath("/workbook/datasources/datasource[@name!='Parameters']")[:1]:
+            col = etree.SubElement(ds, "column", name="[Broken]", datatype="real", role="measure", type="quantitative")
+            etree.SubElement(col, "calculation", {"class": "tableau", "formula": "SUM([No Such Field])"})
+    bad = _rewrite(shutil.copy(clean, tmp_path / "calc.twbx"), workbook_fn=two_datasources_same_calc)
+    df = check_template(bad, only=["T007"])
+    rows = df[df["detail"].str.startswith("calc-reference")]
+    assert len(rows) >= 1 and all(":" in o for o in rows["object"])         # "<datasource>: <calculation>"
+
+
+def test_the_help_says_t007_has_errors_and_warnings():
+    from py_tbparse.template_check import rules_help
+    line = next(l for l in rules_help().splitlines() if l.strip().startswith("T007"))
+    assert "warn" in line
+
+
 # --- T008 -------------------------------------------------------------------
 
 @pytest.mark.parametrize("formula,expected", [
@@ -231,9 +281,111 @@ def test_t008_in_a_template(clean, tmp_path):
     assert check_template(clean, only=["T008"]).empty
 
 
+def _planted(clean, tmp_path, formula, name="lit.twbx"):
+    def plant(doc):
+        ds = doc.xpath("/workbook/datasources/datasource[@name!='Parameters']")[0]
+        col = etree.SubElement(ds, "column", name="[Planted]", datatype="string", role="dimension", type="nominal")
+        etree.SubElement(col, "calculation", {"class": "tableau", "formula": formula})
+    return _rewrite(shutil.copy(clean, tmp_path / name), workbook_fn=plant)
+
+
+@pytest.mark.parametrize("formula,secrets", [
+    ('"https://api.example.com/v1?apikey=AKIAIOSFODNN7EXAMPLE&secret=xyz123"', ["AKIAIOSFODNN7EXAMPLE", "xyz123", "api.example.com"]),
+    ('"https://admin:hunter2@intranet.example.com/x"', ["hunter2", "admin", "intranet.example.com"]),
+    ('"ann.secret@example.com"', ["ann.secret"]),
+    (r'"C:\Users\alice\payroll.csv"', ["alice", "payroll"]),
+])
+def test_t008_never_echoes_the_literal(clean, tmp_path, capsys, formula, secrets):
+    bad = _planted(clean, tmp_path, formula)
+    df = check_template(bad, only=["T008"])
+    assert len(df) == 1 and "***" in df.iloc[0]["detail"] and "Planted" in df.iloc[0]["object"]   # the location stays
+    for fmt in ("table", "csv", "json"):
+        assert main(["template", "check", bad, "--only", "T008", "--format", fmt]) == 0
+        out = capsys.readouterr()
+        for secret in secrets:
+            assert secret not in out.out and secret not in out.err, (fmt, secret)
+
+
+def test_t008_apostrophe_in_a_field_name_is_not_a_literal():
+    assert _suspicious_literals("[Customer's Name] + [Other's] + \"x\"") == []
+    assert _suspicious_literals("[a]]b's] + \"https://x.example\"") == ["https://x.example"]
+    # a bracket holding a quote and a URL-looking name is still a field name, not a literal
+    assert _suspicious_literals("[Don't http://x.example's] + [y]") == []
+
+
+@pytest.mark.parametrize("formula,expected", [
+    ('/* "https://x.example/a" */ 1', []),
+    ('1 /* multi\nline "ann@example.com" */ + 2', []),
+    ('1 // "https://x.example/a"\n+ 2', []),
+    ('"v@1.2"', []),
+    ('"user@host.co"', ["user@host.co"]),
+])
+def test_t008_comments_and_email(formula, expected):
+    assert _suspicious_literals(formula) == expected
+
+
+@pytest.mark.parametrize("lit", ["www.example.com/a", "file:///srv/data.csv", "s3://bucket/key", "jdbc:mysql://h/db",
+                                 "mailto:ann@example.com", "sftp://h/x"])
+def test_t008_scheme_list(lit):
+    assert _suspicious_literals(f'"{lit}"') == [lit]
+
+
 def test_t008_ignores_parameter_defaults(clean):
     # a parameter's value is stored as a literal formula; that is not a hard-coded customer
     assert check_template(clean, only=["T008"]).empty
+
+
+# --- T009 -------------------------------------------------------------------
+
+def _token_template(tmp_path, title="Sales for {{customer}}", formula=None, **kw):
+    src = tmp_path / "tok.twb"
+
+    def edit(root):
+        root.xpath("//worksheet/layout-options/title//run")[0].text = title
+        if formula:
+            root.xpath("//column[@caption='SHOW']/calculation")[0].set("formula", formula)
+    doc = etree.parse(str(PUBLIC / "filtering.twb"))
+    edit(doc.getroot())
+    src.write_bytes(etree.tostring(doc, xml_declaration=True, encoding="utf-8"))
+    return make_template(str(src), **kw)
+
+
+def test_t009_token_without_a_default(tmp_path):
+    df = check_template(_token_template(tmp_path), only=["T009"])
+    assert len(df) == 1 and df.iloc[0]["severity"] == "info" and df.iloc[0]["object"] == "{{customer}}"
+    assert "no default" in df.iloc[0]["detail"] and "--token" in df.iloc[0]["fix"]
+    ok = _token_template(tmp_path, tokens={"customer": "Your company"}, output_path=str(tmp_path / "ok.twbx"))
+    assert check_template(ok, only=["T009"]).empty
+
+
+def test_t009_token_inside_a_formula(tmp_path):
+    with pytest.warns(UserWarning):
+        path = _token_template(tmp_path, formula='"{{customer}} HQ"', tokens={"customer": "x"})
+    df = check_template(path, only=["T009"])
+    assert len(df) == 1 and df.iloc[0]["severity"] == "warning" and "SHOW" in df.iloc[0]["object"]
+    assert "formula" in df.iloc[0]["detail"] and "HQ" not in df.iloc[0]["detail"]
+
+
+def test_t009_broken_syntax(tmp_path):
+    with pytest.warns(UserWarning):
+        path = _token_template(tmp_path, title="Sales for {{customer")
+    df = check_template(path, only=["T009"])
+    assert len(df) == 1 and df.iloc[0]["severity"] == "warning"
+    assert "title" in df.iloc[0]["object"] and "{{" in df.iloc[0]["detail"]
+
+
+def test_t009_has_nothing_to_say_about_a_template_without_tokens(clean, tmp_path):
+    assert check_template(clean, only=["T009"]).empty
+    assert check_template(_template(tmp_path), only=["T009"]).empty            # a version 2 manifest, no `tokens` key
+
+
+def test_t009_on_the_command_line(tmp_path, capsys):
+    path = _token_template(tmp_path)
+    assert main(["template", "check", path, "--only", "T009", "--format", "json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert [r["rule"] for r in rows] == ["T009"]
+    assert main(["template", "check", path, "--only", "T009", "--fail-on", "info"]) == 1
+    capsys.readouterr()
 
 
 # --- T010 -------------------------------------------------------------------
@@ -319,7 +471,7 @@ def test_cli_help_lists_the_rules(capsys):
     text = capsys.readouterr().out
     for rid in ("T001", "T007", "T010", "--fail-on", "--only", "--skip", "--format"):
         assert rid in text
-    assert "T009" in text and "reserved" in text.lower()
+    assert "T009" in text and "token" in text.lower()
 
 
 def test_check_leaves_the_template_untouched(tmp_path):
@@ -328,3 +480,96 @@ def test_check_leaves_the_template_untouched(tmp_path):
     check_template(path)
     assert Path(path).read_bytes() == before
     assert not findings.exceeds(pd.DataFrame(columns=FINDING_COLUMNS), "info")
+
+
+# --- exit codes and crashes (issue #28) -------------------------------------
+
+def _manifest_replaced(path, manifest):
+    with zipfile.ZipFile(path) as z:
+        members = [(i, z.read(i.filename)) for i in z.infolist()]
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for info, data in members:
+            z.writestr(info, json.dumps(manifest).encode("utf-8") if info.filename == MANIFEST_NAME else data)
+    Path(path).write_bytes(out.getvalue())
+    return str(path)
+
+
+def test_cli_check_malformed_manifest_is_exit_2(clean, tmp_path, capsys):
+    def nameless(m):
+        del m["datasources"][0]["name"]
+    for label, bad in (("nameless", _rewrite(shutil.copy(clean, tmp_path / "a.twbx"), nameless)),
+                       ("list", _manifest_replaced(shutil.copy(clean, tmp_path / "b.twbx"), [])),
+                       ("datasources", _rewrite(shutil.copy(clean, tmp_path / "c.twbx"),
+                                                lambda m: m.update(datasources="x")))):
+        assert main(["template", "check", bad]) == 2, label
+        err = capsys.readouterr().err
+        assert "error:" in err and "Traceback" not in err, label
+    # the other template subcommands report it as an error too (exit 1 there), not as a traceback
+    assert main(["template", "show", _manifest_replaced(shutil.copy(clean, tmp_path / "d.twbx"), [])]) == 1
+    capsys.readouterr()
+
+
+@pytest.fixture
+def crashing_rule():
+    saved = dict(findings._RULES)
+
+    @findings.rule("T990", "template", severity="info")
+    def boom(subject):
+        """A rule that always fails (test only)."""
+        raise KeyError("used_by")
+    yield
+    findings._RULES.clear()
+    findings._RULES.update(saved)
+
+
+def test_cli_check_crashing_rule_has_its_own_exit_code(clean, crashing_rule, capsys):
+    for fail_on in ("never", "error", "info"):
+        assert main(["template", "check", clean, "--fail-on", fail_on]) == 3, fail_on
+        out = capsys.readouterr()
+        assert "T990" in out.out and "rule failed" in out.out
+        assert "Traceback" in out.err and "T990" in out.err and "Traceback" not in out.out
+    assert main(["template", "check", clean, "--skip", "T990"]) == 0
+    capsys.readouterr()
+
+
+def test_crash_output_has_no_absolute_path(clean, crashing_rule, capsys):
+    @findings.rule("T991", "template", severity="info")
+    def leaky(subject):
+        """leaks a path (test only)"""
+        raise OSError(f"cannot read {subject.path}")
+    assert main(["template", "check", clean, "--only", "T991", "--format", "csv"]) == 3
+    out = capsys.readouterr().out
+    assert str(Path(clean).parent) not in out and "<path>" in out
+
+
+@pytest.mark.parametrize("value", [" ", ",", " , "])
+def test_only_whitespace_is_an_error(clean, value, capsys):
+    assert main(["template", "check", clean, "--only", value]) == 2
+    assert "--only" in capsys.readouterr().err
+    assert main(["template", "check", clean, "--skip", value]) == 2
+    capsys.readouterr()
+
+
+def test_only_and_skip_cancel_is_an_error(clean, capsys):
+    assert main(["template", "check", clean, "--only", "T001", "--skip", "T001"]) == 2
+    assert "no rule to run" in capsys.readouterr().err
+
+
+def test_only_string_is_one_id(tmp_path):
+    path = _template(tmp_path)
+    assert set(check_template(path, only="T001")["rule"]) == {"T001"}
+    rules_run = set(check_template(path, skip="T001")["rule"])
+    assert "T001" not in rules_run and "T010" in rules_run
+
+
+def test_show_markdown_with_format_is_an_error(clean, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(["template", "show", clean, "--markdown", "--format", "json"])
+    assert e.value.code == 2 and "--format" in capsys.readouterr().err
+
+
+def test_show_markdown_output_never_overwrites_the_template(clean, capsys):
+    before = Path(clean).read_bytes()
+    assert main(["template", "show", clean, "--markdown", "-o", clean]) == 1
+    assert "template" in capsys.readouterr().err and Path(clean).read_bytes() == before

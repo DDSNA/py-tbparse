@@ -11,11 +11,17 @@ same text and a page can live in git and be reviewed as a diff. The workbook dat
 
 from __future__ import annotations
 
+import re
 from typing import Iterable, Optional, Sequence
 
-from .templates import _SECRET_ATTRS, Template
+from .templates import Template, safe_connection
+from .verify import dashboard_targets
 
-_CELL_ESCAPES = {"\\": "\\\\", "|": "\\|", "*": "\\*", "_": "\\_", "<": "&lt;", ">": "&gt;"}
+_CELL_ESCAPES = {"\\": "\\\\", "|": "\\|", "*": "\\*", "_": "\\_", "<": "&lt;", ">": "&gt;",
+                 "&": "&amp;", "`": "\\`", "[": "\\[", "]": "\\]", "~": "\\~"}
+# A line that starts one of these would be a heading, list, rule, fence or numbered list: escape its first character.
+_LINE_START = re.compile(r"^(\s*)(?:([#+=-])|(\d+)(?=[.)]))")
+_MAX_TEXT = 300     # characters kept of a parameter description or an allowed value
 
 
 class Code(str):
@@ -33,11 +39,20 @@ def _plain(value) -> str:
 
 
 def escape_cell(value) -> str:
-    """Text safe inside a table cell: backslash, pipe, `*`, `_`, `<` and `>` escaped, line breaks
-    as `<br>`. Non-Latin text is left alone."""
+    """Text safe inside a table cell, and in a paragraph: backslash, pipe, `*`, `_`, `<`, `>`, `&`, backtick,
+    `[`, `]` and `~` escaped (so no link, image, code span, fence or entity can open), a `#`, `-`, `+`, `=` or
+    list number at the start of a line escaped, line breaks as `<br>`. Non-Latin text is left alone."""
     text = _plain(value).replace("\r\n", "\n").replace("\r", "\n")
     text = "".join(_CELL_ESCAPES.get(c, c) for c in text)
+    text = "\n".join(_LINE_START.sub(lambda m: m.group(1) + ("\\" + m.group(2) if m.group(2) else m.group(3) + "\\"), line)
+                     for line in text.split("\n"))
     return text.replace("\n", "<br>")
+
+
+def clip(value, limit: int = _MAX_TEXT) -> str:
+    """`value` as text, cut to `limit` characters with a note that says so (for text a workbook author wrote)."""
+    text = _plain(value)
+    return text if len(text) <= limit else f"{text[:limit]}... (truncated, {len(text)} characters)"
 
 
 def inline_code(value) -> str:
@@ -99,7 +114,7 @@ _MAX_LIST = 20
 
 
 def _short_list(values: Sequence[str]) -> str:
-    shown = "; ".join(values[:_MAX_LIST])
+    shown = "; ".join(clip(v) for v in values[:_MAX_LIST])
     return shown + (f"; ... and {len(values) - _MAX_LIST} more" if len(values) > _MAX_LIST else "")
 
 
@@ -149,7 +164,7 @@ def template_markdown(template: Template) -> str:
             allowed = _short_list(p["allowed"]) if p.get("allowed") else (
                 "; ".join(f"{k} {v}" for k, v in p["range"].items()) if p.get("range") else "")
             rows.append([p.get("caption") or _label(p["name"]), p.get("datatype"), Code(p.get("value") or ""),
-                         allowed, p.get("description") or ""])
+                         allowed, clip(p.get("description") or "")])
         blocks.append(md_table(["Parameter", "Type", "Default", "Allowed values", "Description"], rows))
     else:
         blocks.append("None.")
@@ -164,11 +179,12 @@ def template_markdown(template: Template) -> str:
              for t in sorted(m["tokens"], key=lambda t: t["name"])]))
 
     blocks.append(heading(2, "Connections"))
-    blocks.append("Where the data came from when the template was made. No user names or passwords are kept.")
+    blocks.append("Where the data came from when the template was made. No user names or passwords are kept, "
+                  "and a file is shown by its name only.")
     rows = []
     for ds in m.get("datasources", []):
         for c in ds.get("connections") or [{}]:
-            shown = "; ".join(f"{k}={v}" for k, v in c.items() if k not in _SECRET_ATTRS and k != "password")
+            shown = "; ".join(f"{k}={v}" for k, v in safe_connection(c).items())
             rows.append([ds.get("caption") or ds["name"], Code(shown) if shown else "(none)"])
     blocks.append(md_table(["Datasource", "Connection"], rows))
 
@@ -183,11 +199,10 @@ def template_markdown(template: Template) -> str:
                            [[s, "; ".join(sorted(set(uses.get(s, []))))] for s in sheets]) if sheets else "None.")
 
     blocks.append(heading(2, "Dashboards"))
-    dash = template.parser.get_dashboard_sheets()
+    shown_by = {}
+    for db in template.parser.xml_doc.xpath("/workbook/dashboards/dashboard[@name]"):
+        shown_by.setdefault(db.get("name"), set()).update(dashboard_targets(db))
     names = sorted(m.get("dashboards", []))
-    rows = []
-    for d in names:
-        shown = sorted(set(dash.loc[dash["dashboard"] == d, "sheet"].dropna())) if len(dash) else []
-        rows.append([d, "; ".join(shown)])
+    rows = [[d, "; ".join(sorted(shown_by.get(d, ())))] for d in names]
     blocks.append(md_table(["Dashboard", "Worksheets"], rows) if rows else "None.")
     return render(*blocks)

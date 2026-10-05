@@ -252,6 +252,26 @@ def test_character_set_in_a_type_is_still_a_string():
     assert sql_family("character varying(5)") == "string"
 
 
+def test_mysql_backslash_escape_in_a_default():
+    # issue #39: `\'` inside a string is an escaped quote in MySQL
+    table, cols = parse_ddl("CREATE TABLE s (a varchar(5) DEFAULT 'it\\'s')")
+    assert table == "s" and cols == [{"name": "a", "type": "varchar(5)"}]
+    table, cols = parse_ddl("CREATE TABLE s (\n  a varchar(5) DEFAULT 'it\\'s, (not) -- a comment',\n  b int COMMENT 'x\\\\'\n) ENGINE=InnoDB;")
+    assert [c["name"] for c in cols] == ["a", "b"]
+    assert [c["name"] for c in parse_ddl("CREATE TABLE s (a varchar(5) COMMENT 'it\\'s /* x */', b int);")[1]] == ["a", "b"]
+
+
+def test_a_trailing_backslash_in_a_standard_string_is_still_a_complete_string():
+    # PostgreSQL and SQL Server read `\` as a plain character: this default is `C:\`, and the statement is fine
+    table, cols = parse_ddl("CREATE TABLE s (a varchar(20) DEFAULT 'C:\\', b int)")
+    assert [c["name"] for c in cols] == ["a", "b"]
+
+
+def test_a_really_unclosed_string_is_still_an_error():
+    with pytest.raises(TemplateError, match="unclosed parenthesis"):
+        parse_ddl("CREATE TABLE s (a varchar(5) DEFAULT 'oops, b int)")
+
+
 def test_json_columns_case_insensitive_duplicates():
     with pytest.raises(TemplateError, match="twice"):
         read_schema([{"name": "ID", "type": "int"}, {"name": "id", "type": "int"}])

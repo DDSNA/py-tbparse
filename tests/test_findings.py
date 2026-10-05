@@ -163,3 +163,79 @@ def test_formats_are_a_registry_a_later_format_slots_into():
         assert format_findings(pd.DataFrame(columns=FINDING_COLUMNS), "x-test") == "custom"
     finally:
         del F.FORMATS["x-test"]
+
+
+# --- crashes, selection (issue #28) -------------------------------------------
+
+def _boom_rule(rule_id="X004", message="kaput"):
+    @rule(rule_id, "demo", severity="info")
+    def boom(subject):
+        raise RuntimeError(message)
+
+
+def test_a_crash_is_marked_on_the_frame_and_keeps_its_traceback(demo_rules):
+    _boom_rule()
+    df = run_rules(Subject(), "demo", only=["X004", "X001"])
+    assert df.attrs["crashed"] == ["X004"]
+    assert "RuntimeError" in df.attrs["tracebacks"]["X004"] and "Traceback" in df.attrs["tracebacks"]["X004"]
+    assert run_rules(Subject(), "demo", only=["X001"]).attrs.get("crashed") == []
+
+
+def test_a_crash_message_carries_no_local_path(demo_rules, tmp_path):
+    home = str(__import__("pathlib").Path.home())
+    _boom_rule(message=f"cannot open {home}/secret/x.csv and {tmp_path}/t.twbx")
+    df = run_rules(Subject(path=str(tmp_path / "t.twbx")), "demo", only=["X004"])
+    detail = df.iloc[0]["detail"]
+    assert home not in detail and str(tmp_path) not in detail and "<path>" in detail
+
+
+def test_only_and_skip_take_one_id_as_text(demo_rules):
+    assert set(run_rules(Subject(), "demo", only="X002")["rule"]) == {"X002"}     # not the characters X, 0, 2
+    assert set(run_rules(Subject(), "demo", skip="X002")["rule"]) == {"X001"}
+
+
+def test_an_empty_only_is_an_error_not_a_silent_no_op(demo_rules):
+    with pytest.raises(ValueError, match="only"):
+        run_rules(Subject(), "demo", only=[])
+    with pytest.raises(ValueError, match="only"):
+        run_rules(Subject(), "demo", only=[" ", ""])
+
+
+def test_only_and_skip_that_cancel_are_an_error(demo_rules):
+    with pytest.raises(ValueError, match="no rule to run"):
+        run_rules(Subject(), "demo", only=["X001"], skip=["X001"])
+    with pytest.raises(ValueError, match="no rule to run"):
+        run_rules(Subject(), "demo", skip=["X001", "X002", "X003"])
+
+
+def test_csv_formula_injection_is_neutralised():
+    cells = ["=HYPERLINK(\"http://x\")", "+1", "-1", "@SUM(A1)", "\tx", "plain", "a=b"]
+    df = pd.DataFrame([{"rule": "T001", "severity": "info", "object": c, "detail": c, "fix": ""} for c in cells],
+                      columns=FINDING_COLUMNS)
+    back = pd.read_csv(__import__("io").StringIO(format_findings(df, "csv")), keep_default_na=False)
+    assert list(back["object"]) == ["'" + c if c[0] in "=+-@\t" else c for c in cells]
+    assert list(df["object"]) == cells                      # the frame itself is untouched
+    assert json.loads(format_findings(df, "json"))[0]["object"] == cells[0]
+
+
+def test_a_formatter_error_is_not_reported_as_an_unknown_format():
+    F.FORMATS["x-bad"] = lambda df: {}["nope"]
+    try:
+        with pytest.raises(KeyError):
+            format_findings(pd.DataFrame(columns=FINDING_COLUMNS), "x-bad")
+    finally:
+        del F.FORMATS["x-bad"]
+
+
+def test_registering_the_same_rule_again_replaces_it_but_another_function_is_refused(demo_rules):
+    def register():
+        @rule("X010", "demo", severity="info")
+        def reloadable(subject):
+            return []
+    register()
+    register()                                   # what importlib.reload of the defining module does
+    assert F.rule_ids("demo").count("X010") == 1
+    with pytest.raises(ValueError, match="X010"):
+        @rule("X010", "demo", severity="info")
+        def impostor(subject):
+            return []

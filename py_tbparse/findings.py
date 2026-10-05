@@ -12,7 +12,10 @@ so an id is never renumbered or reused, and a retired rule keeps its number.
 
 A rule that raises does not stop the run: the exception becomes one `error` finding for that
 rule, so one odd file cannot hide the findings of every other rule (or of every other file in a
-batch run).
+batch run). The frame says so in `df.attrs["crashed"]` (the rule ids) and keeps each traceback in
+`df.attrs["tracebacks"]`, so a caller can tell "a rule failed" from "the rule found a real error"
+(`template check` exits 3). The finding's text never holds a local path: the home directory and the
+subject's own path and folder are replaced by `<path>`.
 
 `format_findings` renders a frame through the `FORMATS` registry (`table`, `csv`, `json`); the
 CI formats planned for WP18 (JUnit, SARIF, GitHub annotations) are further entries there, each a
@@ -21,6 +24,8 @@ function from the frame to text.
 
 from __future__ import annotations
 
+import os
+import traceback
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional
 
@@ -64,8 +69,10 @@ def rule(rule_id: str, scope: str, severity: str = "info", fix: str = "") -> Cal
     _check_severity(severity)
 
     def register(func: Callable) -> Callable:
-        if rule_id in _RULES:
-            raise ValueError(f"rule {rule_id} is already registered ({_RULES[rule_id].func.__name__})")
+        old = _RULES.get(rule_id)
+        if old is not None and (old.func.__module__, old.func.__qualname__) != (func.__module__, func.__qualname__):
+            raise ValueError(f"rule {rule_id} is already registered ({old.func.__name__})")
+        # the same function registered again (`importlib.reload` of its module) replaces itself
         title = (func.__doc__ or "").strip().splitlines()[0] if func.__doc__ else ""
         _RULES[rule_id] = _Rule(rule_id, scope, severity, fix, func, title)
         return func
@@ -92,12 +99,25 @@ def rules(scope: str) -> list[_Rule]:
 def _selected(scope: str, ids: Optional[Iterable[str]], what: str) -> Optional[set]:
     if ids is None:
         return None
+    if isinstance(ids, str):          # one id as text, not its characters
+        ids = [ids]
     known = rule_ids(scope)
     chosen = {i.strip().upper() for i in ids if i and i.strip()}
     unknown = sorted(chosen - set(known))
     if unknown:
         raise ValueError(f"{what}: unknown rule {', '.join(unknown)}; known: {', '.join(known)}")
     return chosen
+
+
+def _scrub(text: str, subject: "Subject") -> str:
+    """`text` without the local paths it may carry: the subject's file and folder and the home directory."""
+    paths = {os.path.expanduser("~")}
+    if subject.path:
+        raw = str(subject.path)
+        paths |= {raw, os.path.abspath(raw), os.path.dirname(raw), os.path.dirname(os.path.abspath(raw))}
+    for p in sorted((p for p in paths if p and len(p) > 1), key=len, reverse=True):
+        text = text.replace(p, "<path>")
+    return text
 
 
 def run_rules(subject: Subject, scope: str, only: Optional[Iterable[str]] = None,
@@ -108,25 +128,35 @@ def run_rules(subject: Subject, scope: str, only: Optional[Iterable[str]] = None
     if not rule_ids(scope):
         raise ValueError(f"no rules for scope {scope!r}")
     keep = _selected(scope, only, "only")
+    if keep is not None and not keep:
+        raise ValueError("only: no rule ids given (an empty list would run nothing; leave it out to run every rule)")
     drop = _selected(scope, skip, "skip") or set()
+    chosen = [r for r in rules(scope) if (keep is None or r.id in keep) and r.id not in drop]
+    if not chosen:
+        raise ValueError("only and skip leave no rule to run")
     rows = []
-    for r in rules(scope):
-        if (keep is not None and r.id not in keep) or r.id in drop:
-            continue
+    crashed: list[str] = []
+    tracebacks: dict[str, str] = {}
+    for r in chosen:
         try:
             for f in r.func(subject):
                 rows.append({"rule": r.id, "severity": f["severity"] or r.severity,
                              "object": f["object"], "detail": f["detail"],
                              "fix": r.fix if f["fix"] is None else f["fix"]})
         except Exception as e:     # noqa: BLE001 -- see the module docstring
+            crashed.append(r.id)
+            tracebacks[r.id] = traceback.format_exc()
             rows.append({"rule": r.id, "severity": "error", "object": "",
-                         "detail": f"rule failed: {type(e).__name__}: {e}", "fix": "report this as a bug"})
+                         "detail": _scrub(f"rule failed: {type(e).__name__}: {e}", subject),
+                         "fix": "report this as a bug"})
     df = pd.DataFrame(rows, columns=FINDING_COLUMNS)
-    if df.empty:
-        return df
-    df["_s"] = df["severity"].map(SEVERITY)
-    df = df.sort_values(["rule", "_s", "object", "detail"], kind="stable").drop(columns="_s")
-    return df.reset_index(drop=True)
+    if not df.empty:
+        df["_s"] = df["severity"].map(SEVERITY)
+        df = df.sort_values(["rule", "_s", "object", "detail"], kind="stable").drop(columns="_s")
+        df = df.reset_index(drop=True)
+    df.attrs["crashed"] = crashed
+    df.attrs["tracebacks"] = tracebacks
+    return df
 
 
 def exceeds(df: pd.DataFrame, fail_on: str) -> bool:
@@ -158,15 +188,24 @@ def _table(df: pd.DataFrame) -> str:
         return df.to_string(index=False)
 
 
+def _csv(df: pd.DataFrame) -> str:
+    """CSV with a leading `'` on a text cell a spreadsheet would run as a formula (`=`, `+`, `-`, `@`, tab, CR);
+    the frame is not changed."""
+    safe = df.copy()
+    for col in safe.columns:
+        safe[col] = safe[col].map(lambda v: "'" + v if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r") else v)
+    return safe.to_csv(index=False)
+
+
 FORMATS: dict[str, Callable[[pd.DataFrame], str]] = {
     "table": _table,
-    "csv": lambda df: df.to_csv(index=False),
+    "csv": _csv,
     "json": lambda df: df.to_json(orient="records", indent=2, force_ascii=False),
 }
 
 
 def format_findings(df: pd.DataFrame, fmt: str = "table") -> str:
-    try:
-        return FORMATS[fmt](df)
-    except KeyError:
-        raise ValueError(f"unknown format {fmt!r}; use {', '.join(FORMATS)}") from None
+    formatter = FORMATS.get(fmt)
+    if formatter is None:
+        raise ValueError(f"unknown format {fmt!r}; use {', '.join(FORMATS)}")
+    return formatter(df)
