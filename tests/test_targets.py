@@ -401,11 +401,14 @@ def test_apply_folder_takes_target_files_and_only_real_ones(cache_template, tmp_
     folder.mkdir()
     for customer in ("acme", "globex"):
         write_target(folder / f"{customer}.target.json", dbname=f"cust_{customer}")
-    (folder / "settings.target.json").write_text('{"just": "settings"}', encoding="utf-8")   # not a target: ignored
-    (folder / "other.json").write_text("{}", encoding="utf-8")
+    (folder / "settings.target.json").write_text('{"just": "settings"}', encoding="utf-8")   # named a target: reported
+    (folder / "other.json").write_text("{}", encoding="utf-8")                                # any other json: ignored
     table = apply_template_folder(cache_template, str(folder), output_dir=str(tmp_path / "out"),
                                   min_mapped=0.0, overwrite=True)
-    assert sorted(table["input"]) == ["acme.target.json", "globex.target.json"] and set(table["status"]) == {"ok"}
+    assert sorted(table["input"]) == ["acme.target.json", "globex.target.json", "settings.target.json"]
+    assert dict(zip(table["input"], table["status"])) == {"acme.target.json": "ok", "globex.target.json": "ok",
+                                                          "settings.target.json": "error"}
+    table = table[table["status"] == "ok"]
     assert sorted(table["output"]) == ["cache_acme.twbx", "cache_globex.twbx"]
     docs = {n: etree.fromstring(_twb(tmp_path / "out" / f"cache_{n}.twbx")) for n in ("acme", "globex")}
     for n, doc in docs.items():
@@ -610,3 +613,110 @@ def test_target_make_column_splits_at_the_last_colon(tmp_path):
     assert main(["template", "target-make", "--class", "postgres", "--server", "h", "--dbname", "d", "--schema", "public",
                  "--table", "t", "-c", "a:b:int", "-o", str(out)]) == 0
     assert json.loads(out.read_text(encoding="utf-8"))["columns"] == [{"name": "a:b", "type": "int"}]
+
+
+# --- review findings (#32) ---------------------------------------------------------------------------------------
+
+
+def test_apply_folder_reports_a_truncated_target_json(cache_template, tmp_path):
+    folder = tmp_path / "customers"
+    folder.mkdir()
+    write_target(folder / "acme.target.json", dbname="cust_acme")
+    (folder / "cut.target.json").write_text('{"format": "py-tbparse-target", "cla', encoding="utf-8")
+    table = apply_template_folder(cache_template, str(folder), output_dir=str(tmp_path / "out"),
+                                  min_mapped=0.0, overwrite=True)
+    rows = {r["input"]: r for r in table.to_dict("records")}
+    assert rows["cut.target.json"]["status"] == "error" and "not valid JSON" in rows["cut.target.json"]["error"]
+    assert rows["acme.target.json"]["status"] == "ok"
+
+
+def test_apply_folder_reports_a_target_json_with_the_wrong_format_value(cache_template, tmp_path):
+    folder = tmp_path / "customers"
+    folder.mkdir()
+    write_target(folder / "acme.target.json", dbname="cust_acme")
+    write_target(folder / "bad.target.json", format="other")
+    (folder / "plain.json").write_text('{"format": "other"}', encoding="utf-8")       # not *.target.json: still ignored
+    table = apply_template_folder(cache_template, str(folder), output_dir=str(tmp_path / "out"),
+                                  min_mapped=0.0, overwrite=True)
+    rows = {r["input"]: r for r in table.to_dict("records")}
+    assert sorted(rows) == ["acme.target.json", "bad.target.json"]
+    assert rows["bad.target.json"]["status"] == "error" and "not a target file" in rows["bad.target.json"]["error"]
+    assert rows["acme.target.json"]["status"] == "ok"
+
+
+@pytest.mark.parametrize("changes", [{"server": "bob:hunter2@db.example.com"}, {"server": "postgres://bob:hunter2@h/db"},
+                                     {"authentication": "bob:hunter2"}, {"table": "bob:hunter2@t"},
+                                     {"warehouse": "bob:hunter2@w"}])
+def test_credentials_in_values_are_refused(tmp_path, changes):
+    cls = "snowflake" if "warehouse" in changes else "postgres"
+    with pytest.raises(TemplateError, match="credentials") as e:
+        load_target(target_of(tmp_path, cls, **changes), experimental=True)
+    assert "hunter2" not in str(e.value)
+
+
+def test_target_make_refuses_credentials_before_writing(tmp_path, capsys):
+    out = tmp_path / "c.target.json"
+    assert main(["template", "target-make", "--class", "postgres", "--server", "bob:hunter2@h", "--dbname", "d",
+                 "--schema", "public", "--table", "t", "-c", "a:int", "-o", str(out)]) == 1
+    err = capsys.readouterr().err
+    assert "credentials" in err and "hunter2" not in err and not out.exists()
+
+
+def test_an_experimental_authentication_value_must_look_like_a_name(tmp_path):
+    assert load_target(target_of(tmp_path, "sqlserver", authentication="ntlm_v2"), experimental=True)
+    with pytest.raises(TemplateError, match="authentication"):
+        load_target(target_of(tmp_path, "sqlserver", authentication="a b;c"), experimental=True)
+
+
+def test_parent_name_escapes_closing_bracket(tmp_path):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        data = read_data(target_of(tmp_path, table="we]ird"))
+    conn = _db_connection(data, _locals(data), model=None)[0]
+    parents = {p.text for p in conn.iter("parent-name")}
+    assert parents == {"[we]]ird]"}
+    assert relation_table("postgres", data.target).endswith(".[we]]ird]")
+
+
+@pytest.mark.parametrize("changes", [{"version": "abc"}, {"version": None, "schema_file": 5, "columns": None},
+                                     {"version": [1]}])
+def test_bad_version_and_schema_file_types(tmp_path, changes):
+    body = copy.deepcopy(TARGETS["postgres"])
+    for k, v in changes.items():
+        body.pop(k, None) if v is None else body.__setitem__(k, v)
+    path = tmp_path / "v.target.json"
+    path.write_text(json.dumps(body), encoding="utf-8")
+    with pytest.raises(TemplateError):
+        load_target(str(path))
+
+
+@pytest.mark.parametrize("port", ["0", 0, "65536", "٣٣٠٦", "-1", "12.5", "1e3", True, 123456])
+def test_port_range_and_digits(tmp_path, port):
+    with pytest.raises(TemplateError, match="port"):
+        load_target(target_of(tmp_path, port=port))
+
+
+def test_valid_ports_are_kept(tmp_path):
+    assert load_target(target_of(tmp_path, port=65535))["port"] == "65535"
+    assert load_target(target_of(tmp_path, port="1"))["port"] == "1"
+
+
+@pytest.mark.parametrize("changes", [{"table": " orders"}, {"table": "orders "}, {"server": "db\nhost"},
+                                     {"server": "db\x00host"}, {"dbname": "a\tb"}])
+def test_spaces_around_a_table_and_control_characters_are_refused(tmp_path, changes):
+    with pytest.raises(TemplateError):
+        load_target(target_of(tmp_path, **changes))
+
+
+def test_target_make_overwrite_keeps_old_file_when_validation_fails(tmp_path, capsys):
+    out = tmp_path / "a.target.json"
+    base = ["template", "target-make", "--class", "postgres", "--server", "h", "--dbname", "d", "--schema", "public",
+            "--table", "t", "-c", "a:int", "-o", str(out)]
+    assert main(base) == 0
+    good = out.read_text(encoding="utf-8")
+    capsys.readouterr()
+    assert main(base + ["--overwrite", "--port", "99999"]) == 1
+    assert out.read_text(encoding="utf-8") == good
+    assert [p.name for p in tmp_path.iterdir()] == ["a.target.json"]                 # no temp file left behind
+    assert main(base[:-2] + ["-c", "b:text", "-o", str(out), "--overwrite"]) == 0
+    assert "b" in out.read_text(encoding="utf-8") and [p.name for p in tmp_path.iterdir()] == ["a.target.json"]

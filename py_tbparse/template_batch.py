@@ -73,12 +73,14 @@ def read_inputs(path: Union[str, os.PathLike], template: Template) -> dict[str, 
 
 
 def _find_inputs(directory: str, patterns: Iterable[str]) -> list[str]:
-    """The files matching `patterns`; a `.json` file is taken only if it is a target file (a database table),
-    so a stray settings file is not turned into a workbook."""
+    """The files matching `patterns`; a `*.target.json` file is always taken (a bad one becomes an error row, it does
+    not vanish); any other `.json` file only if it is a target file (a database table), so a stray settings file is not
+    turned into a workbook."""
     paths: list[str] = []
     for pattern in patterns:
         paths.extend(glob.glob(os.path.join(glob.escape(directory), pattern)))
-    return sorted(p for p in set(paths) if not p.lower().endswith(".json") or is_target_file(p))
+    return sorted(p for p in set(paths) if not p.lower().endswith(".json") or p.lower().endswith(".target.json")
+                  or is_target_file(p))
 
 
 def _output_names(paths: list[str], prefix: str, output_dir: Path) -> dict[str, Path]:

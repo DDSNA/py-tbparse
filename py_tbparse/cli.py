@@ -485,7 +485,7 @@ def _run_targets() -> int:
 
 
 def _run_target_make(ap, args) -> int:
-    from .connections import TARGET_FORMAT, load_target
+    from .connections import TARGET_FORMAT, check_target
     from .schema import read_schema
     out = Path(args.output)
     if out.exists() and not args.overwrite:
@@ -515,14 +515,16 @@ def _run_target_make(ap, args) -> int:
         if getattr(args, key):
             body[key] = getattr(args, key)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(body, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    text = json.dumps(body, indent=2, ensure_ascii=False) + "\n"
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        target = check_target(json.loads(text), out, experimental=args.experimental)   # nothing is written if it fails
+    tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")
     try:
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            target = load_target(str(out), experimental=args.experimental)
-    except Exception:
-        out.unlink()
-        raise
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, out)                   # an existing good file is replaced only by a complete, checked one
+    finally:
+        tmp.unlink(missing_ok=True)
     for w in caught:
         print(f"note: {w.message}", file=sys.stderr)
     if target["unverified_types"]:

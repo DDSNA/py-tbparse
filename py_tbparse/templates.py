@@ -1184,7 +1184,7 @@ def _file_connection(data: DataSource, local_of: dict[str, str], model: Optional
         rec = etree.SubElement(records, "metadata-record", {"class": "column"})
         for tag, text in (
             ("remote-name", f["name"]), ("remote-type", remote_type),
-            ("local-name", local_of[f["name"]]), ("parent-name", f"[{table}]"),
+            ("local-name", local_of[f["name"]]), ("parent-name", "[" + table.replace("]", "]]") + "]"),
             ("remote-alias", f["name"]), ("ordinal", str(i + ordinal_base)), ("local-type", f["datatype"]),
             ("aggregation", aggregation), ("contains-null", "true"),
         ):

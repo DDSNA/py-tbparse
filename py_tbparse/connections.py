@@ -15,6 +15,7 @@ to a wrong `remote-type` is not known. Nothing here is a credential: `username` 
 from __future__ import annotations
 
 import json
+import re
 import warnings
 from dataclasses import dataclass, field as _field
 from pathlib import Path
@@ -136,7 +137,14 @@ def connection_attributes(target: dict) -> dict:
     return {k: values[v[1:]] if v.startswith("$") else v for k, v in conn.attributes.items()}
 
 
+# `user:password@host` in any string (a connection URL or a bare login); a guard against a pasted login, not a guarantee.
+_LOGIN_IN_TEXT = re.compile(r"[^\s/@:]+:[^\s/@]+@")
+_PLAIN_NAME = re.compile(r"[A-Za-z0-9_.-]+")
+
+
 def _reject_credentials(node, path: str = "") -> None:
+    """Refuse credential keys, and strings that look like `user:password@host`. The message names the key, never
+    echoes the value."""
     if isinstance(node, dict):
         for key, value in node.items():
             if str(key).lower() in _CREDENTIAL_KEYS:
@@ -146,6 +154,9 @@ def _reject_credentials(node, path: str = "") -> None:
     elif isinstance(node, list):
         for i, item in enumerate(node):
             _reject_credentials(item, f"{path}{i}.")
+    elif isinstance(node, str) and _LOGIN_IN_TEXT.search(node):
+        raise TemplateError(f"a target file must not hold credentials, but the value of {path.rstrip('.') or 'a key'!r} "
+                            "looks like user:password@host; Tableau asks for the login when the workbook opens")
 
 
 def is_target_file(path: str) -> bool:
@@ -161,20 +172,33 @@ def load_target(path: str, experimental: bool = False) -> dict:
     """Read and check a target file; return it with `columns` (name, SQL type, Tableau type) filled in from
     `columns` or from `schema_file` (a path relative to the target file: a CREATE TABLE or a JSON column list).
 
-    Refuses, naming the problem: a file without `"format": "py-tbparse-target"`, credential keys, an unknown class
-    (the known ones are listed), a class that is not verified against Tableau's own output unless `experimental`,
-    missing or surplus keys for the class, an authentication value Tableau was not seen to write, no columns or
-    both kinds of column description."""
+    Refuses, naming the problem: a file without `"format": "py-tbparse-target"`, credential keys or values that look
+    like `user:password@host`, an unknown class (the known ones are listed), a class that is not verified against
+    Tableau's own output unless `experimental`, missing or surplus keys for the class, an authentication value Tableau
+    was not seen to write, a port outside 1-65535, control characters in a name, no columns or both kinds of column
+    description."""
     p = Path(path)
     try:
         raw = json.loads(p.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as e:
         raise TemplateError(f"{p.name} is not valid JSON: {e}") from None
+    return check_target(raw, p, experimental)
+
+
+def check_target(raw, p: Path, experimental: bool = False) -> dict:
+    """`load_target` for a target already read (or about to be written) as `raw`; `p` names it in messages and is
+    what `schema_file` is relative to."""
     if not isinstance(raw, dict) or raw.get("format") != TARGET_FORMAT:
         raise TemplateError(f"{p.name} is not a target file (it needs \"format\": \"{TARGET_FORMAT}\")")
-    if int(raw.get("version", 1)) > TARGET_VERSION:
+    version = raw.get("version", 1)
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise TemplateError(f"{p.name}: \"version\" must be a whole number")
+    if version > TARGET_VERSION:
         raise TemplateError(f"{p.name} was made by a newer py-tbparse (target v{raw['version']})")
     _reject_credentials(raw)
+    if isinstance(raw.get("authentication"), str) and ":" in raw["authentication"]:
+        raise TemplateError(f"{p.name}: \"authentication\" looks like a login (it has a colon); a target file must not "
+                            "hold credentials, Tableau asks for them when the workbook opens")
     unknown = sorted(set(raw) - _TARGET_KEYS)
     if unknown:
         raise TemplateError(f"{p.name}: unknown key(s) {', '.join(unknown)}; a target has: {', '.join(sorted(_TARGET_KEYS))}")
@@ -189,6 +213,12 @@ def load_target(path: str, experimental: bool = False) -> dict:
     for key in ("server", "dbname", "table") + conn.needs + (("schema",) if conn.schema == "required" else ()):
         if not isinstance(raw.get(key), str) or not raw[key].strip():
             raise TemplateError(f"{p.name}: class {cls} needs \"{key}\"")
+    for key in ("server", "dbname", "table", "schema", "warehouse"):
+        if isinstance(raw.get(key), str) and any(ord(ch) < 32 or ord(ch) == 127 for ch in raw[key]):
+            raise TemplateError(f"{p.name}: \"{key}\" holds a control character (a line break, tab or NUL)")
+    if raw["table"] != raw["table"].strip():
+        raise TemplateError(f"{p.name}: \"table\" has spaces at its start or end ({raw['table']!r}); "
+                            "a table name written that way would not be found")
     if conn.schema == "forbidden" and raw.get("schema"):
         raise TemplateError(f"{p.name}: class {cls} has no schema (the database name is dbname); remove \"schema\"")
     if "warehouse" in raw and "warehouse" not in conn.needs:
@@ -196,16 +226,23 @@ def load_target(path: str, experimental: bool = False) -> dict:
     if conn.default_port is None and raw.get("port") not in (None, ""):
         raise TemplateError(f"{p.name}: Tableau writes no port for class {cls}; remove \"port\"")
     if raw.get("port") not in (None, ""):
-        if not str(raw["port"]).isdigit():
-            raise TemplateError(f"{p.name}: port must be a number, got {raw['port']!r}")
-        target["port"] = str(raw["port"])
+        port = raw["port"]
+        if isinstance(port, bool) or not isinstance(port, (int, str)) or not re.fullmatch(r"[0-9]{1,5}", str(port)) \
+                or not 1 <= int(str(port)) <= 65535:
+            raise TemplateError(f"{p.name}: port must be a number from 1 to 65535, got {port!r}")
+        target["port"] = str(port)
     auth = raw.get("authentication")
-    if auth is not None and auth not in conn.authentication and not experimental:
-        seen = ", ".join(repr(a) for a in conn.authentication) or "no authentication"
-        raise TemplateError(f"{p.name}: authentication {auth!r} was not seen for class {cls} (Tableau wrote: {seen}); "
-                            "pass experimental=True (--experimental) to write it anyway")
+    if auth is not None and auth not in conn.authentication:
+        if not experimental:
+            seen = ", ".join(repr(a) for a in conn.authentication) or "no authentication"
+            raise TemplateError(f"{p.name}: authentication {auth!r} was not seen for class {cls} (Tableau wrote: {seen}); "
+                                "pass experimental=True (--experimental) to write it anyway")
+        if not isinstance(auth, str) or not _PLAIN_NAME.fullmatch(auth):
+            raise TemplateError(f"{p.name}: authentication must be a plain name (letters, digits, '_', '.', '-')")
     if ("columns" in raw) == ("schema_file" in raw):
         raise TemplateError(f"{p.name}: give the table's columns either as \"columns\" or as \"schema_file\", not both or neither")
+    if "schema_file" in raw and (not isinstance(raw["schema_file"], str) or not raw["schema_file"].strip()):
+        raise TemplateError(f"{p.name}: \"schema_file\" must be a path (text)")
     if "columns" in raw:
         schema = read_schema(raw["columns"])
     else:
