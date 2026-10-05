@@ -79,7 +79,7 @@ def wait_render(page, stamp):
 
 
 def test_settings_follow_column_names_when_the_table_changes_shape(page, wenjie_path):
-    """Review bug 1. Field renames gains a `kind` column at the front when widened to the whole report;
+    """Review bug 1. Field renames gains a `kind` column at the front (internal columns come last) when widened to the whole report;
     hidden columns, filters, widths and the sort must stay with their columns, not their positions."""
     from playwright.sync_api import expect
 
@@ -87,7 +87,7 @@ def test_settings_follow_column_names_when_the_table_changes_shape(page, wenjie_
     _open(page, "field-renames")
     _wait_meta(page, "3 row(s)")
     before = page.eval_on_selector_all("#tableWrap th .th-label", "els => els.map(e => e.textContent)")
-    assert before[0] == "datasource" and "kind" not in before
+    assert "datasource" in before and "kind" not in before
 
     _open_column_menu(page, "datasource")
     page.click("#menu >> text=Hide column")

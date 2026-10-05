@@ -190,7 +190,7 @@ def test_export_csv(server, wenjie_path):
         assert r.status == 200
         assert r.headers.get("Content-Type", "").startswith("text/csv")
         body = r.read().decode()
-    assert body.splitlines()[0].startswith("datasource,")
+    assert body.splitlines()[0].startswith("caption,datatype,")
 
 
 def test_dashboards_endpoint_empty_before_load(server):

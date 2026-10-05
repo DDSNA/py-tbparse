@@ -69,7 +69,7 @@ def test_field_usage_through_a_calculation(wenjie_path):
 def test_field_usage_table_and_cli(filtering, capsys):
     assert main([str(filtering), "field-usage", "-f", "csv"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("datasource,field,caption,kind")
+    assert out.startswith("field,caption,kind")
     assert "Sheet 1; Sheet 2" in out
 
 

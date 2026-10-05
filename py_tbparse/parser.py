@@ -11,6 +11,7 @@ from typing import Optional
 import pandas as pd
 from lxml import etree
 
+from ._clean import internal_last
 from ._xml import read_twb_from_twbx
 from .calculated_fields import _CALC_COLUMNS, _RAW_COLUMNS, extract_calculated_fields, extract_raw_fields
 from .dashboards import _DASHBOARD_COLUMNS, _SHEETS_COLUMNS, dashboard_sheets, list_dashboards
@@ -138,7 +139,7 @@ class TwbParser:
 
     # --- accessors ---
     def get_relations(self) -> pd.DataFrame:
-        return self.relations
+        return internal_last(self.relations)
 
     def get_joins(self) -> pd.DataFrame:
         return self.joins
@@ -150,16 +151,16 @@ class TwbParser:
         return self.inferred_relationships
 
     def get_datasources(self) -> pd.DataFrame:
-        return self.datasource_details["data_sources"]
+        return internal_last(self.datasource_details["data_sources"])
 
     def get_parameters(self) -> pd.DataFrame:
-        return self.datasource_details["parameters"]
+        return internal_last(self.datasource_details["parameters"])
 
     def get_datasources_all(self) -> pd.DataFrame:
         return self.datasource_details["all_sources"]
 
     def get_fields(self) -> pd.DataFrame:
-        return self.fields
+        return internal_last(self.fields)
 
     def get_calculated_fields(
         self,
@@ -168,30 +169,30 @@ class TwbParser:
         df = self.calculated_fields
         if not include_parameters and not df.empty and "datasource" in df.columns:
             df = df[df["datasource"] != "Parameters"]
-        return df
+        return internal_last(df)
 
     def get_raw_fields(self) -> pd.DataFrame:
-        return _safe_call(extract_raw_fields, pd.DataFrame(columns=_RAW_COLUMNS), self.xml_doc)
+        return internal_last(_safe_call(extract_raw_fields, pd.DataFrame(columns=_RAW_COLUMNS), self.xml_doc))
 
     def get_custom_sql(self) -> pd.DataFrame:
         return self.custom_sql
 
     def get_initial_sql(self) -> pd.DataFrame:
-        return self.initial_sql
+        return internal_last(self.initial_sql)
 
     def get_published_refs(self) -> pd.DataFrame:
-        return self.published_refs
+        return internal_last(self.published_refs)
 
     def get_dashboards(self) -> pd.DataFrame:
         return _safe_call(list_dashboards, pd.DataFrame(columns=_DASHBOARD_COLUMNS), self.xml_doc)
 
     def get_dashboard_sheets(self, dashboard: Optional[str] = None) -> pd.DataFrame:
-        return _safe_call(
+        return internal_last(_safe_call(
             dashboard_sheets,
             pd.DataFrame(columns=_SHEETS_COLUMNS),
             self.xml_doc,
             dashboard,
-        )
+        ))
 
     def get_relationship_graph_dot(self, include_inferred: bool = False) -> str:
         """Render joins + relationships (and optionally inferred
@@ -214,21 +215,21 @@ class TwbParser:
         """Suggested clean field names; see `rename.suggest_field_renames`."""
         from .rename import suggest_field_renames
 
-        return suggest_field_renames(self, reference=reference, **kwargs)
+        return internal_last(suggest_field_renames(self, reference=reference, **kwargs))
 
     def get_field_usage(self) -> pd.DataFrame:
         """Which sheets, dashboards and calculations use each field; see
         `usage.field_usage`."""
         from .usage import field_usage
 
-        return field_usage(self)
+        return internal_last(field_usage(self))
 
     def get_missing_references(self) -> pd.DataFrame:
         """Calculations that name a field the workbook does not have; see
         `usage.missing_references`."""
         from .usage import missing_references
 
-        return missing_references(self)
+        return internal_last(missing_references(self))
 
     def get_report(self) -> dict:
         """The workbook report card (summary, health checks); see `report.workbook_report`."""
@@ -242,7 +243,7 @@ class TwbParser:
         hierarchies); see `rename.suggest_renames`."""
         from .rename import suggest_renames
 
-        return suggest_renames(self, reference=reference, **kwargs)
+        return internal_last(suggest_renames(self, reference=reference, **kwargs))
 
     def write_renamed_workbook(self, output_path=None, renames=None, overwrite=False, **kwargs) -> str:
         """Save a copy of the workbook with clean field names; returns its
