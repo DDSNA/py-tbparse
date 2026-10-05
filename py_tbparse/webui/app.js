@@ -254,7 +254,7 @@ async function openWorkbook(label, request) {
     $('createBtn').hidden = state.uploaded;
     $('empty').hidden = true;
     $('controls').hidden = false;
-    if (tplOpen && keepTemplates) { $('controls').hidden = true; $('tplBack').textContent = 'Back to workbook'; }
+    if (tplOpen && keepTemplates) { TemplatesView.refresh(); $('controls').hidden = true; $('tplBack').textContent = 'Back to workbook'; }
     else if (tplOpen) setTemplatesMode(false);
     $('wbName').textContent = data.name || data.path;
     $('wbName').title = data.path || data.name;

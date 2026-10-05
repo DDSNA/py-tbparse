@@ -18,9 +18,11 @@ import collections.abc
 import secrets
 import shutil
 import signal
+import re
 import tempfile
 import threading
 import time
+import warnings
 import webbrowser
 from pathlib import Path
 from http.cookies import SimpleCookie
@@ -40,7 +42,7 @@ from .rename import (
     suggest_field_renames,
     suggest_renames,
 )
-from .templates import TemplateError, load_template, read_data
+from .templates import TemplateError, load_template, make_template, read_data
 
 # "tpl" is the Templates view's state (see `_tpl_new`); it stays None until the view is used. Defaults are copied
 # shallowly into each session, so every default must be immutable: a fresh dict is assigned on first use.
@@ -162,11 +164,13 @@ atexit.register(_clear_all_uploads)
 MAX_JSON_BYTES = 1 * 1024 * 1024
 _DISK_HEADROOM = 256 * 1024 * 1024
 _TPL_CREATE_LOCK = threading.Lock()  # only makes creating a session's template state atomic; holds no user data
+_WARN_LOCK = threading.Lock()  # `warnings.catch_warnings` is not thread safe; holds no user data
 
 _UPLOAD_ROUTES = frozenset({"/upload", "/template/upload-template", "/template/upload-data"})
 _UPLOAD_SLOTS = {"/upload": "workbook", "/template/upload-template": "template", "/template/upload-data": "data"}
 _PATH_ROUTES = frozenset({"/load", "/create-workbook", "/template/open", "/template/open-data", "/template/save"})
-_JSON_ROUTES = _PATH_ROUTES | frozenset({"/template/select-data", "/template/plan", "/template/apply", "/template/clear"})
+_JSON_ROUTES = _PATH_ROUTES | frozenset({"/template/select-data", "/template/plan", "/template/apply", "/template/clear",
+                                         "/template/make", "/template/use-made"})
 
 _PLAN_KEYS = frozenset({"datasource", "mapping", "params", "tokens"})
 # The only keys each route accepts. Anything else (path, output_path, answers, profile, data, ...) is refused by
@@ -179,7 +183,12 @@ _TEMPLATE_KEYS = {
     "/template/apply": _PLAN_KEYS | {"allow_missing", "data_path"},
     "/template/save": _PLAN_KEYS | {"allow_missing", "data_path"},
     "/template/clear": frozenset(),
+    # make takes no path and no option that reads one: the file is named by the server, inside the session folder
+    "/template/make": frozenset({"name", "description"}),
+    "/template/use-made": frozenset(),
 }
+MAX_NAME = 120
+MAX_DESCRIPTION = 2000
 _DATA_EXTENSIONS = (".csv", ".tsv", ".txt", ".xlsx", ".xlsm", ".twb", ".twbx", ".tds")
 
 
@@ -189,7 +198,8 @@ def _tpl_new() -> dict:
             "template_summary": None,
             "data": None, "data_label": None, "data_path": None, "data_uploaded": False, "data_summary": None,
             "sheets": None, "datasources": None,
-            "output": None, "output_name": None}
+            "output": None, "output_name": None,
+            "made": None, "made_name": None, "made_summary": None}
 
 
 def _tpl_state(create: bool = False):
@@ -290,9 +300,18 @@ def _payload_problem(route: str, payload: dict):
             return f"{name!r} must be an object of names to values"
         return None
 
-    for name in ("datasource", "sheet", "path"):
+    for name in ("datasource", "sheet", "path", "name", "description"):
         if payload.get(name) is not None and not isinstance(payload[name], str):
             return f"{name!r} must be text"
+    if len(payload.get("name") or "") > MAX_NAME:
+        return f"'name' is longer than {MAX_NAME} characters"
+    if any(ord(c) < 32 or ord(c) == 127 for c in payload.get("name") or ""):
+        return "'name' must be one line of text"
+    description = payload.get("description") or ""
+    if len(description) > MAX_DESCRIPTION:
+        return f"'description' is longer than {MAX_DESCRIPTION} characters"
+    if any((ord(c) < 32 and c not in "\n\r\t") or ord(c) == 127 for c in description):
+        return "'description' has a character that cannot be saved"
     problem = (text_map("mapping", lambda x: x is None or isinstance(x, str))
                or text_map("params", lambda x: isinstance(x, (str, int, float)))
                or text_map("tokens", lambda x: isinstance(x, str)))
@@ -344,6 +363,13 @@ def _read_data_slot(path: str, label: str, sheet=None, datasource=None):
     if data.kind not in ("csv", "excel", "tableau"):
         raise TemplateError(f"{label} cannot be used as data in the GUI")
     return data, template_gui.data_summary(data, label=label), choices
+
+
+def _template_file_name(name: str, source: str) -> str:
+    """A safe file name for a made template: letters, digits, spaces, dots, dashes and underscores only, so
+    the typed name can never be a path. With no usable name, the workbook's own name."""
+    stem = re.sub(r"[^\w .\-]", "_", name or "").replace("..", "_").strip(" ._")[:80].strip(" ._")
+    return (stem or Path(source).stem or "workbook") + ".template.twbx"
 
 
 def _upload_problem(name: str, head: bytes, slot: str = "workbook") -> str | None:
@@ -829,7 +855,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/template/output":
-            self._template_output()
+            self._template_download("output", "No workbook has been created yet")
+            return
+
+        if parsed.path == "/template/made":
+            self._template_download("made", "No template has been made yet")
             return
 
         self._send(404, "not found", "text/plain")
@@ -1035,6 +1065,10 @@ class Handler(BaseHTTPRequestHandler):
             self._template_select(payload)
         elif route == "/template/plan":
             self._template_plan(payload)
+        elif route == "/template/make":
+            self._template_make(payload)
+        elif route == "/template/use-made":
+            self._template_use_made()
         else:
             self._template_apply(payload, save=route == "/template/save")
 
@@ -1183,29 +1217,119 @@ class Handler(BaseHTTPRequestHandler):
                 answer["path"] = final
         self._tpl_send(answer, 200, tpl)
 
+    def _template_make(self, payload: dict) -> None:
+        """Make a template from the open workbook into the session folder (never a path from the page), keeping
+        only the newest one. The answer is the new template's summary, so the page can offer to use it."""
+        parser, source = _STATE["parser"], _STATE["path"]
+        if parser is None:
+            self._tpl_send({"error": "Open a workbook first; the template is made from it."}, 400)
+            return
+        label = os.path.basename(str(source).replace("\\", "/"))
+        extra = [(source, label)]
+        tpl = _tpl_state(create=True)
+        name = (payload.get("name") or "").strip()
+        description = (payload.get("description") or "").strip()
+        try:
+            size = os.path.getsize(parser.twbx_path or parser.path)
+        except OSError:
+            size = 0
+        if _free_bytes(tempfile.gettempdir()) < 2 * size + _DISK_HEADROOM:
+            self._tpl_send({"error": "The server is short of disk space; try again later."}, 507, tpl, extra)
+            return
+        file_name = _template_file_name(name, label)
+        with tpl["lock"]:
+            try:
+                folder = tempfile.mkdtemp(prefix="made-", dir=_tpl_dir(tpl))
+            except OSError as e:
+                self._tpl_send({"error": str(e)}, 400, tpl, extra)
+                return
+            dest = os.path.join(folder, file_name)
+            extra += [(dest, file_name), (folder, "(upload)")]
+            try:
+                with _WARN_LOCK, warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    make_template(parser, output_path=dest, name=name or None, description=description or None)
+                notes = [str(w.message) for w in caught if issubclass(w.category, UserWarning)][:20]
+                made = load_template(dest)
+                summary = template_gui.template_summary(made, label=file_name)
+            except (TemplateError, ValueError, FileExistsError, OSError) as e:
+                shutil.rmtree(folder, ignore_errors=True)
+                self._tpl_send({"error": str(e)}, 400, tpl, extra)
+                return
+            except Exception as e:
+                shutil.rmtree(folder, ignore_errors=True)
+                self._tpl_send({"error": f"could not make the template: {e}"}, 500, tpl, extra)
+                return
+            if tpl["made"]:
+                shutil.rmtree(os.path.dirname(tpl["made"]), ignore_errors=True)
+            tpl.update(made=dest, made_name=file_name, made_summary=summary)
+            answer = {"ok": True, "name": file_name, "size": os.path.getsize(dest), "template": summary,
+                      "notes": notes}
+        self._tpl_send(answer, 200, tpl, extra)
+
+    def _template_use_made(self) -> None:
+        """Put a copy of the made template into the template slot, as if it had been dropped there. It is a
+        copy, so choosing another template later does not delete the made file."""
+        tpl = _tpl_state()
+        if tpl is None or not tpl["made"] or not os.path.isfile(tpl["made"]):
+            self._tpl_send({"error": "Make a template first."}, 400, tpl)
+            return
+        with tpl["lock"]:
+            name = tpl["made_name"]
+            try:
+                folder = tempfile.mkdtemp(prefix="template-", dir=_tpl_dir(tpl))
+            except OSError as e:
+                self._tpl_send({"error": str(e)}, 400, tpl)
+                return
+            dest = os.path.join(folder, name)
+            extra = [(dest, name), (folder, "(upload)")]
+            try:
+                shutil.copyfile(tpl["made"], dest)
+                obj = load_template(dest)
+                summary = template_gui.template_summary(obj, label=name)
+            except Exception as e:
+                shutil.rmtree(folder, ignore_errors=True)
+                self._tpl_send({"error": f"could not use {name}: {e}"}, 400, tpl, extra)
+                return
+            self._tpl_fill(tpl, "template", obj, summary, {}, dest, name, uploaded=True)
+        self._tpl_send({"ok": True, "template": summary}, 200, tpl)
+
     def _template_state(self) -> None:
         """What a reloaded page needs to restore the view: the two summaries, the data choices, the output."""
         tpl = _tpl_state()
         if tpl is None:
-            self._tpl_send({"template": None, "data": None, "sheets": None, "datasources": None, "output": None})
+            self._tpl_send({"template": None, "data": None, "sheets": None, "datasources": None, "output": None,
+                            "workbook": self._open_workbook_name(), "made": None})
             return
         output = None
         if tpl["output"] and os.path.isfile(tpl["output"]):
             output = {"name": tpl["output_name"], "size": os.path.getsize(tpl["output"])}
+        made = None
+        if tpl["made"] and os.path.isfile(tpl["made"]):
+            made = {"name": tpl["made_name"], "size": os.path.getsize(tpl["made"]), "template": tpl["made_summary"]}
         self._tpl_send({"template": tpl["template_summary"], "data": tpl["data_summary"], "sheets": tpl["sheets"],
-                        "datasources": tpl["datasources"], "output": output}, 200, tpl)
+                        "datasources": tpl["datasources"], "output": output, "workbook": self._open_workbook_name(),
+                        "made": made}, 200, tpl)
 
-    def _template_output(self) -> None:
+    @staticmethod
+    def _open_workbook_name():
+        """The open workbook as the Templates view needs it: its file name only, or None."""
+        if _STATE["parser"] is None:
+            return None
+        return {"name": os.path.basename(str(_STATE["path"]).replace("\\", "/"))}
+
+    def _template_download(self, key: str, missing: str) -> None:
+        """Send this session's output workbook (`output`) or made template (`made`), or a 404."""
         tpl = _tpl_state()
         data = name = None
         if tpl is not None:
             with tpl["lock"]:
-                if tpl["output"] and os.path.isfile(tpl["output"]):
-                    with open(tpl["output"], "rb") as fh:
+                if tpl[key] and os.path.isfile(tpl[key]):
+                    with open(tpl[key], "rb") as fh:
                         data = fh.read()
-                    name = tpl["output_name"]
+                    name = tpl[key + "_name"]
         if data is None:
-            self._send(404, "No workbook has been created yet", "text/plain")
+            self._send(404, missing, "text/plain")
             return
         self._send(200, data, "application/octet-stream", {"Content-Disposition": _attachment(name)})
 

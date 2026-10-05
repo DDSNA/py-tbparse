@@ -45,7 +45,8 @@ _FREEZE = "*,*::before,*::after{caret-color:transparent!important;animation:none
 
 
 def _templates_states(browser, url, shot) -> None:
-    """The Templates view: empty, the field matching, and the review panel (WP9)."""
+    """The Templates view: empty, the field matching, the review panel, and making a template from the open
+    workbook (WP9). The last one needs a workbook open on the server, which `capture` has done by then."""
     import csv
     import tempfile
 
@@ -77,6 +78,16 @@ def _templates_states(browser, url, shot) -> None:
         page.locator("#tplPlanTitle").scroll_into_view_if_needed()
         time.sleep(0.4)
         shot(page, "10-templates-review.png")
+        page.close()
+        page = browser.new_page(viewport={"width": 1360, "height": 900}, color_scheme="light")
+        page.goto(url + "/#templates")
+        page.wait_for_selector("#tplMakeBtn")
+        page.click("#tplMakeBtn")
+        page.wait_for_selector("#tplMadeUse")
+        page.click("#status")   # the toast hides on a click, so it does not cover the card
+        page.evaluate("() => document.getElementById('tplMakeTitle').scrollIntoView()")
+        time.sleep(0.4)
+        shot(page, "11-templates-make.png")
         page.close()
 
 

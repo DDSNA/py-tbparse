@@ -71,7 +71,11 @@ app side is `webgui._CONFIG` (`--server-mode`, `--allowed-host`, `--trust-proxy`
 - The Templates view's endpoints (`/template/*`, built on `template_gui.py`) keep their state in
   `_STATE["tpl"]` (one template slot, one data slot, one output, in a per-session temp folder deleted by
   `_drop_session`). Their JSON bodies are capped at `MAX_JSON_BYTES`, accept only the keys in `_TEMPLATE_KEYS`,
-  and every answer goes through `_scrub()`, so no server temp path reaches the page.
+  and every answer goes through `_scrub()`, so no server temp path reaches the page. `POST /template/make`
+  (`{name, description}` only) writes `make_template` output into the session folder (`made`, one at a time; the file
+  name comes from `_template_file_name`, never a path from the page) and is allowed in server mode, because it takes
+  the open workbook and no path; `POST /template/use-made` copies it into the template slot; `GET /template/made`
+  downloads it. `/template/state` also says which workbook is open (`workbook`, a file name) and what was made.
 - A POST handler that refuses a request before reading its body (wrong host, origin or content type, unknown
   path) must drain the body first with `Handler._drain(length)` (`_refuse_post` does it). Answering and closing
   while bytes still arrive can make the client, Windows in particular, see a connection reset instead of the
@@ -323,7 +327,8 @@ chosen template and data (`S.gen`); an edit only changes `S.rv` (edits, params, 
 `PLAN_DELAY` ms with an `AbortController`, and updates rows in place so focus is kept. A mapping `<select>` holds only its
 chosen option until it gets focus or pointer-down, and empties on blur. `/template/plan` takes `allow_missing`, so the page
 can show what Create anyway would do; `plan()` returns `missing_required` and an `error` on each parameter and token row. Tests: `tests/test_webgui_templates_view.py` (no browser), `tests/test_gui_templates.py`
-(Chromium).
+(Chromium). The "Make a template from your open workbook" section (`#tplMake`, 9e) is drawn by `renderMake()`;
+`TemplatesView.refresh()` is how `app.js` tells it a workbook was opened while the view is showing.
 
 `POST /upload` (drag and drop, Open file) takes raw bytes with `Content-Type: application/octet-stream` and the name
 in `X-Filename`: neither is CORS-safelisted, so another site cannot send it without a preflight. It streams to a
@@ -381,8 +386,8 @@ animations on those tokens.
 (built by `scripts/make_demo_workbook.py`, which is the one place that workbook is defined); run both after a
 visible change.
 
-`scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures nine GUI states (start,
-overview and fields in light and dark, renames, graph, phone width) deterministically. Use it for GUI
+`scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures the GUI states (start,
+overview and fields in light and dark, renames, graph, phone width, and the Templates view: empty, mapping, review, make) deterministically. Use it for GUI
 refactors: a pure refactor must compare all-identical to the baseline taken before it; a redesign is expected to
 differ, so review the new look and re-capture the baseline. The redesign plan and its decisions are in
 `docs/ui-redesign-plan.md`.

@@ -338,6 +338,17 @@ button.stat:hover { border-color: var(--primary); transform: translateY(-2px); b
   .tpl-view { padding: var(--space-3); }
   .tpl-card { padding: var(--space-3); }
 }
+/* make a template from the open workbook (9e) */
+.tpl-make { margin-top: var(--space-4); background: var(--panel); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); box-shadow: var(--shadow-1); padding: var(--space-4) var(--space-5); min-width: 0; }
+.tpl-make .tpl-in .field { width: 100%; }
+.tpl-make textarea.field { min-height: 4.5em; resize: vertical; font: inherit; }
+.tpl-made { display: grid; gap: var(--space-2); min-width: 0; margin-top: var(--space-3); padding-top: var(--space-3);
+            border-top: 1px solid var(--border); }
+.tpl-notes { margin: 0; padding-left: var(--space-5); overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .tpl-make { padding: var(--space-3); }
+}
 /* step 3: match, review, create */
 .tpl-sec { display: grid; gap: var(--space-2); min-width: 0; margin-top: var(--space-4); padding-top: var(--space-3);
   border-top: 1px solid var(--border); }

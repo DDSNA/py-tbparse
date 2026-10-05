@@ -70,13 +70,13 @@ def test_templates_js_is_served_and_defines_the_view(server):  # noqa: F811
         assert r.headers["Content-Type"].startswith("text/javascript")
     js = _page_script(server, "templates.js")
     assert "window.TemplatesView = " in js
-    for member in ("init", "show", "hide", "acceptDrop", "dropHint", "getState"):
+    for member in ("init", "show", "hide", "refresh", "acceptDrop", "dropHint", "getState"):
         assert re.search(rf"\b{member}\b", js), member
-    # it uses the endpoints of 9b and nothing else
+    # it uses the endpoints of 9b and 9e and nothing else
     routes = set(re.findall(r"'(/template/[a-z-]+)'", js))
     assert routes == {"/template/state", "/template/upload-template", "/template/upload-data", "/template/open",
                       "/template/open-data", "/template/select-data", "/template/plan", "/template/apply",
-                      "/template/save", "/template/output"}
+                      "/template/save", "/template/output", "/template/make", "/template/use-made", "/template/made"}
 
 
 def test_templates_js_keeps_to_the_page_rules(server):  # noqa: F811
@@ -152,3 +152,23 @@ def test_the_view_css_has_the_step_three_rules():
     assert not re.search(r"#[0-9a-fA-F]{3,6}\b", block)
     # the table turns into stacked rows on a phone instead of scrolling sideways
     assert "attr(data-label)" in block
+
+
+# --- 9e: make a template from the open workbook -----------------------------------------------------------------
+
+def test_the_page_has_the_make_section_after_the_steps(html):
+    assert "tplMake" in _ids(html) and "tplMakeTitle" in _ids(html) and "tplMakeBody" in _ids(html)
+    assert html.index("</ol>") < html.index('id="tplMake"') < html.index('id="tplTemplatePick"')
+    assert re.search(r'<section id="tplMake"[^>]*aria-labelledby="tplMakeTitle"', html)
+
+
+def test_templates_js_talks_to_the_make_routes():
+    js = (WEBUI / "templates.js").read_text(encoding="utf-8")
+    for needed in ("/template/make", "/template/use-made", "/template/made", "tplMakeBtn", "tplMadeUse", "tplMadeDownload"):
+        assert needed in js, needed
+    assert "keep_data" not in js and "output_path" not in js and "template_id" not in js
+
+
+def test_app_js_tells_the_view_when_a_workbook_opens():
+    app = (WEBUI / "app.js").read_text(encoding="utf-8")
+    assert "TemplatesView.refresh" in app

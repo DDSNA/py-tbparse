@@ -692,3 +692,145 @@ def test_every_control_in_step_three_has_a_name_and_the_table_has_headers(gui, t
     assert page.locator("#tplMap th[scope=col]").count() == 5
     assert page.locator("#tplPlanLive[role=status]").count() == 1
     assert page.js_errors == []
+
+
+# --- 9e: make a template from the open workbook --------------------------------------------------------------
+
+def _make_ready(page, path):
+    _load(page, path)
+    _open_view(page)
+    page.wait_for_selector("#tplMakeBtn")
+
+
+def test_with_no_workbook_the_make_section_says_to_open_one_first(gui):
+    page = gui
+    _open_view(page)
+    assert page.locator("#tplMake").is_visible()
+    assert "Open a workbook first" in page.inner_text("#tplMakeBody")
+    assert page.locator("#tplMakeBtn").count() == 0
+    assert page.js_errors == []
+
+
+def test_making_a_template_gives_a_download_and_a_use_button(gui, tmp_path):
+    page = gui
+    _make_ready(page, str(PUBLIC_FIXTURES / "filtering.twb"))
+    assert "filtering.twb" in page.inner_text("#tplMakeBody")
+    page.fill("#tplMakeName", "Sales report")
+    page.fill("#tplMakeDesc", "Monthly sales")
+    page.click("#tplMakeBtn")
+    page.wait_for_selector("#tplMadeDownload", timeout=20_000)
+    assert "Sales report.template.twbx" in page.inner_text("#tplMakeBody")
+    assert "required field" in page.inner_text("#tplMakeBody")
+    with page.expect_download() as info:
+        page.click("#tplMadeDownload")
+    out = tmp_path / "got.template.twbx"
+    info.value.save_as(str(out))
+    t = load_template(str(out))
+    assert t.name == "Sales report" and t.manifest["description"] == "Monthly sales"
+    assert page.js_errors == []
+
+
+def test_use_it_as_the_template_fills_step_one_and_moves_on_to_the_data(gui):
+    page = gui
+    _make_ready(page, str(PUBLIC_FIXTURES / "filtering.twb"))
+    page.click("#tplMakeBtn")
+    page.wait_for_selector("#tplMadeUse", timeout=20_000)
+    page.click("#tplMadeUse")
+    page.wait_for_selector("#tplCard1[data-state=done]", timeout=15_000)
+    assert page.locator("#tplCard1 .tpl-file").inner_text() == "filtering.template.twbx"
+    assert page.locator("#tplCard1 .tpl-name").inner_text() == "filtering"
+    assert page.get_attribute("#tplCard2", "aria-disabled") is None
+    assert page.evaluate("() => document.activeElement.id") == "tplH2"
+    assert page.js_errors == []
+
+
+def test_a_made_template_then_a_csv_gives_a_workbook(gui, tmp_path):
+    page = gui
+    _make_ready(page, str(PUBLIC_FIXTURES / "filtering.twb"))
+    page.click("#tplMakeBtn")
+    page.wait_for_selector("#tplMadeUse", timeout=20_000)
+    page.click("#tplMadeUse")
+    page.wait_for_selector("#tplCard1[data-state=done]")
+    path = tmp_path / "match.csv"
+    entry = next(e for e in webgui._tpl_state()["template"].manifest["datasources"] if e["fields"])
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow([f["remote"] for f in entry["fields"]])
+        w.writerow(["x"] * len(entry["fields"]))
+    _data_chosen(page, path)
+    page.wait_for_selector("#tplMapBody tr")
+    _ready(page)
+    with page.expect_download():
+        page.click("#tplCreate")
+    assert page.js_errors == []
+
+
+def test_the_made_template_comes_back_after_a_reload(gui):
+    page = gui
+    _make_ready(page, str(PUBLIC_FIXTURES / "filtering.twb"))
+    page.click("#tplMakeBtn")
+    page.wait_for_selector("#tplMadeDownload", timeout=20_000)
+    page.reload()
+    page.wait_for_selector("#templatesView:not([hidden])")
+    page.wait_for_selector("#tplMadeDownload")
+    assert page.js_errors == []
+
+
+def test_a_workbook_opened_before_the_view_turns_the_section_on(gui):
+    page = gui
+    _open_view(page)
+    assert page.locator("#tplMakeBtn").count() == 0
+    page.evaluate("""async (path) => {
+      await fetch('/load', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path})});
+    }""", str(PUBLIC_FIXTURES / "filtering.twb"))
+    page.click("#tplBack")
+    page.click("#tplBtn")
+    page.wait_for_selector("#tplMakeBtn")
+    assert page.js_errors == []
+
+
+def test_a_made_template_that_is_refused_shows_the_reason_and_the_page_stays_usable(gui):
+    page = gui
+    _make_ready(page, str(PUBLIC_FIXTURES / "filtering.twb"))
+    page.route("**/template/make", lambda route: route.fulfill(
+        status=400, content_type="application/json", body=json.dumps({"error": "Nothing to make here."})))
+    page.click("#tplMakeBtn")
+    page.wait_for_selector("#tplMakeMsg:not(:empty)")
+    assert "Nothing to make here." in page.inner_text("#tplMakeMsg")
+    assert page.locator("#tplMakeBtn").is_enabled()
+    page.unroute("**/template/make")
+    assert [e for e in page.js_errors if "400" not in e] == []
+
+
+def test_server_mode_makes_a_template_from_an_uploaded_workbook(browser, server_url):
+    page = new_page(browser, server_url)
+    try:
+        page.set_input_files("#filePick", str(PUBLIC_FIXTURES / "filtering.twb"))
+        page.wait_for_function("() => document.getElementById('status').textContent.startsWith('Opened')", timeout=15_000)
+        page.click("#tplBtn")
+        page.wait_for_selector("#tplMakeBtn")
+        page.click("#tplMakeBtn")
+        page.wait_for_selector("#tplMadeDownload", timeout=20_000)
+        body = page.inner_text("#tplMakeBody")
+        import tempfile
+        assert tempfile.gettempdir() not in body and "py-tbparse-" not in body
+        assert page.js_errors == []
+    finally:
+        page.ctx.close()
+
+
+def test_the_make_section_has_names_no_sideways_scroll_and_a_sane_tab_order(gui):
+    page = gui
+    page.set_viewport_size({"width": 320, "height": 700})
+    _make_ready(page, str(PUBLIC_FIXTURES / "filtering.twb"))
+    page.click("#tplMakeBtn")
+    page.wait_for_selector("#tplMadeUse", timeout=20_000)
+    assert page.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    unnamed = page.evaluate("""() => [...document.querySelectorAll('#tplMake input, #tplMake textarea, #tplMake button, #tplMake a')]
+      .filter((c) => c.offsetParent !== null && !(c.getAttribute('aria-label') || '').trim() && !(c.labels && c.labels.length)
+        && !c.textContent.trim()).map((c) => c.outerHTML.slice(0, 80))""")
+    assert unnamed == []
+    order = page.evaluate("""() => [...document.querySelectorAll('#tplMake input, #tplMake textarea, #tplMake button, #tplMake a')]
+      .filter((c) => c.offsetParent !== null).map((c) => c.id)""")
+    assert order == ["tplMakeName", "tplMakeDesc", "tplMakeBtn", "tplMadeDownload", "tplMadeUse"]
+    assert page.js_errors == []

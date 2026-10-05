@@ -14,7 +14,7 @@ py-tbparse template apply sales.template.twbx --data q3.csv --mapping-out map.cs
 py-tbparse template apply sales.template.twbx --data q3.csv --mapping map.csv -p "Top N=10" --write
 ```
 
-**In the GUI.** `py-tbparse-gui` has a **Templates** button that does the same in the browser: choose the template and the new data, check and change which column fills each field (the dropdowns offer matching types first), fill in parameters and text, see what would break, then download the workbook. See [Templates in the GUI](gui.md#templates).
+**In the GUI.** `py-tbparse-gui` has a **Templates** button that does the same in the browser: choose the template and the new data, check and change which column fills each field (the dropdowns offer matching types first), fill in parameters and text, see what would break, then download the workbook. You can also make a template from the workbook you have open in the GUI; see [Templates in the GUI](gui.md#templates).
 
 ```python
 from py_tbparse import make_template, load_template, read_data, suggest_mapping, apply_template

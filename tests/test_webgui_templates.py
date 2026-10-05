@@ -251,7 +251,8 @@ def test_state_restores_the_cards_after_a_reload(server, tpl_file, csv_file):
     c = Client(server)
     status, raw, _ = c.get("/template/state")
     assert status == 200 and json.loads(raw) == {"template": None, "data": None, "sheets": None,
-                                                 "datasources": None, "output": None}
+                                                 "datasources": None, "output": None, "workbook": None,
+                                                 "made": None}
     c.upload_file("/template/upload-template", tpl_file)
     c.upload_file("/template/upload-data", csv_file)
     state = json.loads(c.get("/template/state")[1])
@@ -404,7 +405,8 @@ def test_a_low_disk_refuses_an_upload_with_507(server, tpl_file, monkeypatch):
     assert webgui._STATE.base["tpl"] is None or webgui._STATE.base["tpl"]["template"] is None
 
 
-@pytest.mark.parametrize("route", ["/template/plan", "/template/apply", "/template/select-data", "/template/clear"])
+@pytest.mark.parametrize("route", ["/template/plan", "/template/apply", "/template/select-data", "/template/clear",
+                                   "/template/make", "/template/use-made"])
 def test_a_json_body_over_the_cap_is_413(server, route):
     body = json.dumps({"pad": "a" * (webgui.MAX_JSON_BYTES + 10)}).encode()
     status, data = Client(server).post(route, body)
@@ -751,3 +753,257 @@ def test_an_unexpected_apply_error_is_a_short_500(server, tpl_file, csv_file, mo
     assert status == 500 and "Traceback" not in data["error"]
     assert str(_session_tpl()["dir"]) not in data["error"]
     assert c.get("/template/output")[0] == 404
+
+
+# --- 10. make a template from the open workbook (9e) ----------------------------------------------------------
+
+FILTERING = PUBLIC_FIXTURES / "filtering.twb"
+
+
+def _manifest(zip_bytes):
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+        return json.loads(z.read("template.json"))
+
+
+def _open_workbook(c):
+    status, data = c.upload_file("/upload", FILTERING)
+    assert status == 200, data
+    return data
+
+
+@pytest.mark.parametrize("mode", ["local", "server"])
+def test_make_a_template_from_the_open_workbook(request, mode, tmp_path):
+    addr = request.getfixturevalue("server" if mode == "local" else "server_mode")
+    c = Client(addr, server_mode=mode == "server")
+    before = hashlib.sha256(FILTERING.read_bytes()).digest()
+    _open_workbook(c)
+
+    status, data = c.post("/template/make", {"name": "Sales report", "description": "Monthly sales"})
+    assert status == 200, data
+    assert data["ok"] is True and data["name"] == "Sales report.template.twbx" and data["size"] > 0
+    assert data["template"]["name"] == "Sales report" and data["template"]["description"] == "Monthly sales"
+    assert data["template"]["label"] == "Sales report.template.twbx"
+    assert isinstance(data["notes"], list)
+    assert "path" not in data
+
+    status, body, resp = c.get("/template/made")
+    assert status == 200 and resp.getheader("Content-Type") == "application/octet-stream"
+    assert "Sales report.template.twbx" in resp.getheader("Content-Disposition")
+    manifest = _manifest(body)
+    assert manifest["name"] == "Sales report" and manifest["source"] == "filtering.twb"
+
+    # what the API gives for the same workbook, apart from the new id
+    direct = tmp_path / "direct.template.twbx"
+    make_template(str(FILTERING), output_path=str(direct), name="Sales report", description="Monthly sales")
+    other = _manifest(direct.read_bytes())
+    assert {k: v for k, v in manifest.items() if k != "id"} == {k: v for k, v in other.items() if k != "id"}
+    assert hashlib.sha256(FILTERING.read_bytes()).digest() == before
+    if mode == "server":
+        _assert_no_temp_path(c.bodies)
+
+
+def test_make_without_a_workbook_is_a_plain_400(server):
+    status, data = Client(server).post("/template/make", {"name": "x"})
+    assert status == 400 and "workbook" in data["error"].lower()
+
+
+def test_make_with_no_name_uses_the_workbook_name(server):
+    c = Client(server)
+    _open_workbook(c)
+    status, data = c.post("/template/make", {})
+    assert status == 200, data
+    assert data["name"] == "filtering.template.twbx" and data["template"]["name"] == "filtering"
+    status, data = c.post("/template/make", {"name": "   "})
+    assert status == 200 and data["name"] == "filtering.template.twbx"
+
+
+@pytest.mark.parametrize("name", ["../../evil", "a/b\\c", "..", "C:\\Windows\\x", "x" * 100 + "<>:\"|?*"])
+def test_a_name_never_becomes_a_path(server, name):
+    c = Client(server)
+    _open_workbook(c)
+    status, data = c.post("/template/make", {"name": name})
+    assert status == 200, data
+    assert "/" not in data["name"] and "\\" not in data["name"] and data["name"].endswith(".template.twbx")
+    assert not data["name"].startswith(".")
+    made = Path(_session_tpl()["made"])
+    assert made.is_file() and Path(_session_tpl()["dir"]) in made.parents
+    assert not any(p.name.startswith("evil") for p in Path(_session_tpl()["dir"]).parent.iterdir())
+
+
+@pytest.mark.parametrize("payload", [
+    {"path": "/tmp/x.twbx"}, {"output_path": "/tmp/x.twbx"}, {"keep_data": True}, {"overwrite": True},
+    {"template_id": "x"}, {"revision_of": "/tmp/t.twbx"}, {"tokens": {"a": "b"}},
+])
+def test_make_takes_only_a_name_and_a_description(server, payload):
+    c = Client(server)
+    _open_workbook(c)
+    status, data = c.post("/template/make", payload)
+    assert status == 400 and "unknown key" in data["error"]
+    assert _session_tpl() is None or _session_tpl()["made"] is None
+
+
+@pytest.mark.parametrize("payload", [
+    {"name": 5}, {"name": ["a"]}, {"description": 5}, {"name": "x" * 121}, {"name": "a\nb"},
+    {"description": "d" * 2001}, {"name": "a\x00b"},
+])
+def test_make_bad_values_are_400(server, payload):
+    c = Client(server)
+    _open_workbook(c)
+    status, data = c.post("/template/make", payload)
+    assert status == 400 and data["error"]
+
+
+def test_a_description_may_have_several_lines(server):
+    c = Client(server)
+    _open_workbook(c)
+    status, data = c.post("/template/make", {"name": "n", "description": "line one\nline two"})
+    assert status == 200 and data["template"]["description"] == "line one\nline two"
+
+
+def test_a_second_make_replaces_the_first_file(server):
+    c = Client(server)
+    _open_workbook(c)
+    c.post("/template/make", {"name": "first"})
+    first = Path(_session_tpl()["made"])
+    status, data = c.post("/template/make", {"name": "second"})
+    assert status == 200
+    assert not first.exists() and Path(_session_tpl()["made"]).name == "second.template.twbx"
+    assert len(list(Path(_session_tpl()["dir"]).rglob("*.twbx"))) == 1
+
+
+def test_use_it_as_the_template_then_plan_and_create(server, tmp_path):
+    c = Client(server)
+    _open_workbook(c)
+    status, made = c.post("/template/make", {"name": "Mine"})
+    assert status == 200
+    status, data = c.post("/template/use-made", {})
+    assert status == 200 and data["ok"] is True
+    assert data["template"]["label"] == "Mine.template.twbx" and data["template"]["name"] == "Mine"
+    state = json.loads(c.get("/template/state")[1])
+    assert state["template"]["name"] == "Mine" and state["made"]["name"] == "Mine.template.twbx"
+
+    folder = tmp_path / "data"
+    folder.mkdir()
+    csv_path = folder / "d.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+        t = _session_tpl()["template"]
+        entry = next(e for e in t.manifest["datasources"] if e["fields"])
+        csv.writer(fh).writerow([f["remote"] for f in entry["fields"]])
+    assert c.upload_file("/template/upload-data", csv_path)[0] == 200
+    status, plan = c.post("/template/plan", {})
+    assert status == 200 and plan["ready"] is True, plan
+    status, applied = c.post("/template/apply", {})
+    assert status == 200, applied
+    # it was copied, so the download of the made file still works after a new template replaces the slot
+    assert c.get("/template/made")[0] == 200
+    # an uploaded-style template cannot be saved beside anything
+    status, data = c.post("/template/save", {})
+    assert status == 409
+
+
+def test_replacing_the_template_keeps_the_made_file(server, tpl_file):
+    c = Client(server)
+    _open_workbook(c)
+    c.post("/template/make", {"name": "Mine"})
+    c.post("/template/use-made", {})
+    status, _ = c.upload_file("/template/upload-template", tpl_file)
+    assert status == 200
+    status, body, _r = c.get("/template/made")
+    assert status == 200 and _manifest(body)["name"] == "Mine"
+
+
+def test_use_made_before_making_is_400(server):
+    c = Client(server)
+    _open_workbook(c)
+    status, data = c.post("/template/use-made", {})
+    assert status == 400 and "make" in data["error"].lower()
+    assert c.get("/template/made")[0] == 404
+
+
+def test_state_names_the_open_workbook_and_the_made_template(server):
+    c = Client(server)
+    assert json.loads(c.get("/template/state")[1])["workbook"] is None
+    _open_workbook(c)
+    state = json.loads(c.get("/template/state")[1])
+    assert state["workbook"] == {"name": "filtering.twb"} and state["made"] is None
+    c.post("/template/make", {"name": "Mine"})
+    state = json.loads(c.get("/template/state")[1])
+    assert state["made"]["name"] == "Mine.template.twbx" and state["made"]["size"] > 0
+    assert state["made"]["template"]["name"] == "Mine"
+
+
+def test_clear_drops_the_made_file(server):
+    c = Client(server)
+    _open_workbook(c)
+    c.post("/template/make", {"name": "Mine"})
+    folder = Path(_session_tpl()["dir"])
+    assert c.post("/template/clear", {})[0] == 200
+    assert not folder.exists() and c.get("/template/made")[0] == 404
+
+
+def test_two_sessions_make_their_own_template(server_mode):
+    a, b = Client(server_mode, server_mode=True), Client(server_mode, server_mode=True)
+    _open_workbook(a)
+    assert b.post("/template/make", {"name": "x"})[0] == 400, "the other session has no workbook open"
+    assert a.post("/template/make", {"name": "mine"})[0] == 200
+    assert b.get("/template/made")[0] == 404 and a.get("/template/made")[0] == 200
+
+
+def test_make_is_allowed_in_server_mode_and_checks_origin_and_type(server_mode):
+    c = Client(server_mode, server_mode=True)
+    _open_workbook(c)
+    assert c.post("/template/make", {"name": "x"})[0] == 200
+    assert c.post("/template/make", {"name": "x"}, headers={"Origin": "https://evil.example"})[0] == 403
+    assert c.post("/template/make", {"name": "x"}, headers={"Content-Type": "text/plain"})[0] == 415
+    assert c.get("/template/made", headers={"Host": "evil.example"})[0] == 403
+
+
+def test_make_warnings_come_back_as_notes_without_paths(server, monkeypatch):
+    import warnings as _w
+
+    real = webgui.make_template
+
+    def noisy(*args, **kwargs):
+        _w.warn("Sheet 1: a {{token}} inside a formula is left alone in " + str(_session_tpl()["dir"]))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(webgui, "make_template", noisy)
+    c = Client(server)
+    _open_workbook(c)
+    status, data = c.post("/template/make", {"name": "n"})
+    assert status == 200 and len(data["notes"]) == 1 and "token" in data["notes"][0]
+    assert str(_session_tpl()["dir"]) not in data["notes"][0]
+
+
+def test_make_low_disk_is_507(server, monkeypatch):
+    c = Client(server)
+    _open_workbook(c)
+    monkeypatch.setattr(webgui, "_free_bytes", lambda path: 1024)
+    status, data = c.post("/template/make", {"name": "n"})
+    assert status == 507 and "space" in data["error"]
+
+
+def test_make_unexpected_error_is_a_short_500(server, monkeypatch):
+    c = Client(server)
+    _open_workbook(c)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("deep inside " + str(_session_tpl()["dir"]))
+
+    monkeypatch.setattr(webgui, "make_template", boom)
+    status, data = c.post("/template/make", {"name": "n"})
+    assert status == 500 and "Traceback" not in data["error"] and str(_session_tpl()["dir"]) not in data["error"]
+    assert _session_tpl()["made"] is None
+
+
+def test_make_server_messages_never_name_the_temp_dir(server_mode):
+    c = Client(server_mode, server_mode=True)
+    c.post("/template/make", {"name": "n"})
+    c.post("/template/use-made", {})
+    _open_workbook(c)
+    c.post("/template/make", {"name": "n", "description": "d"})
+    c.post("/template/make", {"name": 3})
+    c.post("/template/use-made", {})
+    c.get("/template/made")
+    c.get("/template/state")
+    _assert_no_temp_path(c.bodies)

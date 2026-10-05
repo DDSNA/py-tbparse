@@ -36,6 +36,9 @@
     changing: {template: false, data: false},
     gen: 0,                  // counts the times a file was replaced; step 3 starts over when it changes
     rv: null,                // what the person has done in step 3, see freshReview
+    workbook: '',            // the file name of the open workbook, '' when none is open
+    made: null,              // the template made from it: {name, size, template, notes}
+    makeName: '', makeDesc: '', making: false, makeError: '',
   };
 
   // What step 3 holds: only what the person changed (edits), never a copy of the whole mapping.
@@ -181,10 +184,26 @@
       S.datasources = answer.datasources || null;
       S.dataName = (answer.data && answer.data.label) || S.dataName;
       S.sheetPick = (answer.data && answer.data.sheet) || '';
+      takeMake(answer);
       render();
     } catch (e) {
       if (mine === S.seq) D.fail(e);
     }
+  }
+
+  function takeMake(answer) {
+    S.workbook = (answer.workbook && answer.workbook.name) || '';
+    if (answer.made) S.made = {name: answer.made.name, size: answer.made.size, template: answer.made.template,
+      notes: (S.made && S.made.name === answer.made.name && S.made.notes) || []};
+    else S.made = null;
+  }
+
+  // The open workbook changed (app.js opened one): ask again which one is open, without touching the steps.
+  async function refresh() {
+    try {
+      takeMake(await D.fetchJSON('/template/state'));
+      renderMake();
+    } catch (e) { /* the next show() asks again */ }
   }
 
   // ---- drawing ---------------------------------------------------------------------------------------
@@ -292,12 +311,14 @@
     return wrap;
   }
 
-  function findings(all) {
+  function findings(all, opts) {
+    opts = opts || {};
+    const titleId = opts.titleId || 'tplCheckTitle', moreId = opts.moreId || 'tplMore', redraw = opts.redraw || renderTemplate;
     const box = el('div', 'tpl-check');
     const counts = {error: 0, warning: 0, info: 0};
     all.forEach((f) => { if (f.severity in counts) counts[f.severity] += 1; });
     const title = el('h3', 'tpl-sub');
-    title.id = 'tplCheckTitle';
+    title.id = titleId;
     if (!all.length) {
       title.textContent = 'Template check';
       box.append(title, el('p', 'tpl-ok', 'The template check found nothing to fix.'));
@@ -313,13 +334,13 @@
     SEVERITIES.forEach((s) => { all.forEach((f) => { if (f.severity === s[0]) sorted.push(f); }); });
     const limit = Math.min(S.shown, SHOW_MAX, sorted.length);
     const list = el('ul', 'health tpl-findings');
-    list.setAttribute('aria-labelledby', 'tplCheckTitle');
+    list.setAttribute('aria-labelledby', titleId);
     sorted.slice(0, limit).forEach((f) => list.appendChild(findingItem(f)));
     box.appendChild(list);
     if (limit < sorted.length) {
       if (limit < SHOW_MAX) {
         const more = Math.min(SHOW_STEP, sorted.length - limit, SHOW_MAX - limit);
-        box.appendChild(button('tplMore', 'Show ' + more + ' more', 'small', () => { S.shown = limit + SHOW_STEP; renderTemplate(); D.$('tplMore') && D.$('tplMore').focus(); }));
+        box.appendChild(button(moreId, 'Show ' + more + ' more', 'small', () => { S.shown = limit + SHOW_STEP; redraw(); D.$(moreId) && D.$(moreId).focus(); }));
         box.appendChild(el('span', 'note', ' Showing ' + limit + ' of ' + sorted.length + '.'));
       } else {
         box.appendChild(el('p', 'note', 'Showing the first ' + SHOW_MAX + ' of ' + sorted.length + '. Run py-tbparse template check on the file for the whole list.'));
@@ -1130,10 +1151,131 @@
     }
   }
 
+  // ---- make a template from the open workbook ---------------------------------------------------------
+
+  function stemOf(name) { return name.replace(/\.(twbx|twb)$/i, ''); }
+
+  function renderMake() {
+    const body = D.$('tplMakeBody');
+    if (!body) return;
+    body.textContent = '';
+    if (!S.workbook) {
+      body.appendChild(el('p', 'tpl-reason', 'Open a workbook first, then come back here. The template is made from the workbook you have open.'));
+    } else {
+      buildMakeForm(body);
+    }
+    if (S.made) body.appendChild(madeBlock(S.made));
+  }
+
+  function buildMakeForm(body) {
+    body.appendChild(el('p', '', 'Your open workbook is ' + S.workbook + '. A template keeps the workbook and a list of the fields it needs, so you can fill it with new data later. Passwords and user names are removed, and extracts and data files are left out.'));
+    const nameBox = el('div', 'tpl-in');
+    const nameLabel = el('label', '', 'Name of the template');
+    nameLabel.htmlFor = 'tplMakeName';
+    const name = el('input', 'field');
+    name.id = 'tplMakeName';
+    name.type = 'text';
+    name.maxLength = 120;
+    name.autocomplete = 'off';
+    name.placeholder = stemOf(S.workbook);
+    name.value = S.makeName;
+    name.addEventListener('input', () => { S.makeName = name.value; });
+    nameBox.append(nameLabel, name);
+    const descBox = el('div', 'tpl-in');
+    const descLabel = el('label', '', 'What it is for (optional)');
+    descLabel.htmlFor = 'tplMakeDesc';
+    const desc = el('textarea', 'field');
+    desc.id = 'tplMakeDesc';
+    desc.maxLength = 2000;
+    desc.rows = 3;
+    desc.value = S.makeDesc;
+    desc.addEventListener('input', () => { S.makeDesc = desc.value; });
+    descBox.append(descLabel, desc);
+    const row = el('div', 'tpl-actions');
+    const go = button('tplMakeBtn', S.making ? 'Making the template \u2026' : 'Make template', 'primary', makeTemplate);
+    go.disabled = S.making;
+    row.appendChild(go);
+    const msg = el('p', 'tpl-err', S.makeError);
+    msg.id = 'tplMakeMsg';
+    msg.setAttribute('role', 'alert');
+    body.append(nameBox, descBox, row, msg);
+  }
+
+  function madeBlock(made) {
+    const box = el('div', 'tpl-made');
+    box.id = 'tplMade';
+    const t = made.template || {};
+    box.appendChild(el('p', 'tpl-ok', 'Made ' + made.name + ' (' + Math.max(1, Math.round(made.size / 1024)) + ' KB).'));
+    const required = (t.datasources || []).reduce((n, d) => n + d.required, 0);
+    box.appendChild(el('p', 'tpl-counts', D.plural(required, 'required field') + ', ' +
+      D.plural((t.parameters || []).length, 'parameter') + ', ' + D.plural((t.tokens || []).length, 'token')));
+    const row = el('div', 'tpl-actions');
+    const link = el('a', 'btn', 'Download the template');
+    link.id = 'tplMadeDownload';
+    link.href = '/template/made';
+    link.download = made.name;
+    const use = button('tplMadeUse', 'Use it as the template', 'primary', useMade);
+    row.append(link, use);
+    box.appendChild(row);
+    box.appendChild(el('p', 'note', 'Download it to keep it. Making another template here replaces this one.'));
+    if (made.notes && made.notes.length) {
+      box.appendChild(el('h3', 'tpl-sub', 'Worth a look'));
+      const list = el('ul', 'tpl-notes');
+      made.notes.forEach((n) => list.appendChild(el('li', '', n)));
+      box.appendChild(list);
+    }
+    if (t.findings) box.appendChild(findings(t.findings, {titleId: 'tplMakeCheckTitle', moreId: 'tplMakeMore', redraw: renderMake}));
+    return box;
+  }
+
+  async function makeTemplate() {
+    if (S.making) return;
+    S.making = true;
+    S.makeError = '';
+    renderMake();
+    D.setStatus('Making the template \u2026', false, 'busy');
+    try {
+      const payload = {description: S.makeDesc.trim()};
+      if (S.makeName.trim()) payload.name = S.makeName.trim();
+      const answer = await postJSON('/template/make', payload);
+      S.made = {name: answer.name, size: answer.size, template: answer.template, notes: answer.notes || []};
+      S.making = false;
+      D.setStatus('Made ' + answer.name + '.', false, 'ok');
+      D.$('announce').textContent = 'Template made: ' + answer.name + '.';
+      renderMake();
+    } catch (e) {
+      S.making = false;
+      S.makeError = e.message;
+      D.fail(e);
+      renderMake();
+    }
+  }
+
+  async function useMade() {
+    const mine = ++S.seq;
+    try {
+      const answer = await postJSON('/template/use-made', {});
+      if (mine !== S.seq) return;
+      accept('template', answer, S.made ? S.made.name : '');
+      D.setStatus('', false);
+      render();
+      if (chosen()) {
+        D.$('announce').textContent = 'Template chosen: ' + S.template.name + '. Check how the fields match your data.';
+        focusHeading(3);
+      } else {
+        announceStep('template');
+      }
+    } catch (e) {
+      if (mine !== S.seq) return;
+      D.fail(e);
+    }
+  }
+
   function render() {
     renderTemplate();
     renderData();
     renderReview();
+    renderMake();
   }
 
   function focusHeading(n) {
@@ -1208,5 +1350,5 @@
       edits: S.rv.edits, params: S.rv.params, tokens: S.rv.tokens};
   }
 
-  window.TemplatesView = {init: init, show: show, hide: hide, acceptDrop: acceptDrop, dropHint: dropHint, getState: getState};
+  window.TemplatesView = {init: init, show: show, hide: hide, refresh: refresh, acceptDrop: acceptDrop, dropHint: dropHint, getState: getState};
 })();
