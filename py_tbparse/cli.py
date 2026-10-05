@@ -505,7 +505,7 @@ def _run_target_make(ap, args) -> int:
         for item in args.column:
             if ":" not in item:
                 ap.error(f"--column expects NAME:TYPE, got {item!r}")
-            name, sql_type = item.split(":", 1)
+            name, sql_type = item.rsplit(":", 1)
             columns.append({"name": name.strip(), "type": sql_type.strip()})
         body["columns"] = columns
     if not table:

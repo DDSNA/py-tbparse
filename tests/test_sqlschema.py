@@ -188,3 +188,70 @@ def test_a_bad_column_list_is_an_error(bad):
 def test_a_missing_schema_file_says_so(tmp_path):
     with pytest.raises(FileNotFoundError):
         read_schema(str(tmp_path / "none.sql"))
+
+
+# --- review findings (#31) ---------------------------------------------------------------------------------------
+
+
+def test_columns_named_key_index_check_like_are_kept():
+    _, cols = parse_ddl("CREATE TABLE s (key text, value text)")
+    assert [c["name"] for c in cols] == ["key", "value"]
+    _, cols = parse_ddl("CREATE TABLE s (index int, v int)")
+    assert [c["name"] for c in cols] == ["index", "v"]
+    _, cols = parse_ddl("CREATE TABLE s (check int, primary text, like varchar(5), unique int, constraint int, a int)")
+    assert [c["name"] for c in cols] == ["check", "primary", "like", "unique", "constraint", "a"]
+    assert cols[2]["type"] == "varchar(5)"
+
+
+def test_real_constraints_are_still_skipped():
+    _, cols = parse_ddl("""CREATE TABLE s (a int, b text, KEY idx (a), UNIQUE KEY u (a, b), INDEX (b), UNIQUE (a),
+        FULLTEXT KEY ft (b), PRIMARY KEY (a), FOREIGN KEY (a) REFERENCES o (id), CONSTRAINT c1 CHECK (a > 0),
+        CONSTRAINT c2 UNIQUE (b), CHECK (a < 9), EXCLUDE USING gist (a WITH =), LIKE other INCLUDING ALL,
+        KEY `k2` (a), `key` text)""")
+    assert [c["name"] for c in cols] == ["a", "b", "key"]
+
+
+def test_bracket_identifiers():
+    _, cols = parse_ddl("CREATE TABLE t ([a]]b] int, [it's] int, [a--b] text, [x(y] int, [z)] int)")
+    assert [c["name"] for c in cols] == ["a]b", "it's", "a--b", "x(y", "z)"]
+    assert cols[0]["type"] == "int"
+
+
+def test_array_types_are_not_brackets():
+    _, cols = parse_ddl("CREATE TABLE t (a int[], b text[3], c int)")
+    assert [c["name"] for c in cols] == ["a", "b", "c"]
+
+
+def test_mysql_show_create_table_with_engine_and_partition():
+    table, cols = parse_ddl("""CREATE TABLE `orders` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `name` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'a;b, (c)',
+  PRIMARY KEY (`id`),
+  KEY `idx_name` (`name`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COMMENT='x;y'
+PARTITION BY RANGE (id) (PARTITION p0 VALUES LESS THAN (10), PARTITION p1 VALUES LESS THAN MAXVALUE);
+""")
+    assert table == "orders"
+    assert [c["name"] for c in cols] == ["id", "name"]
+    assert parse_ddl("CREATE TABLE a (x int) ENGINE=InnoDB;")[1] == [{"name": "x", "type": "int"}]
+    assert parse_ddl("CREATE TABLE a (x int) WITH (fillfactor=70) TABLESPACE ts")[1][0]["name"] == "x"
+
+
+def test_second_table_is_still_refused():
+    with pytest.raises(TemplateError, match="a second table"):
+        parse_ddl("CREATE TABLE a (x int) CREATE TABLE b (y int)")
+    with pytest.raises(TemplateError, match="line 2") as e:
+        parse_ddl("CREATE TABLE a (x int) ENGINE=InnoDB;\nSELECT 1;")
+    assert "second table" not in str(e.value)
+    assert "after the table definition" in str(e.value)
+
+
+def test_character_set_in_a_type_is_still_a_string():
+    assert sql_family("varchar(20) CHARACTER SET utf8mb4") == "string"
+    assert sql_family("text CHARSET utf8 COLLATE utf8_bin") == "text"
+    assert sql_family("character varying(5)") == "string"
+
+
+def test_json_columns_case_insensitive_duplicates():
+    with pytest.raises(TemplateError, match="twice"):
+        read_schema([{"name": "ID", "type": "int"}, {"name": "id", "type": "int"}])

@@ -44,6 +44,7 @@ _MODIFIERS = {"unsigned", "signed", "zerofill"}
 def _split_type(sql_type: str) -> tuple[str, list[str]]:
     """The type's words without arguments and modifiers, and the arguments: `'Number (12, 2)'` -> `('number', ['12', '2'])`."""
     text = str(sql_type).lower().strip()
+    text = re.sub(r"\b(?:character\s+set|charset|collate)\s+[\w.$\"`]+", " ", text)
     found = re.search(r"\(([^)]*)\)", text)
     args = [a.strip() for a in found.group(1).split(",")] if found else []
     words = [w for w in re.sub(r"\([^)]*\)", " ", text).split() if w not in _MODIFIERS]
@@ -81,10 +82,31 @@ class Schema:
 
 # ------------------------------------------------------------------------------------------------ DDL --
 
-_CONSTRAINTS = {"primary", "foreign", "unique", "constraint", "check", "key", "index", "fulltext", "exclude", "like"}
+_CONSTRAINTS = {"primary", "foreign", "unique", "constraint", "check", "key", "index", "fulltext", "spatial", "exclude", "like"}
 _STOPS = {"not", "null", "primary", "default", "references", "unique", "check", "collate", "generated", "auto_increment",
           "autoincrement", "identity", "comment", "constraint", "as", "encode", "key", "on"}
-_IDENT = re.compile(r'\s*(?:"((?:[^"]|"")+)"|`((?:[^`]|``)+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*))')
+_IDENT = re.compile(r'\s*(?:"((?:[^"]|"")+)"|`((?:[^`]|``)+)`|\[((?:[^\]]|\]\])+)\]|([A-Za-z_][\w$]*))')
+
+
+def _quoted_end(text: str, i: int) -> Optional[int]:
+    """If a quoted region (`'..'`, `".."`, `` `..` `` or `[..]`, where `]]` is an escaped bracket) starts at `i`, the
+    index just after it (the end of the text when it is never closed); else None. A `[` is an identifier quote only
+    where an identifier can start, so `int[]` and `text[3]` are not."""
+    c = text[i]
+    if c in "'\"`":
+        j = text.find(c, i + 1)
+        return len(text) if j < 0 else j + 1
+    if c == "[" and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] in "_$]\")")):
+        j = i + 1
+        while j < len(text):
+            if text[j] == "]":
+                if text[j + 1:j + 2] == "]":
+                    j += 2
+                    continue
+                return j + 1
+            j += 1
+        return len(text)
+    return None
 
 
 def _blank_comments(sql: str) -> str:
@@ -92,13 +114,10 @@ def _blank_comments(sql: str) -> str:
     leaving quoted text alone."""
     out, i, n = [], 0, len(sql)
     while i < n:
-        c = sql[i]
-        if c in "'\"`":
-            j = i + 1
-            while j < n and sql[j] != c:
-                j += 1
-            out.append(sql[i:j + 1])
-            i = j + 1
+        j = _quoted_end(sql, i)
+        if j is not None:
+            out.append(sql[i:j])
+            i = j
         elif sql.startswith("--", i):
             j = sql.find("\n", i)
             j = n if j < 0 else j
@@ -110,7 +129,7 @@ def _blank_comments(sql: str) -> str:
             out.append("".join(ch if ch == "\n" else " " for ch in sql[i:j]))
             i = j
         else:
-            out.append(c)
+            out.append(sql[i])
             i += 1
     return "".join(out)
 
@@ -128,27 +147,84 @@ def _ident(text: str, pos: int) -> Optional[tuple[str, int]]:
         name = name.replace('""', '"')
     elif m.group(2):
         name = name.replace("``", "`")
+    elif m.group(3):
+        name = name.replace("]]", "]")
     return name, m.end()
 
 
 def _top_level_items(body: str, offset: int) -> list[tuple[str, int]]:
     """The comma-separated items of a table body, each with the position it starts at in the whole text."""
-    items, depth, start, quote = [], 0, 0, None
-    for i, c in enumerate(body):
-        if quote:
-            if c == quote:
-                quote = None
-        elif c in "'\"`":
-            quote = c
-        elif c == "(":
+    items, depth, start, i = [], 0, 0, 0
+    while i < len(body):
+        j = _quoted_end(body, i)
+        if j is not None:
+            i = j
+            continue
+        c = body[i]
+        if c == "(":
             depth += 1
         elif c == ")":
             depth -= 1
         elif c == "," and depth == 0:
             items.append((body[start:i], offset + start))
             start = i + 1
+        i += 1
     items.append((body[start:], offset + start))
     return items
+
+
+_TYPE_WORDS = {n.split()[0] for n in _FAMILY_OF} | {
+    "time", "timetz", "json", "jsonb", "blob", "tinyblob", "mediumblob", "longblob", "binary", "varbinary", "enum", "set",
+    "year", "geometry", "geography", "bytea", "interval", "array", "variant", "object", "xml", "image", "datetime"}
+_TOKEN = re.compile(r'"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[(?:[^\]]|\]\])*\]|\(|[A-Za-z_][\w$]*|\S')
+
+
+def _is_constraint(item: str) -> bool:
+    """Whether a table-body item is a constraint or index (skipped), not a column. An unquoted first word such as
+    `key`, `index`, `check`, `like` or `primary` can also be a column's name, so the next token decides."""
+    toks = [m.group(0) for m in _TOKEN.finditer(item)]
+    first = toks[0].lower()
+    if first not in _CONSTRAINTS:
+        return False
+    nxt = toks[1].lower() if len(toks) > 1 else ""
+    after = toks[2] if len(toks) > 2 else ""
+    if first in ("key", "index", "unique", "fulltext", "spatial"):
+        if nxt == "(":
+            return True
+        if first != "key" and first != "index" and nxt in ("key", "index"):
+            return True
+        if nxt in _TYPE_WORDS and nxt not in ("key", "index"):
+            return False
+        return after == "("
+    if first in ("primary", "foreign"):
+        return nxt == "key"
+    if first == "check":
+        return nxt == "("
+    if first == "exclude":
+        return nxt in ("(", "using")
+    if first == "constraint":
+        kinds = ("check", "primary", "foreign", "unique")
+        return nxt in kinds or after.lower() in kinds
+    if first == "like":
+        return bool(nxt) and nxt not in _TYPE_WORDS
+    return False
+
+
+_NEW_TABLE = re.compile(r"\bcreate\s+(?:or\s+replace\s+)?(?:(?:global\s+|local\s+)?(?:temp|temporary)\s+|transient\s+)?table\b", re.I)
+
+
+def _end_of_statement(text: str, start: int) -> Optional[int]:
+    """The index of the first `;` at or after `start` that is outside quotes, or None."""
+    i = start
+    while i < len(text):
+        j = _quoted_end(text, i)
+        if j is not None:
+            i = j
+        elif text[i] == ";":
+            return i
+        else:
+            i += 1
+    return None
 
 
 def parse_ddl(sql: str) -> tuple[Optional[str], list[dict]]:
@@ -156,7 +232,9 @@ def parse_ddl(sql: str) -> tuple[Optional[str], list[dict]]:
 
     A small, documented subset: one table; `name type [(args)] [NOT NULL] [PRIMARY KEY] [DEFAULT ...]` per column;
     table constraints (`PRIMARY KEY`, `FOREIGN KEY`, `UNIQUE`, `CONSTRAINT`, `CHECK`, indexes) are skipped; `--` and
-    `/* */` comments; identifiers quoted with `"x"`, `` `x` `` or `[x]`; a schema in front of the table's name is dropped.
+    `/* */` comments; identifiers quoted with `"x"`, `` `x` `` or `[x]` (`]]` is a literal `]`); a schema in front of the table's name is dropped;
+    table options after the closing parenthesis (`ENGINE=...`, `PARTITION BY ...`) are ignored; a column may be named
+    `key`, `index`, `check` ... when a type follows. MySQL backslash escapes inside strings (`'it\\'s'`) are not understood.
     Anything else (a second table, `CREATE INDEX`, a column with no type, an unclosed parenthesis) is an error that
     names the line, never a guess."""
     text = _blank_comments(sql)
@@ -179,29 +257,36 @@ def parse_ddl(sql: str) -> tuple[Optional[str], list[dict]]:
     pos += len(text[pos:]) - len(text[pos:].lstrip())
     if text[pos:pos + 1] != "(":
         raise TemplateError(f"line {_line(text, pos)}: expected '(' after the table name")
-    depth, end, quote = 0, None, None
-    for i in range(pos, len(text)):
+    depth, end, i = 0, None, pos
+    while i < len(text):
+        j = _quoted_end(text, i)
+        if j is not None:
+            i = j
+            continue
         c = text[i]
-        if quote:
-            if c == quote:
-                quote = None
-        elif c in "'\"`":
-            quote = c
-        elif c == "(":
+        if c == "(":
             depth += 1
         elif c == ")":
             depth -= 1
             if depth == 0:
                 end = i
                 break
+        i += 1
     if end is None:
         raise TemplateError(f"line {_line(text, pos)}: unclosed parenthesis in CREATE TABLE")
-    tail = text[end + 1:]
-    lead_in = re.match(r"\s*;?", tail).end()
-    rest = tail[lead_in:]
-    if rest.strip():
-        at = end + 1 + lead_in + (len(rest) - len(rest.lstrip()))
-        what = "a second table" if re.match(r"create\s+(or\s+replace\s+)?(temp\w*\s+)?table", rest.strip(), re.I) else "this"
+    # Table options (ENGINE=..., PARTITION BY ..., WITH (...), TABLESPACE ...) may follow the closing parenthesis and
+    # are ignored; a second CREATE TABLE, or any further statement after a `;`, is refused.
+    stop = _end_of_statement(text, end + 1)
+    options = text[end + 1:stop]
+    second = _NEW_TABLE.search(options)
+    if second:
+        at = end + 1 + second.start()
+        raise TemplateError(f"line {_line(text, at)}: only one table is supported, found a second table: "
+                            f"{text[at:].strip().splitlines()[0][:40]!r}")
+    if stop is not None and text[stop + 1:].strip():
+        rest = text[stop + 1:]
+        at = stop + 1 + (len(rest) - len(rest.lstrip()))
+        what = "a second table" if _NEW_TABLE.match(rest.strip()) else "text after the table definition"
         raise TemplateError(f"line {_line(text, at)}: only one table is supported, found {what}: "
                             f"{rest.strip().splitlines()[0][:40]!r}")
     columns: list[dict] = []
@@ -209,8 +294,7 @@ def parse_ddl(sql: str) -> tuple[Optional[str], list[dict]]:
         if not item.strip():
             continue
         lead = at + len(item) - len(item.lstrip())
-        first = item.split(None, 1)[0].lower().strip('"`[]')
-        if first in _CONSTRAINTS and not item.lstrip().startswith(('"', "`", "[")):
+        if _is_constraint(item):
             continue
         got = _ident(text, lead)
         if not got:
@@ -251,9 +335,9 @@ def _check_columns(columns, where: str) -> list[dict]:
             raise TemplateError(f"{where}: column {i + 1} needs a \"name\"")
         if not isinstance(col.get("type"), str) or not col["type"].strip():
             raise TemplateError(f"{where}: column {col['name']!r} needs a \"type\" (a SQL type such as varchar(80))")
-        if col["name"] in seen:
+        if col["name"].lower() in seen:
             raise TemplateError(f"{where}: column {col['name']!r} appears twice")
-        seen.add(col["name"])
+        seen.add(col["name"].lower())
         out.append({"name": col["name"], "type": col["type"].strip()})
     return out
 

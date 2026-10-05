@@ -603,3 +603,10 @@ def test_target_make_removes_a_file_it_cannot_accept(tmp_path, capsys):
         main(["template", "target-make", "--class", "mysql", "--server", "h", "--dbname", "d", "--table", "t",
               "-o", str(out)])                                                       # no columns at all
     assert not out.exists()
+
+
+def test_target_make_column_splits_at_the_last_colon(tmp_path):
+    out = tmp_path / "c.target.json"
+    assert main(["template", "target-make", "--class", "postgres", "--server", "h", "--dbname", "d", "--schema", "public",
+                 "--table", "t", "-c", "a:b:int", "-o", str(out)]) == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["columns"] == [{"name": "a:b", "type": "int"}]
