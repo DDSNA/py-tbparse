@@ -45,7 +45,7 @@ def main(argv: list[str]) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     fmt = "%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1e"
-    p = subprocess.run(["git", "log", f"--format={fmt}", argv[1]], capture_output=True, text=True)
+    p = subprocess.run(["git", "log", f"--format={fmt}", argv[1]], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if p.returncode != 0:
         print(p.stderr.strip(), file=sys.stderr)
         return 2
@@ -56,6 +56,7 @@ def main(argv: list[str]) -> int:
             continue
         n += 1
         bad += problems(*rec.strip("\n").split("\x1f", 5))
+    sys.stdout.reconfigure(errors="replace")  # a Windows console may not hold the emoji a bad trailer carries
     for line in bad:
         print(f"FAIL {line}")
     print(f"{n} commit(s) checked, {len(bad)} problem(s)")

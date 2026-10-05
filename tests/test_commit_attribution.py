@@ -13,11 +13,11 @@ OWNER = ("DDSNA", "79444147+DDSNA@users.noreply.github.com")
 
 def git(repo, *args, env=None):
     e = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, **(env or {})}
-    return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True, env=e).stdout.strip()
+    return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", env=e).stdout.strip()
 
 
 def commit(repo, msg, author=OWNER, committer=OWNER):
-    (repo / "f.txt").write_text(msg + os.urandom(4).hex())
+    (repo / "f.txt").write_text(msg + os.urandom(4).hex(), encoding="utf-8")
     git(repo, "add", "f.txt")
     env = {
         "GIT_AUTHOR_NAME": author[0], "GIT_AUTHOR_EMAIL": author[1],
@@ -34,7 +34,7 @@ def repo(tmp_path):
 
 
 def run(repo):
-    p = subprocess.run([sys.executable, str(SCRIPT), "main..HEAD"], cwd=repo, capture_output=True, text=True)
+    p = subprocess.run([sys.executable, str(SCRIPT), "main..HEAD"], cwd=repo, capture_output=True, text=True, encoding="utf-8", errors="replace")
     return p.returncode, p.stdout
 
 
@@ -108,5 +108,5 @@ def test_one_bad_commit_among_good_ones_fails(repo):
 
 
 def test_bad_range_is_a_usage_error(repo):
-    p = subprocess.run([sys.executable, str(SCRIPT), "nope..HEAD"], cwd=repo, capture_output=True, text=True)
+    p = subprocess.run([sys.executable, str(SCRIPT), "nope..HEAD"], cwd=repo, capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert p.returncode == 2
