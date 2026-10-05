@@ -286,3 +286,35 @@ def test_apply_with_a_missing_required_field_needs_allow_missing(tpl, tmp_path):
     with pytest.raises(TemplateError, match="required"):
         apply(tpl, d, str(out))
     assert apply(tpl, d, str(out), allow_missing=True)["report"]["missing"] == 1
+
+
+# --- per-field errors for the page (9d) ---------------------------------------------------------------------
+
+def test_each_parameter_row_carries_its_own_error(param_tpl, tmp_path):
+    d = read_data(str(_csv(param_tpl, tmp_path)))
+    p = plan(param_tpl, d, params={"New Quota": "1.5", "Sort by": "zzz"}, allow_missing=True)
+    by = {r["parameter"]: r for r in p["params"]}
+    assert "whole number" in by["New Quota"]["error"]
+    assert "allowed values" in by["Sort by"]["error"]
+    # a row with nothing wrong, or nothing given, has no error
+    clean = plan(param_tpl, d, params={"New Quota": "5"}, allow_missing=True)
+    assert all(r["error"] is None for r in clean["params"])
+    # the blocking list still names every one of them
+    assert sum("parameter" in m for m in p["problems"]) == 2
+    json.dumps(p)
+
+
+def test_each_token_row_carries_its_own_error(tok_tpl, tmp_path):
+    d = read_data(str(_csv(tok_tpl, tmp_path)))
+    assert "customer" in plan(tok_tpl, d)["tokens"][0]["error"]
+    assert plan(tok_tpl, d, tokens={"customer": "ACME"})["tokens"][0]["error"] is None
+    bad = plan(tok_tpl, d, tokens={"customer": "a\x01b"})
+    assert "not allowed in XML" in bad["tokens"][0]["error"] and not bad["ready"]
+
+
+def test_the_plan_names_the_fields_with_no_column_without_blocking_when_allowed(tpl, tmp_path):
+    d = read_data(str(_csv(tpl, tmp_path, skip=["[Burst Out Set list]"])))
+    p = plan(tpl, d)
+    assert p["missing_required"] == ["Burst Out Set list"] and not p["ready"]
+    q = plan(tpl, d, allow_missing=True)
+    assert q["missing_required"] == ["Burst Out Set list"] and q["ready"]

@@ -75,7 +75,8 @@ def test_templates_js_is_served_and_defines_the_view(server):  # noqa: F811
     # it uses the endpoints of 9b and nothing else
     routes = set(re.findall(r"'(/template/[a-z-]+)'", js))
     assert routes == {"/template/state", "/template/upload-template", "/template/upload-data", "/template/open",
-                      "/template/open-data", "/template/select-data"}
+                      "/template/open-data", "/template/select-data", "/template/plan", "/template/apply",
+                      "/template/save", "/template/output"}
 
 
 def test_templates_js_keeps_to_the_page_rules(server):  # noqa: F811
@@ -87,7 +88,7 @@ def test_templates_js_keeps_to_the_page_rules(server):  # noqa: F811
     # colours come from the style sheets, never from the script
     assert not re.search(r"#[0-9a-fA-F]{3,6}\b", js)
     # it never draws every row of anything: lists are cut off
-    for cap in ("SHOW_STEP", "SHOW_MAX", "COLUMN_CAP"):
+    for cap in ("SHOW_STEP", "SHOW_MAX", "COLUMN_CAP", "ROW_PAGE", "OPTION_CAP", "GROUP_STEP", "GROUP_MAX"):
         assert cap in js, cap
 
 
@@ -108,3 +109,46 @@ def test_css_uses_tokens_for_the_view():
     assert ".tpl-card" in block
     assert not re.search(r"#[0-9a-fA-F]{3,6}\b", block), "colours come from tokens.css and the themes"
     assert not re.search(r"\d+m?s\b", re.sub(r"var\(--dur-[a-z]+\)", "", block)), "motion uses the --dur tokens"
+
+
+# --- 9d: the matching, review and create step -----------------------------------------------------------
+
+def test_step_three_asks_for_a_plan_the_careful_way(server):  # noqa: F811
+    js = _page_script(server, "templates.js")
+    # an edit waits, a newer request cancels the older one, and an out-of-order answer is dropped
+    assert "PLAN_DELAY = 300" in js
+    assert "new AbortController()" in js and ".abort()" in js and "signal:" in js
+    assert re.search(r"mine !== planSeq", js)
+    # the page never sends a path or anything the server refuses: only these keys
+    sent = set(re.findall(r"\bbody\.(\w+) = ", js)) - {"id", "textContent"}   # the rest are request keys
+    assert sent <= {"datasource", "mapping", "params", "tokens", "allow_missing", "data_path"}, sent
+    assert "answers" not in js and "output_path" not in js and "profile" not in js
+
+
+def test_a_dropdown_is_filled_on_focus_and_emptied_on_blur(server):  # noqa: F811
+    js = _page_script(server, "templates.js")
+    assert "addEventListener('focus', () => fillOptions(rec))" in js
+    assert "addEventListener('pointerdown', () => fillOptions(rec))" in js
+    assert re.search(r"addEventListener\('blur', \(\) => \{ rec\.filled = false; setCurrent\(rec\); \}\)", js)
+
+
+def test_csv_download_cannot_run_as_a_formula(server):  # noqa: F811
+    js = _page_script(server, "templates.js")
+    assert "must not run a cell as a formula" in js
+    assert "[=+\\-@\\t\\r]" in js
+
+
+def test_step_three_has_a_place_to_draw_and_no_placeholder_text_left(server):  # noqa: F811
+    js = _page_script(server, "templates.js")
+    assert "That part is not built yet" not in js
+    for needed in ("tplMapBody", "tplCreate", "tplPlanLive", "tplGroup-"):
+        assert needed in js, needed
+
+
+def test_the_view_css_has_the_step_three_rules():
+    css = (WEBUI / "app.css").read_text(encoding="utf-8")
+    block = css[css.index("/* step 3: match, review, create */"):css.index("/* end templates view */")]
+    assert ".tpl-map" in block and ".tpl-c-status" in block
+    assert not re.search(r"#[0-9a-fA-F]{3,6}\b", block)
+    # the table turns into stacked rows on a phone instead of scrolling sideways
+    assert "attr(data-label)" in block

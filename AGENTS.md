@@ -317,8 +317,12 @@ function so its names cannot clash with `app.js`; `app.js` only has `setTemplate
 view is open, `TemplatesView.acceptDrop(files, target)` gets the files and the overlay text comes from
 `dropHint()`), the `#templates` hash and the `init` call with its helpers. The server keeps the choices
 (`/template/state` restores them on a reload); the script only draws them, with `textContent` (never `innerHTML`) and
-caps on every list (findings `SHOW_MAX`, columns `COLUMN_CAP`). Step 3 (mapping, plan, create) is filled by the next
-package into `#tplBody3`. Tests: `tests/test_webgui_templates_view.py` (no browser), `tests/test_gui_templates.py`
+caps on every list (findings `SHOW_MAX`, columns `COLUMN_CAP`, mapping rows `ROW_PAGE`, dropdown options
+`OPTION_CAP`, plan rows `GROUP_MAX`). Step 3 (`#tplBody3`: mapping table, parameters, tokens, plan panel, create) is built once per
+chosen template and data (`S.gen`); an edit only changes `S.rv` (edits, params, tokens), asks `/template/plan` after
+`PLAN_DELAY` ms with an `AbortController`, and updates rows in place so focus is kept. A mapping `<select>` holds only its
+chosen option until it gets focus or pointer-down, and empties on blur. `/template/plan` takes `allow_missing`, so the page
+can show what Create anyway would do; `plan()` returns `missing_required` and an `error` on each parameter and token row. Tests: `tests/test_webgui_templates_view.py` (no browser), `tests/test_gui_templates.py`
 (Chromium).
 
 `POST /upload` (drag and drop, Open file) takes raw bytes with `Content-Type: application/octet-stream` and the name

@@ -524,13 +524,44 @@ def test_bad_values_are_400(server, tpl_file, csv_file, payload):
     assert c.get("/template/output")[0] == 404
 
 
-def test_plan_does_not_take_allow_missing_or_data_path(server, tpl_file, csv_file):
+def test_plan_does_not_take_data_path(server, tpl_file, csv_file):
     c = Client(server)
     c.upload_file("/template/upload-template", tpl_file)
     c.upload_file("/template/upload-data", csv_file)
-    for key in ("allow_missing", "data_path"):
-        status, data = c.post("/template/plan", {key: "x"})
-        assert status == 400 and repr(key) in data["error"]
+    status, data = c.post("/template/plan", {"data_path": "x"})
+    assert status == 400 and "'data_path'" in data["error"]
+
+
+def test_plan_takes_allow_missing_so_the_page_can_ask_what_creating_anyway_would_do(server, tpl_file, csv_file):
+    c = Client(server)
+    c.upload_file("/template/upload-template", tpl_file)
+    c.upload_file("/template/upload-data", csv_file)
+    field = _required_field(tpl_file)
+    body = {"mapping": {field["name"]: ""}}
+    status, strict = c.post("/template/plan", body)
+    assert status == 200 and strict["ready"] is False
+    status, lax = c.post("/template/plan", dict(body, allow_missing=True))
+    assert status == 200 and lax["ready"] is True and lax["missing_required"]
+    assert lax["broken"]["total"] >= 1      # what would break is still listed
+    status, data = c.post("/template/plan", {"allow_missing": "yes"})
+    assert status == 400 and "allow_missing" in data["error"]
+
+
+def test_a_plan_answer_has_what_the_review_step_draws(server, tpl_file, csv_file):
+    c = Client(server)
+    c.upload_file("/template/upload-template", tpl_file)
+    c.upload_file("/template/upload-data", csv_file)
+    status, plan = c.post("/template/plan", {})
+    assert status == 200
+    for key in ("mapping", "choices", "broken", "explain", "check", "params", "tokens", "problems", "ready",
+                "missing_required"):
+        assert key in plan, key
+    row = plan["mapping"]["rows"][0]
+    for key in ("field", "caption", "datatype", "required", "used_by", "mapped_to", "status"):
+        assert key in row, key
+    # every dropdown of the page is filled from `choices[datatype]`
+    assert {r["datatype"] for r in plan["mapping"]["rows"]} <= set(plan["choices"])
+    assert tempfile.gettempdir() not in json.dumps(plan)
 
 
 def test_open_and_clear_take_only_their_keys(server, tpl_file):

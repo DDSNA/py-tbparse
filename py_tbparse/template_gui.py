@@ -152,7 +152,8 @@ def mapping_frame(rows: dict, base: pd.DataFrame, data: Optional[DataSource] = N
 
 # ------------------------------------------------------------------ plan --
 
-def _param_problems(t: Template, params: dict) -> list[str]:
+def _param_errors(t: Template, params: dict) -> list[tuple]:
+    """`(caption or None, message)` for each given value that cannot be used."""
     known = {}
     for p in t.manifest.get("parameters", []):
         known[p["caption"]] = p
@@ -161,17 +162,17 @@ def _param_problems(t: Template, params: dict) -> list[str]:
     for key, raw in (params or {}).items():
         p = known.get(key) or known.get(str(key).strip("[]"))
         if p is None:
-            out.append(f"the template has no parameter {key!r}")
+            out.append((None, f"the template has no parameter {key!r}"))
             continue
         try:
             literal = _t._param_literal(p["datatype"], raw)
         except TemplateError as e:
-            out.append(f"parameter {p['caption']!r}: {_problem(e)}")
+            out.append((p["caption"], f"{_problem(e)}"))
             continue
         allowed = p.get("allowed") or []
         # an allowed value that holds a {{token}} is only known once the tokens are filled (issue #24): not checked here
         if allowed and not any("{{" in a for a in allowed) and literal not in allowed:
-            out.append(f"parameter {p['caption']!r}: {raw!r} is not one of its allowed values")
+            out.append((p["caption"], f"{raw!r} is not one of its allowed values"))
     return out
 
 
@@ -186,15 +187,18 @@ def _token_state(t: Template, given: dict) -> tuple[list[dict], list[str]]:
     for name, d in by_name.items():
         value = given.get(name)
         missing = value is None and d.get("default") is None
+        where = "; ".join(f"{w['kind']} of {w['object']}" for w in d.get("where", []))
+        error = None
         if missing:
-            problems.append(f"no value for token {name!r} (used in "
-                            + ", ".join(f"{w['kind']} of {w['object']}" for w in d.get("where", [])) + ")")
+            error = f"no value for token {name!r} (used in " + ", ".join(f"{w['kind']} of {w['object']}" for w in d.get("where", [])) + ")"
         else:
             bad = _t._tokens.illegal_character(str(value if value is not None else d.get("default")))
             if bad:
-                problems.append(f"token {name!r}: the value holds {bad}, which is not allowed in XML")
+                error = f"token {name!r}: the value holds {bad}, which is not allowed in XML"
+        if error:
+            problems.append(error)
         rows.append({"token": name, "default": d.get("default"), "given": value, "missing": missing,
-                     "where": "; ".join(f"{w['kind']} of {w['object']}" for w in d.get("where", []))})
+                     "where": where, "error": error})
     return rows, problems
 
 
@@ -208,13 +212,16 @@ def plan(t: Template, d: DataSource, *, datasource: Optional[str] = None, mappin
            "broken": _records(pd.DataFrame(columns=_t.BROKEN_COLUMNS)),
            "explain": _records(pd.DataFrame(columns=_t.EXPLAIN_COLUMNS)),
            "check": _records(pd.DataFrame(columns=_t.CHECK_COLUMNS)), "params": [], "tokens": [],
-           "problems": problems, "ready": False}
+           "missing_required": [], "problems": problems, "ready": False}
+    errors = _param_errors(t, params or {})
+    by_caption = {caption: message for caption, message in errors if caption}
     out["params"] = [{"parameter": p["caption"], "datatype": p["datatype"], "value": (params or {}).get(p["caption"]),
-                      "default": p["value"], "allowed": list(p.get("allowed") or [])}
+                      "default": p["value"], "allowed": list(p.get("allowed") or []),
+                      "error": by_caption.get(p["caption"])}
                      for p in t.manifest.get("parameters", [])]
     out["tokens"], token_problems = _token_state(t, tokens)
     problems.extend(token_problems)
-    problems.extend(_param_problems(t, params or {}))
+    problems.extend(f"parameter {caption!r}: {message}" if caption else message for caption, message in errors)
     try:
         entry = t.datasource(datasource)
         out["choices"] = column_choices(entry, d)
@@ -225,6 +232,7 @@ def plan(t: Template, d: DataSource, *, datasource: Optional[str] = None, mappin
         out["explain"] = _records(_t.explain(t, d, frame, datasource))
         out["check"] = _records(_t.check_data(t, d, frame, datasource, deep=False))
         missing = [r for r in frame.to_dict("records") if r["required"] and not r["mapped_to"]]
+        out["missing_required"] = [str(_plain(r["caption"]) or r["field"]).strip("[]") for r in missing]
         if missing and not allow_missing:
             problems.append("no column for required field(s) "
                             + ", ".join(str(_plain(r["caption"]) or r["field"]).strip("[]") for r in missing))

@@ -175,7 +175,7 @@ _TEMPLATE_KEYS = {
     "/template/open": frozenset({"path"}),
     "/template/open-data": frozenset({"path"}),
     "/template/select-data": frozenset({"sheet", "datasource"}),
-    "/template/plan": _PLAN_KEYS,
+    "/template/plan": _PLAN_KEYS | {"allow_missing"},   # so "create anyway" can show what it would do
     "/template/apply": _PLAN_KEYS | {"allow_missing", "data_path"},
     "/template/save": _PLAN_KEYS | {"allow_missing", "data_path"},
     "/template/clear": frozenset(),
@@ -1111,7 +1111,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         with tpl["lock"]:
             try:
-                answer = template_gui.plan(tpl["template"], tpl["data"], **_plan_args(payload))
+                answer = template_gui.plan(tpl["template"], tpl["data"], allow_missing=bool(payload.get("allow_missing")),
+                                           **_plan_args(payload))
             except (TemplateError, ValueError, FileNotFoundError) as e:
                 self._tpl_send({"error": str(e)}, 400, tpl)
                 return

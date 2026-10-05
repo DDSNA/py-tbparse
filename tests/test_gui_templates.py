@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import base64
 import csv
+import json
 import threading
+import zipfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -16,7 +18,7 @@ import pytest
 import py_tbparse.templates as templates
 from conftest import new_page
 from py_tbparse import load_template, make_template, webgui
-from test_gui_browser import _load  # noqa: F401  (helper shared with the other GUI tests)
+from test_gui_browser import _NEEDS_MEMORY, _load  # noqa: F401  (helpers shared with the other GUI tests)
 
 PUBLIC_FIXTURES = Path(__file__).parent / "fixtures" / "public"
 
@@ -337,7 +339,8 @@ def test_a_text_file_renamed_to_twbx_is_refused_by_the_server_in_plain_words(gui
     page.set_input_files("#tplTemplatePick", str(fake))
     assert "not a template" in _error_shown(page)
     assert page.locator("#tplCard1[data-state=todo]").is_visible()
-    assert page.js_errors == []
+    # the server answered 400 on purpose; the browser logs that as a console error, anything else is a bug
+    assert [e for e in page.js_errors if "status of 400" not in e] == []
 
 
 def test_an_unknown_data_file_is_refused_before_it_is_sent(gui, tpl_file, tmp_path):
@@ -436,4 +439,256 @@ def test_no_horizontal_scroll_at_320_px(browser, gui, tpl_file):
     _open_view(page)
     _template_chosen(page, tpl_file)
     assert page.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    assert page.js_errors == []
+
+
+# --- 9d: match the fields, review, create --------------------------------------------------------------------
+
+def _matched_csv(tmp_path, tpl_file, extra=(), name="match.csv"):
+    """A CSV with every column the template was built on, one row of text, plus `extra` {column: value}."""
+    t = load_template(str(tpl_file))
+    entry = next(e for e in t.manifest["datasources"] if e["fields"])
+    names = [f["remote"] for f in entry["fields"]] + list(extra)
+    path = tmp_path / name
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(names)
+        w.writerow([extra.get(n, "x") if n in extra else "x" for n in names])
+    return path
+
+
+def _both_chosen(page, tpl_file, data_file):
+    _open_view(page)
+    _template_chosen(page, tpl_file)
+    _data_chosen(page, data_file)
+    page.wait_for_selector("#tplMapBody tr")
+
+
+def _ready(page):
+    page.wait_for_function("() => { const b = document.getElementById('tplCreate'); return b && !b.disabled; }",
+                           timeout=15_000)
+
+
+def _row(page, caption):
+    return page.locator("#tplMapBody tr", has=page.locator("strong", has_text=caption))
+
+
+def test_the_suggested_mapping_is_shown_with_optional_fields_behind_a_toggle(gui, tpl_file, tmp_path):
+    page = gui
+    _both_chosen(page, tpl_file, _matched_csv(tmp_path, tpl_file))
+    assert page.locator("#tplMapBody tr").count() == 1                      # only the required field
+    row = _row(page, "Burst Out Set list")
+    assert "Required" in row.inner_text() and "Matched by name" in row.inner_text()
+    assert row.locator("select").input_value() == "Burst Out Set list"
+    assert page.locator("#tplMapBody select option").count() == 1            # a closed dropdown holds one option
+    page.check("#tplOptional")
+    assert page.locator("#tplMapBody tr").count() > 1
+    assert page.locator("#tplMapBody tr").count() <= 200
+    page.fill("#tplFilter", "burst out set")
+    assert page.locator("#tplMapBody tr").count() == 1
+    assert page.js_errors == []
+
+
+def test_changing_a_column_refreshes_what_the_status_says(gui, tpl_file, tmp_path):
+    page = gui
+    _both_chosen(page, tpl_file, _matched_csv(tmp_path, tpl_file, extra={"Other": "y"}))
+    row = _row(page, "Burst Out Set list")
+    row.locator("select").focus()
+    row.locator("select").select_option("Other")
+    page.wait_for_function("() => document.querySelector('#tplMapBody .tpl-c-status').innerText.indexOf('You chose this') >= 0")
+    assert "Matched by name" not in row.inner_text()
+    _ready(page)
+    # no column at all: the required field is a problem, and Create waits
+    row.locator("select").select_option("")
+    page.wait_for_function("() => document.getElementById('tplGroup-problems').dataset.count === '1'", timeout=15_000)
+    assert page.locator("#tplCreate").is_disabled()
+    assert "Missing" in row.inner_text()
+    assert "no column for required" in page.inner_text("#tplGroup-problems")
+    assert page.js_errors == []
+
+
+def test_a_string_field_does_not_offer_a_date_column_until_show_all_columns(gui, tpl_file, tmp_path):
+    page = gui
+    _both_chosen(page, tpl_file, _matched_csv(tmp_path, tpl_file, extra={"When": "2020-01-31"}))
+    row = _row(page, "Burst Out Set list")
+    select = row.locator("select")
+    select.focus()
+    texts = select.locator("option").all_inner_texts()
+    assert any(t.startswith("Burst Out Set list") for t in texts)
+    assert not any(t.startswith("When") for t in texts)
+    page.evaluate("() => document.activeElement.blur()")
+    assert select.locator("option").count() == 1                              # emptied again on blur
+    row.get_by_label("Show all columns").check()
+    select.focus()
+    assert any(t.startswith("When") for t in select.locator("option").all_inner_texts())
+    assert page.js_errors == []
+
+
+def test_choosing_a_column_another_field_uses_moves_it(gui, tpl_file, tmp_path):
+    page = gui
+    _both_chosen(page, tpl_file, _matched_csv(tmp_path, tpl_file))
+    page.check("#tplOptional")
+    t = load_template(str(tpl_file))
+    entry = next(e for e in t.manifest["datasources"] if e["fields"])
+    other = next(f for f in entry["fields"] if f["datatype"] == "string" and not f["required"])
+    cap = (other.get("caption") or other["name"]).strip("[]")
+    page.fill("#tplFilter", cap)
+    row = _row(page, cap)
+    row.locator("select").focus()
+    labels = row.locator("select option").all_inner_texts()
+    assert any("(used by Burst Out Set list)" in t for t in labels)
+    row.locator("select").select_option("Burst Out Set list")
+    page.wait_for_function("() => document.getElementById('tplPlanLive').innerText !== 'Checking \u2026'", timeout=15_000)
+    page.fill("#tplFilter", "")
+    page.evaluate("() => document.activeElement.blur()")
+    # the required field lost its column, so it is a problem the person can see
+    assert "Missing" in _row(page, "Burst Out Set list").inner_text()
+    assert page.js_errors == []
+
+
+def test_a_bad_integer_parameter_shows_an_inline_error_and_stops_create(gui, tmp_path):
+    import shutil
+    page = gui
+    shutil.copy(PUBLIC_FIXTURES / "Cache.twbx", tmp_path / "Cache.twbx")
+    tpl = make_template(str(tmp_path / "Cache.twbx"), output_path=str(tmp_path / "c.template.twbx"))
+    data = tmp_path / "cache.csv"
+    data.write_text("Category,Number of Records\nFurniture,3\n", encoding="utf-8")
+    _both_chosen(page, Path(tpl), data)
+    _ready(page)
+    box = page.locator("#tplParam2")
+    assert page.get_by_label("New Quota", exact=True).count() == 1
+    box.fill("1.5")
+    page.wait_for_selector("#tplParam2Err:not([hidden])", timeout=15_000)
+    assert "whole number" in page.inner_text("#tplParam2Err")
+    assert box.get_attribute("aria-invalid") == "true"
+    assert "tplParam2Err" in box.get_attribute("aria-describedby")
+    assert page.locator("#tplCreate").is_disabled()
+    page.click("#tplParamReset2")
+    page.wait_for_selector("#tplParam2Err", state="hidden", timeout=15_000)
+    _ready(page)
+    assert page.js_errors == []
+
+
+def test_create_downloads_a_workbook_with_the_answers_file(gui, tpl_file, tmp_path):
+    page = gui
+    _both_chosen(page, tpl_file, _matched_csv(tmp_path, tpl_file))
+    _ready(page)
+    with page.expect_download() as info:
+        page.click("#tplCreate")
+    out = tmp_path / "got.twbx"
+    info.value.save_as(str(out))
+    with zipfile.ZipFile(out) as z:
+        answers = json.loads(z.read("template-answers.json"))
+    assert answers["data"] if "data" in answers else answers      # the answers file is there and not empty
+    assert str(tmp_path) not in json.dumps(answers)
+    assert "Created" in page.inner_text("#status") and page.locator("#tplDownload").is_visible()
+    assert page.js_errors == []
+
+
+def test_save_beside_the_template_writes_the_file_and_a_second_save_says_it_exists(gui, tpl_file, tmp_path):
+    page = gui
+    _open_view(page)
+    page.fill("#tplTemplatePath", str(tpl_file))
+    page.click("#tplTemplateOpen")
+    page.wait_for_selector("#tplCard1[data-state=done]", timeout=15_000)
+    _data_chosen(page, _matched_csv(tmp_path, tpl_file))
+    page.wait_for_selector("#tplMapBody tr")
+    _ready(page)
+    before = set(Path(tpl_file).parent.iterdir())
+    page.click("#tplSave")
+    page.wait_for_selector("#tplDone .tpl-ok")
+    made = set(Path(tpl_file).parent.iterdir()) - before
+    assert len(made) == 1 and next(iter(made)).suffix == ".twbx"
+    assert str(next(iter(made))) in page.inner_text("#tplDone")
+    _ready(page)
+    page.click("#tplSave")
+    assert "already exists" in _error_shown(page)
+    assert page.js_errors == [] or all("status of 409" in e for e in page.js_errors)
+
+
+def test_server_mode_has_no_save_beside_button(browser, server_url, tpl_file, tmp_path):
+    page = new_page(browser, server_url)
+    try:
+        page.goto(server_url + "/#templates")
+        page.wait_for_selector("#templatesView:not([hidden])")
+        _template_chosen(page, tpl_file)
+        _data_chosen(page, _matched_csv(tmp_path, tpl_file))
+        page.wait_for_selector("#tplCreate")
+        assert page.locator("#tplSave").count() == 0
+    finally:
+        page.ctx.close()
+
+
+def _synthetic(n_fields, n_columns, required_every=5):
+    fields = [{"datasource": "d", "field": "[F%d]" % i, "caption": "Field %d" % i, "datatype": "string",
+               "required": i % required_every == 0, "used_by": "sheet %d" % i, "mapped_to": "", "data_type": "",
+               "status": "missing" if i % required_every == 0 else "unused", "score": None} for i in range(n_fields)]
+    columns = [{"column": "Column %d" % i, "datatype": "string", "status": "ok"} for i in range(n_columns)]
+    empty = {"rows": [], "total": 0, "truncated": 0}
+    plan = {"mapping": {"rows": fields, "total": n_fields, "truncated": 0}, "choices": {"string": columns},
+            "broken": empty, "explain": empty, "check": empty, "params": [], "tokens": [], "missing_required": [],
+            "problems": [], "ready": True}
+    template = {"name": "Big", "description": None, "id": "big", "revision": 1, "manifest_version": 2,
+                "label": "big.twbx", "datasources": [{"name": "d", "caption": "d", "fields": n_fields, "required": 1}],
+                "parameters": [], "tokens": [], "findings": []}
+    data = {"kind": "csv", "label": "big.csv", "sheet": None,
+            "columns": [{"name": c["column"], "datatype": "string"} for c in columns]}
+    return template, data, plan
+
+
+@_NEEDS_MEMORY
+def test_two_thousand_fields_and_columns_stay_a_small_page(gui):
+    page = gui
+    template, data, plan = _synthetic(2000, 2000)
+    page.route("**/template/state", lambda r: r.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"template": template, "data": data, "sheets": None, "datasources": None, "output": None})))
+    page.route("**/template/plan", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(plan)))
+    _open_view(page)
+    page.wait_for_selector("#tplMapBody tr")
+    assert page.locator("#tplMapBody tr").count() == 200                      # 400 required fields, 200 drawn
+    assert page.evaluate("() => document.querySelectorAll('#templatesView option').length") < 1500
+    assert page.evaluate("() => document.querySelectorAll('#templatesView tr').length") <= 205
+    page.click("#tplMapMore")
+    assert page.locator("#tplMapBody tr").count() == 400
+    page.check("#tplOptional")
+    assert page.locator("#tplMapBody tr").count() == 200                      # back to one page of 2000 fields, not 2000 rows
+    first = page.locator("#tplMapBody select").first
+    first.focus()
+    assert first.locator("option").count() <= 1005                            # capped; the rest say so
+    page.evaluate("() => document.activeElement.blur()")
+    assert page.evaluate("() => document.querySelectorAll('#templatesView option').length") < 1500
+    took = page.evaluate("""() => {
+      const box = document.getElementById('tplFilter');
+      const t = performance.now();
+      box.value = 'Field 1';
+      box.dispatchEvent(new Event('input', {bubbles: true}));
+      return performance.now() - t;
+    }""")
+    assert took < 1000, took                                                  # the guide asks for 500 ms, asserted at 2x
+    assert page.js_errors == []
+
+
+def test_step_three_does_not_scroll_sideways_at_320_px(gui, tpl_file, tmp_path):
+    page = gui
+    page.set_viewport_size({"width": 320, "height": 700})
+    _both_chosen(page, tpl_file, _matched_csv(tmp_path, tpl_file))
+    _ready(page)
+    page.check("#tplOptional")
+    assert page.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    assert page.js_errors == []
+
+
+def test_every_control_in_step_three_has_a_name_and_the_table_has_headers(gui, tpl_file, tmp_path):
+    page = gui
+    _both_chosen(page, tpl_file, _matched_csv(tmp_path, tpl_file))
+    _ready(page)
+    page.check("#tplOptional")
+    unnamed = page.evaluate("""() => [...document.querySelectorAll('#tplCard3 input, #tplCard3 select, #tplCard3 button')]
+      .filter((c) => c.offsetParent !== null && !(c.getAttribute('aria-label') || '').trim() && !(c.labels && c.labels.length)
+        && !c.textContent.trim()).map((c) => c.outerHTML.slice(0, 80))""")
+    assert unnamed == []
+    assert page.locator("#tplMap caption").count() == 1
+    assert page.locator("#tplMap th[scope=col]").count() == 5
+    assert page.locator("#tplPlanLive[role=status]").count() == 1
     assert page.js_errors == []
