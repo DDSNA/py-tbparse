@@ -22,4 +22,4 @@ The sidebar lists every table with its row count. Tables stay fast however big t
 
 The screenshots are of a made-up demo workbook (`docs/demo/coffee-shop.twb`, built by `scripts/make_demo_workbook.py`); `scripts/readme_screenshots.py` retakes them.
 
-It's meant to run on your own machine for one person. It refuses requests that come from other websites, but there's no login, so don't put it on a shared network.
+It has no login, so run it on your own machine only. To share it, see [Running as a server](deployment.md) and the Limits section of the [README](https://github.com/DDSNA/py-tbparse/blob/main/README.md#limits).

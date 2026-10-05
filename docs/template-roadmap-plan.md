@@ -1,13 +1,15 @@
 # py-tbparse: template roadmap (plan for an implementing agent)
 
-> **Status on 2026-10-04 (read this first).** This is the research and the full catalogue of packages as written on
-> 2026-10-02 at 0.4.0, kept for its research and package descriptions; it was on the branch `docs/template-roadmap`.
-> The decided, ordered plan is `docs/template-next-plan.md`, and the state is in `docs/next-steps.md`.
-> - Built: WP0 to WP4 core, released in **0.4.6**; WP19 tokens (#20) and WP5 `template check` / `show --markdown`
->   (#23) merged after it, unreleased; WP4b part 1 (database targets) is draft PR #21. Review findings: issues #24 to #33.
+> **Status (first written 2026-10-04, refreshed 2026-10-05; read this first).** This is the research and the full
+> catalogue of packages as written on 2026-10-02 at 0.4.0, kept for its research and package descriptions; it was on
+> the branch `docs/template-roadmap`. The decided, ordered plan is `docs/template-next-plan.md`, and the state is in
+> `docs/next-steps.md`; for anything current use `git log` and `gh pr list`.
+> - Built: WP0 to WP4 core, released in **0.4.6**; WP19 tokens (#20), WP4b part 1 (database targets, #21) and WP5
+>   `template check` / `show --markdown` (#23) merged after it, unreleased. The review findings #24 to #33 are fixed.
 > - Out of date here: section 0 (the commit identity is **DDSNA**, not Dan; `py-tbparse-HANDOFF.md`, the 26-test
->   baseline and the 855-line `templates.py` are history), section 4 item 7 (versions: the owner chose a patch release
->   per package from 0.4.7, no bump inside a PR; the 0.5.0 question is open), and section 5 (the first message for WP1).
+>   baseline and the 855-line `templates.py` are history), section 4 item 7 (versions: superseded by "Versioning" in
+>   `AGENTS.md`), and section 5 (the first message for WP1). The files under `/home/claude-user/ai-sandbox/` that this
+>   page names are the author's local files, not in the repo.
 > - WP19 as built covers titles, text objects, field and datasource captions and string parameter values; sheet names,
 >   parameter captions and default filter values (listed in 4b.2) are not token places yet.
 
@@ -296,7 +298,7 @@ Belongs to `ui-redesign` phase 4 (see `/home/claude-user/ai-sandbox/py-tbparse-u
 on that branch). The GUI should be a thin client over the API: choose template, choose data (CSV/xlsx/workbook, drag-and-drop;
 dropped files have no disk path so "create beside original" becomes "download"), review mapping with **type-filtered dropdowns**
 (the Accelerator mapper behaviour), "what would break" panel (WP1 `explain`), set parameters, create. Requires
-the owner's go and a decision on whether it ships with 0.6.0.
+the owner's go. Its version is not decided ("Versioning" in `AGENTS.md` reserves 0.4.x for UI-redesign releases; the 0.6.0 named here was an early guess).
 
 ---------------------------------------------------------------------------------------------------------
 
@@ -321,7 +323,7 @@ the owner's go and a decision on whether it ships with 0.6.0.
 4. Connection targets (live DB, published datasource): wanted, or stay file/workbook based?
 5. Three-way merge in WP3 stage C: wanted, or is "what changed + carry mapping" enough?
 6. Style: ship `.tps` palette export first (small), or the whole style template at once?
-7. Release grouping and version numbers (suggest: WP0+WP1 = 0.5.x, WP2+WP3 = next minor, WP4/WP6/WP7 one minor each; UI track keeps its own 0.5.0/0.6.0 numbers, so coordinate to avoid colliding bumps).
+7. Release grouping and version numbers (superseded by "Versioning" in `AGENTS.md`; the original suggestion, kept as history: WP0+WP1 = 0.5.x, WP2+WP3 = next minor, WP4/WP6/WP7 one minor each; UI track keeps its own 0.5.0/0.6.0 numbers, so coordinate to avoid colliding bumps).
 
 ## 4b. Additional candidate packages (research round 2, 2026-10-02)
 
