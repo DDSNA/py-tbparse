@@ -723,21 +723,27 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json(_open_response(parser, dest, uploaded=True, name=name))
 
+    def _refuse_post(self, status: int, message: str, *, as_json: bool = True) -> None:
+        """Refuse a POST before its body is read: drain the body first (see `_drain`), then answer."""
+        self._drain(self._declared_length())
+        if as_json:
+            self._send_json({"error": message}, status)
+        else:
+            self._send(status, message, "text/plain")
+
     def _do_post(self) -> None:
-        if self.path == "/upload" and not _host_allowed(self.headers.get("Host"), self.server.server_address):
-            self._drain(self._declared_length())
-        if self._reject_foreign_host():
+        if not _host_allowed(self.headers.get("Host"), self.server.server_address):
+            self._refuse_post(403, "forbidden: unrecognized Host header", as_json=False)
             return
         if self.path == "/upload":
             self._upload()
             return
         if self.path not in ("/load", "/create-workbook"):
-            self._send(404, "not found", "text/plain")
+            self._refuse_post(404, "not found", as_json=False)
             return
         if _CONFIG["server_mode"]:
             # Both take a path on this machine's disk; on a shared server only uploads are allowed.
-            self._drain(self._declared_length())
-            self._send_json({"error": "Opening a path on the server is turned off here. Drop a file onto the page instead."}, 403)
+            self._refuse_post(403, "Opening a path on the server is turned off here. Drop a file onto the page instead.")
             return
 
         # A cross-site form/fetch can only POST without a CORS preflight
@@ -746,10 +752,10 @@ class Handler(BaseHTTPRequestHandler):
         # server never answers. The Origin check is belt and braces.
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/json":
-            self._send_json({"error": "Content-Type must be application/json"}, 415)
+            self._refuse_post(415, "Content-Type must be application/json")
             return
         if not _origin_ok(self.headers.get("Origin"), self.headers.get("Host")):
-            self._send_json({"error": "cross-origin request rejected"}, 403)
+            self._refuse_post(403, "cross-origin request rejected")
             return
 
         length = int(self.headers.get("Content-Length", 0) or 0)
