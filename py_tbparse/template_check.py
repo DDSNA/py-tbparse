@@ -28,11 +28,14 @@ from .templates import (
     MANIFEST_NAME,
     MANIFEST_VERSION,
     Template,
+    _FILE_CLASSES,
+    _connections,
     _is_data_member,
     _non_parameter_datasources,
     _physical_fields,
     _usage_of,
     load_template,
+    safe_connection,
 )
 from .verify import validate_workbook
 
@@ -81,16 +84,39 @@ def _strip(name: str) -> str:
     return name.strip("[]")
 
 
+def _absolute(path: str) -> bool:
+    return path.startswith(("/", "\\\\", "~")) or bool(re.match(r"[A-Za-z]:[\\/]", path))
+
+
+def _hard_coded(conn: dict) -> list[str]:
+    """The place attributes of a connection that tie it to one machine, customer or environment. A file
+    connection (text, Excel, extract) that points at a relative path (`Data/Sales.tde`, how a .twbx packages
+    its files) is quiet; an absolute path, or any other kind of connection with a place, is not."""
+    found = [k for k in _PLACES if conn.get(k)]
+    if conn.get("class") in _FILE_CLASSES:
+        return [k for k in found if k in ("filename", "dbname", "directory") and _absolute(str(conn[k]))
+                or k in ("server", "warehouse", "service")]
+    return found
+
+
 @rule("T001", SCOPE, severity="warning",
       fix="Applying a template replaces the connection, so this only matters if the template is shared as it is; "
           "remove the connection details from the workbook you make the template from, or ignore this")
 def hard_coded_connection(s: Subject):
-    """A connection still names a server, database, file or path."""
-    for ds in s.template.manifest.get("datasources", []):
-        for conn in ds.get("connections") or []:
-            found = [f"{k}={conn[k]}" for k in _PLACES if conn.get(k)]
-            if found:
-                yield finding(_label(ds), "the template's connection still has " + ", ".join(found))
+    """A connection still names a server, database, or a file on one machine."""
+    seen = set()
+    entries = [(_label(ds), c) for ds in s.template.manifest.get("datasources", []) for c in ds.get("connections") or []]
+    entries += [(ds.get("caption") or ds.get("name"), c) for ds in _non_parameter_datasources(s.parser.xml_doc)
+                for c in _connections(ds)]
+    for label, conn in entries:
+        places = _hard_coded(conn)
+        key = (label, tuple(sorted((k, str(conn[k])) for k in places)))
+        if not places or key in seen:
+            continue
+        seen.add(key)
+        shown = safe_connection(conn)
+        yield finding(label, "the template's connection still has "
+                      + ", ".join(f"{k}={shown[k]}" if k in shown else f"{k} (a local folder, not shown)" for k in places))
 
 
 @rule("T002", SCOPE, severity="info",
@@ -179,29 +205,43 @@ def unused_fields(s: Subject):
 @rule("T007", SCOPE, severity="error",
       fix="Fix the reference in the workbook, make the template again, and compare with `validate_workbook`")
 def dangling_references(s: Subject):
-    """A sheet, dashboard, calculation or window names something that does not exist."""
+    """A sheet, dashboard, calculation or window names something that does not exist (some checks only warn)."""
     for r in validate_workbook(s.parser).itertuples(index=False):
-        yield finding(r.object, f"{r.check}: {r.detail}", severity=r.severity)
+        yield finding(f"{r.datasource}: {r.object}" if r.datasource else r.object, f"{r.check}: {r.detail}",
+                      severity=r.severity)
 
 
-_LITERAL = re.compile(r"\"(?:[^\"\\]|\\.|\"\")*\"|'(?:[^'\\]|\\.|'')*'|//[^\n]*")
-_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+# In order of appearance, so a quote inside a [field name] or a comment never starts a literal.
+_SCAN = re.compile(r"\[(?:[^\]]|\]\])*\]|/\*.*?\*/|//[^\n]*|(?P<dq>\"(?:[^\"\\]|\\.|\"\")*\")|(?P<sq>'(?:[^'\\]|\\.|'')*')", re.S)
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}\b")
+_URL = re.compile(r"(?i)\b(?:https?|ftps?|sftp|file|s3|gs|wasbs?|abfss?|hdfs)://|\bjdbc:|\bmailto:|(?<![\w.])www\.[\w-]+\.")
 
 
-def _suspicious_literals(formula: str) -> list[str]:
-    """String literals in a formula that look like a customer or an environment: a URL, a UNC or
-    drive path, an e-mail address, or a very long text."""
+def _scan_literals(formula: str) -> list[tuple[str, str]]:
+    """`(kind, text)` for each string literal in a formula that looks like a customer or an environment: a
+    `url` (a scheme such as https, file, s3, jdbc, mailto, or www.), a `path` (UNC or drive), an `address`
+    (e-mail) or `long text`."""
     found = []
-    for m in _LITERAL.finditer(formula or ""):
-        text = m.group(0)
-        if text.startswith("//"):
+    for m in _SCAN.finditer(formula or ""):
+        text = m.group("dq") or m.group("sq")
+        if not text:
             continue
         quote = text[0]
         lit = text[1:-1].replace(quote * 2, quote)
-        if (re.search(r"(?i)\b(?:https?|ftp)://", lit) or lit.startswith("\\\\") or re.match(r"[A-Za-z]:[\\/]", lit)
-                or _EMAIL.search(lit) or len(lit) > _LONG_LITERAL):
-            found.append(lit)
+        if _URL.search(lit):
+            found.append(("URL", lit))
+        elif lit.startswith("\\\\") or re.match(r"[A-Za-z]:[\\/]", lit):
+            found.append(("path", lit))
+        elif _EMAIL.search(lit):
+            found.append(("address", lit))
+        elif len(lit) > _LONG_LITERAL:
+            found.append(("long text", lit))
     return found
+
+
+def _suspicious_literals(formula: str) -> list[str]:
+    """The text of the literals `_scan_literals` finds (for tests; a finding never shows it)."""
+    return [lit for _, lit in _scan_literals(formula)]
 
 
 @rule("T008", SCOPE, severity="info",
@@ -210,12 +250,14 @@ def literals_in_calculations(s: Subject):
     """A calculation holds a string that looks like a customer or environment (a heuristic)."""
     for ds in _non_parameter_datasources(s.parser.xml_doc):
         for col in ds.xpath("./column[calculation][not(@param-domain-type)]"):
-            lits = _suspicious_literals(col.find("calculation").get("formula"))
+            lits = _scan_literals(col.find("calculation").get("formula"))
             if lits:
-                shown = "; ".join(repr(l if len(l) <= 60 else l[:57] + "...") for l in lits[:3])
+                # the value itself is never shown: a URL or path can hold a key or a password
+                shown = "; ".join(f"{kind} *** ({len(lit)} characters)" for kind, lit in lits[:3])
+                more = f"; and {len(lits) - 3} more" if len(lits) > 3 else ""
                 yield finding(f"{ds.get('caption') or ds.get('name')}: {col.get('caption') or _strip(col.get('name'))}",
                               f"the formula has a string that looks like a URL, path, address or long text "
-                              f"(heuristic): {shown}")
+                              f"(heuristic, value hidden): {shown}{more}")
 
 
 @rule("T010", SCOPE, severity="info",

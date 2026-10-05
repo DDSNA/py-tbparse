@@ -69,8 +69,10 @@ def rule(rule_id: str, scope: str, severity: str = "info", fix: str = "") -> Cal
     _check_severity(severity)
 
     def register(func: Callable) -> Callable:
-        if rule_id in _RULES:
-            raise ValueError(f"rule {rule_id} is already registered ({_RULES[rule_id].func.__name__})")
+        old = _RULES.get(rule_id)
+        if old is not None and (old.func.__module__, old.func.__qualname__) != (func.__module__, func.__qualname__):
+            raise ValueError(f"rule {rule_id} is already registered ({old.func.__name__})")
+        # the same function registered again (`importlib.reload` of its module) replaces itself
         title = (func.__doc__ or "").strip().splitlines()[0] if func.__doc__ else ""
         _RULES[rule_id] = _Rule(rule_id, scope, severity, fix, func, title)
         return func
@@ -186,15 +188,24 @@ def _table(df: pd.DataFrame) -> str:
         return df.to_string(index=False)
 
 
+def _csv(df: pd.DataFrame) -> str:
+    """CSV with a leading `'` on a text cell a spreadsheet would run as a formula (`=`, `+`, `-`, `@`, tab, CR);
+    the frame is not changed."""
+    safe = df.copy()
+    for col in safe.columns:
+        safe[col] = safe[col].map(lambda v: "'" + v if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r") else v)
+    return safe.to_csv(index=False)
+
+
 FORMATS: dict[str, Callable[[pd.DataFrame], str]] = {
     "table": _table,
-    "csv": lambda df: df.to_csv(index=False),
+    "csv": _csv,
     "json": lambda df: df.to_json(orient="records", indent=2, force_ascii=False),
 }
 
 
 def format_findings(df: pd.DataFrame, fmt: str = "table") -> str:
-    try:
-        return FORMATS[fmt](df)
-    except KeyError:
-        raise ValueError(f"unknown format {fmt!r}; use {', '.join(FORMATS)}") from None
+    formatter = FORMATS.get(fmt)
+    if formatter is None:
+        raise ValueError(f"unknown format {fmt!r}; use {', '.join(FORMATS)}")
+    return formatter(df)

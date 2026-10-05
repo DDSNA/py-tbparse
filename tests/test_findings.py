@@ -206,3 +206,36 @@ def test_only_and_skip_that_cancel_are_an_error(demo_rules):
         run_rules(Subject(), "demo", only=["X001"], skip=["X001"])
     with pytest.raises(ValueError, match="no rule to run"):
         run_rules(Subject(), "demo", skip=["X001", "X002", "X003"])
+
+
+def test_csv_formula_injection_is_neutralised():
+    cells = ["=HYPERLINK(\"http://x\")", "+1", "-1", "@SUM(A1)", "\tx", "plain", "a=b"]
+    df = pd.DataFrame([{"rule": "T001", "severity": "info", "object": c, "detail": c, "fix": ""} for c in cells],
+                      columns=FINDING_COLUMNS)
+    back = pd.read_csv(__import__("io").StringIO(format_findings(df, "csv")), keep_default_na=False)
+    assert list(back["object"]) == ["'" + c if c[0] in "=+-@\t" else c for c in cells]
+    assert list(df["object"]) == cells                      # the frame itself is untouched
+    assert json.loads(format_findings(df, "json"))[0]["object"] == cells[0]
+
+
+def test_a_formatter_error_is_not_reported_as_an_unknown_format():
+    F.FORMATS["x-bad"] = lambda df: {}["nope"]
+    try:
+        with pytest.raises(KeyError):
+            format_findings(pd.DataFrame(columns=FINDING_COLUMNS), "x-bad")
+    finally:
+        del F.FORMATS["x-bad"]
+
+
+def test_registering_the_same_rule_again_replaces_it_but_another_function_is_refused(demo_rules):
+    def register():
+        @rule("X010", "demo", severity="info")
+        def reloadable(subject):
+            return []
+    register()
+    register()                                   # what importlib.reload of the defining module does
+    assert F.rule_ids("demo").count("X010") == 1
+    with pytest.raises(ValueError, match="X010"):
+        @rule("X010", "demo", severity="info")
+        def impostor(subject):
+            return []

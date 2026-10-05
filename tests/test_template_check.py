@@ -105,6 +105,37 @@ def test_t001_absolute_path_and_passing_case(clean, tmp_path):
     assert check_template(clean, only=["T001"]).empty
 
 
+def test_t001_relative_packaged_path_is_quiet(tmp_path):
+    # Cache.twbx made without --keep-data keeps `dbname=Data/en_US-US/Sales Target.tde`: the normal packaged form
+    path = _template(tmp_path, "Cache.twbx")
+    assert check_template(path, only=["T001"]).empty
+
+
+def test_t001_absolute_path_inside_a_file_connection_still_warns(clean, tmp_path):
+    def local(m):
+        m["datasources"][0]["connections"] = [{"class": "hyper", "dbname": "C:\\Users\\ann\\Extracts\\Sales.hyper"}]
+    df = check_template(_rewrite(shutil.copy(clean, tmp_path / "abs.twbx"), local), only=["T001"])
+    assert len(df) == 1 and "Sales.hyper" in df.iloc[0]["detail"] and "ann" not in df.iloc[0]["detail"]
+
+
+def test_t001_reads_the_workbook_not_only_the_manifest(tmp_path):
+    path = _template(tmp_path)                         # sqlserver, from filtering.twb
+    def emptied(m):
+        for ds in m["datasources"]:
+            ds["connections"] = []
+    df = check_template(_rewrite(path, emptied), only=["T001"])
+    assert len(df) == 1 and "b5dpm3ihhu.database.windows.net" in df.iloc[0]["detail"]
+
+
+def test_t001_detail_hides_credentials_and_folders(clean, tmp_path):
+    def local(m):
+        m["datasources"][0]["connections"] = [{"class": "textscan", "directory": "/home/ann/data", "filename": "/home/ann/data/s.csv",
+                                               "server": "https://u:pw@host.example/", "username": "ann", "password": "pw"}]
+    out = check_template(_rewrite(shutil.copy(clean, tmp_path / "creds.twbx"), local), only=["T001"]).iloc[0]["detail"]
+    assert "ann" not in out and "pw" not in out and "/home" not in out
+    assert "s.csv" in out and "directory" in out
+
+
 # --- T002 -------------------------------------------------------------------
 
 def test_t002_version_1_manifest_cannot_be_updated():
@@ -203,6 +234,23 @@ def test_t007_dangling_reference(clean, tmp_path):
     assert check_template(clean, only=["T007"]).empty
 
 
+def test_t007_rows_keep_their_datasource(clean, tmp_path):
+    def two_datasources_same_calc(doc):
+        for ds in doc.xpath("/workbook/datasources/datasource[@name!='Parameters']")[:1]:
+            col = etree.SubElement(ds, "column", name="[Broken]", datatype="real", role="measure", type="quantitative")
+            etree.SubElement(col, "calculation", {"class": "tableau", "formula": "SUM([No Such Field])"})
+    bad = _rewrite(shutil.copy(clean, tmp_path / "calc.twbx"), workbook_fn=two_datasources_same_calc)
+    df = check_template(bad, only=["T007"])
+    rows = df[df["detail"].str.startswith("calc-reference")]
+    assert len(rows) >= 1 and all(":" in o for o in rows["object"])         # "<datasource>: <calculation>"
+
+
+def test_the_help_says_t007_has_errors_and_warnings():
+    from py_tbparse.template_check import rules_help
+    line = next(l for l in rules_help().splitlines() if l.strip().startswith("T007"))
+    assert "warn" in line
+
+
 # --- T008 -------------------------------------------------------------------
 
 @pytest.mark.parametrize("formula,expected", [
@@ -229,6 +277,55 @@ def test_t008_in_a_template(clean, tmp_path):
     df = check_template(bad, only=["T008"])
     assert len(df) == 1 and "heuristic" in df.iloc[0]["detail"] and df.iloc[0]["severity"] == "info"
     assert check_template(clean, only=["T008"]).empty
+
+
+def _planted(clean, tmp_path, formula, name="lit.twbx"):
+    def plant(doc):
+        ds = doc.xpath("/workbook/datasources/datasource[@name!='Parameters']")[0]
+        col = etree.SubElement(ds, "column", name="[Planted]", datatype="string", role="dimension", type="nominal")
+        etree.SubElement(col, "calculation", {"class": "tableau", "formula": formula})
+    return _rewrite(shutil.copy(clean, tmp_path / name), workbook_fn=plant)
+
+
+@pytest.mark.parametrize("formula,secrets", [
+    ('"https://api.example.com/v1?apikey=AKIAIOSFODNN7EXAMPLE&secret=xyz123"', ["AKIAIOSFODNN7EXAMPLE", "xyz123", "api.example.com"]),
+    ('"https://admin:hunter2@intranet.example.com/x"', ["hunter2", "admin", "intranet.example.com"]),
+    ('"ann.secret@example.com"', ["ann.secret"]),
+    (r'"C:\Users\alice\payroll.csv"', ["alice", "payroll"]),
+])
+def test_t008_never_echoes_the_literal(clean, tmp_path, capsys, formula, secrets):
+    bad = _planted(clean, tmp_path, formula)
+    df = check_template(bad, only=["T008"])
+    assert len(df) == 1 and "***" in df.iloc[0]["detail"] and "Planted" in df.iloc[0]["object"]   # the location stays
+    for fmt in ("table", "csv", "json"):
+        assert main(["template", "check", bad, "--only", "T008", "--format", fmt]) == 0
+        out = capsys.readouterr()
+        for secret in secrets:
+            assert secret not in out.out and secret not in out.err, (fmt, secret)
+
+
+def test_t008_apostrophe_in_a_field_name_is_not_a_literal():
+    assert _suspicious_literals("[Customer's Name] + [Other's] + \"x\"") == []
+    assert _suspicious_literals("[a]]b's] + \"https://x.example\"") == ["https://x.example"]
+    # a bracket holding a quote and a URL-looking name is still a field name, not a literal
+    assert _suspicious_literals("[Don't http://x.example's] + [y]") == []
+
+
+@pytest.mark.parametrize("formula,expected", [
+    ('/* "https://x.example/a" */ 1', []),
+    ('1 /* multi\nline "ann@example.com" */ + 2', []),
+    ('1 // "https://x.example/a"\n+ 2', []),
+    ('"v@1.2"', []),
+    ('"user@host.co"', ["user@host.co"]),
+])
+def test_t008_comments_and_email(formula, expected):
+    assert _suspicious_literals(formula) == expected
+
+
+@pytest.mark.parametrize("lit", ["www.example.com/a", "file:///srv/data.csv", "s3://bucket/key", "jdbc:mysql://h/db",
+                                 "mailto:ann@example.com", "sftp://h/x"])
+def test_t008_scheme_list(lit):
+    assert _suspicious_literals(f'"{lit}"') == [lit]
 
 
 def test_t008_ignores_parameter_defaults(clean):
