@@ -64,8 +64,18 @@ app side is `webgui._CONFIG` (`--server-mode`, `--allowed-host`, `--trust-proxy`
 - `_STATE` and `_UPLOAD` are `_Scoped` mappings: in server mode they read the current request's session
   (a thread-local set by `Handler._bind_session`), otherwise the one global dict. New per-user state goes in
   `_STATE_DEFAULTS` / the session dict, never in a new module-level global, or users will see each other's data.
-- Origin checks go through `_origin_ok()`, not an inline comparison; `/load` and `/create-workbook` stay
-  refused in server mode (they touch the server's disk).
+- Origin checks go through `_origin_ok()`, not an inline comparison. POST routes are listed in `_UPLOAD_ROUTES`,
+  `_PATH_ROUTES` and `_JSON_ROUTES`; every route in `_PATH_ROUTES` (`/load`, `/create-workbook`, `/template/open`,
+  `/template/open-data`, `/template/save`) stays refused in server mode (they touch the server's disk), and no
+  other route may take a path from its body. Every refusal before the body is read goes through `_refuse_post`.
+- The Templates view's endpoints (`/template/*`, built on `template_gui.py`) keep their state in
+  `_STATE["tpl"]` (one template slot, one data slot, one output, in a per-session temp folder deleted by
+  `_drop_session`). Their JSON bodies are capped at `MAX_JSON_BYTES`, accept only the keys in `_TEMPLATE_KEYS`,
+  and every answer goes through `_scrub()`, so no server temp path reaches the page. `POST /template/make`
+  (`{name, description}` only) writes `make_template` output into the session folder (`made`, one at a time; the file
+  name comes from `_template_file_name`, never a path from the page) and is allowed in server mode, because it takes
+  the open workbook and no path; `POST /template/use-made` copies it into the template slot; `GET /template/made`
+  downloads it. `/template/state` also says which workbook is open (`workbook`, a file name) and what was made.
 - A POST handler that refuses a request before reading its body (wrong host, origin or content type, unknown
   path) must drain the body first with `Handler._drain(length)` (`_refuse_post` does it). Answering and closing
   while bytes still arrive can make the client, Windows in particular, see a connection reset instead of the
@@ -202,6 +212,7 @@ beyond the R package's scope:
 | `findings.py` | The shared findings engine: `@rule(id, scope, severity=, fix=)` registers a function that yields `finding(object, detail)` rows for a `Subject` (parser and/or template); `run_rules(subject, scope, only=, skip=)` returns the sorted, deterministic frame (`FINDING_COLUMNS = rule, severity, object, detail, fix`); `format_findings` goes through the `FORMATS` registry (`table`, `csv`, `json`; WP18's JUnit/SARIF/GitHub formats are more entries); `exceeds`/`summary` serve `--fail-on`. **Rule ids are stable: never renumber or reuse one** (people put them in CI configs). A rule that raises becomes one `error` finding (path-scrubbed) and is listed in `df.attrs["crashed"]` with its traceback in `df.attrs["tracebacks"]`; `only`/`skip` take a list or one id as text, an empty `only` or a selection that leaves no rule is a `ValueError`; the csv format guards against spreadsheet formulas. WP10's audit reuses it with another scope. |
 | `template_check.py` | `check_template()` (CLI `template check`): the template rules T001 to T010 (hard-coded connection: server/database, or an absolute file path, read from the manifest and the workbook; version 1 manifest; parameter values; several tables; packaged data; unused fields; dangling references via `validate_workbook`; literals in calculations (never echoed: kind, `***`, length); tokens (T009: declared without default, token in a formula, broken `{{` syntax, from `tokens.py`'s `formula_hits`/`broken_hits`); no description/name). Exit codes of the CLI: 0, 1 finding at `--fail-on`, 2 unreadable template or bad option (`--only ' '` is one), 3 a rule crashed (`df.attrs["crashed"]`, traceback on stderr). `RESERVED` is empty: put an id there to keep a number for a rule not written yet. Add a rule as one more `@rule("T0xx", "template")` function and add the id to the list in `tests/test_template_check.py`. `safe_connection()` (in `templates.py`) is the allowlist for printing a connection (T001, `docgen`). `rules_help()` feeds the CLI help. |
 | `docgen.py` | A generic Markdown renderer (`escape_cell`, `inline_code`, `heading`, `code_block`, `md_table`, `render`; deterministic; `escape_cell` escapes pipes, newlines, `<`, `&`, backticks, brackets and line-start `#`/`-`/`+`/`=`/numbers so untrusted workbook text cannot open a fence, heading, link or image; `clip` caps descriptions) and `template_markdown()` (CLI `template show --markdown`). The workbook data dictionary (WP11) should be written with the same functions. |
+| `template_gui.py` | The service layer of the GUI's Templates view (no HTTP, no state; WP9 9a): `template_summary()`, `data_summary()`, `excel_sheets()`, `tableau_datasources()`, `column_choices()`, `mapping_frame()`, `plan()`, `output_data_path()`, `apply()`. Takes loaded `Template`/`DataSource` objects, returns plain dicts and lists `json.dumps` accepts, caps tables at `_CAP` rows, and turns a person's mistake into a message in `problems` instead of an exception. `webgui.py`'s `/template/*` endpoints call it, and `webui/templates.js` draws the answers. It calls the template API with keyword arguments only. |
 | `template_update.py` | `diff_template_revisions()`, `template_update_report()` (stage A: a newer template revision against the answers a workbook kept, impact per change) and `update_from_answers()` (stage B: re-apply with those answers, stop on `needs-mapping`). The "before" is `answers["template"]["manifest"]` (a snapshot `apply_template` writes, with `data.columns`), or `old=`. Three-way merge is not built; it needs a design note and the owner's go. |
 | `template_batch.py` | `apply_template_folder()` (CLI `template apply-folder`): one workbook per data file in a folder, a `summary.csv`, a sidecar CSV (`read_inputs`: `file`, `sheet`, then one column per parameter caption or declared token) for per-file values, and a tolerance gate (`min_mapped`; default all required fields must map). Each file runs `resolve_apply` + `broken_sheets` + `apply_template`; a bad file is a summary row, never an exception (except `on_error="stop"`). `workers>1` uses a process pool, so jobs carry the template *path*, not the loaded template. |
 | `batch.py` | `scan_folder()`: runs one table across every `.twb`/`.twbx` in a directory, concatenated with a `workbook` column. Skips (with a warning) any file that fails to load/extract rather than aborting the batch. |
@@ -295,20 +306,37 @@ one runs); column `MIN_WIDTH` is 80; per-table view settings are keyed by column
 `aria-disabled` so they stay focusable.
 
 The page is real files, not a Python string: `py_tbparse/webui/index.html`, `tokens.css` (the design
-tokens), `themes.css` (the colour themes), `app.css`, `table.js`, `graph.js` and `app.js`. They are served by `webgui.py` from a fixed whitelist under
+tokens), `themes.css` (the colour themes), `app.css`, `table.js`, `graph.js`, `templates.js` (the Templates view: `window.TemplatesView = {init, show, hide, acceptDrop, dropHint, getState}`) and `app.js`. They are served by `webgui.py` from a fixed whitelist under
 `/static/` (`_ASSETS`), so a request can never reach any other file; add a new asset to
 `_ASSETS` and to the `webui/*` package-data (pyproject and MANIFEST.in) or it will not ship.
 `index.html` is the only thing that gets server values: `_render_index()` replaces
 `<!--APP_CONFIG-->` (now in `<head>`, so the saved theme is on `<html>` before the first paint) with the single
-inline `<script>`. Keep it that way (one inline script plus the three external ones, `table.js`, `graph.js`, then
+inline `<script>`. Keep it that way (one inline script plus the four external ones, `table.js`, `graph.js`, `templates.js`, then
 `app.js`); a test counts them. `populateTables();` must appear exactly once
 in `app.js`, and the structural tests (unterminated string literals, bracket balance) read both served scripts.
 Keep apostrophes out of JS strings and comments (the test counts quotes per line).
 
+The Templates view (`#templates`, the Templates button in the top bar) keeps all of its code in `templates.js`, inside one
+function so its names cannot clash with `app.js`; `app.js` only has `setTemplatesMode()`, the drop routing (while the
+view is open, `TemplatesView.acceptDrop(files, target)` gets the files and the overlay text comes from
+`dropHint()`), the `#templates` hash and the `init` call with its helpers. The server keeps the choices
+(`/template/state` restores them on a reload); the script only draws them, with `textContent` (never `innerHTML`) and
+caps on every list (findings `SHOW_MAX`, columns `COLUMN_CAP`, mapping rows `ROW_PAGE`, dropdown options
+`OPTION_CAP`, plan rows `GROUP_MAX`). Step 3 (`#tplBody3`: mapping table, parameters, tokens, plan panel, create) is built once per
+chosen template and data (`S.gen`); an edit only changes `S.rv` (edits, params, tokens), asks `/template/plan` after
+`PLAN_DELAY` ms with an `AbortController`, and updates rows in place so focus is kept. A mapping `<select>` holds only its
+chosen option until it gets focus or pointer-down, and empties on blur. `/template/plan` takes `allow_missing`, so the page
+can show what Create anyway would do; `plan()` returns `missing_required` and an `error` on each parameter and token row. Tests: `tests/test_webgui_templates_view.py` (no browser), `tests/test_gui_templates.py`
+(Chromium). The "Make a template from your open workbook" section (`#tplMake`, 9e) is drawn by `renderMake()`;
+`TemplatesView.refresh()` is how `app.js` tells it a workbook was opened while the view is showing.
+
 `POST /upload` (drag and drop, Open file) takes raw bytes with `Content-Type: application/octet-stream` and the name
 in `X-Filename`: neither is CORS-safelisted, so another site cannot send it without a preflight. It streams to a
 `mkdtemp` directory, refuses over `MAX_UPLOAD_BYTES` (413) and content that does not match the extension, and keeps
-only one upload at a time. An uploaded workbook cannot "create beside the original" (409), only download.
+only one upload at a time. An uploaded workbook cannot "create beside the original" (409), only download. `POST /template/upload-template` and
+`/template/upload-data` use the same `_upload` with a slot: the template slot takes a `.twbx` only, the data slot
+`.csv/.tsv/.txt/.xlsx/.xlsm/.twb/.twbx/.tds` (content checked per extension); tests are in
+`tests/test_webgui_templates.py`.
 
 Any server-side value spliced into the page (currently `TABLE_NAMES`, the preloaded workbook path
 and the version, all in `_render_index()`'s config script) must go through `_json_for_script()`, not
@@ -358,8 +386,8 @@ animations on those tokens.
 (built by `scripts/make_demo_workbook.py`, which is the one place that workbook is defined); run both after a
 visible change.
 
-`scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures nine GUI states (start,
-overview and fields in light and dark, renames, graph, phone width) deterministically. Use it for GUI
+`scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures the GUI states (start,
+overview and fields in light and dark, renames, graph, phone width, and the Templates view: empty, mapping, review, make) deterministically. Use it for GUI
 refactors: a pure refactor must compare all-identical to the baseline taken before it; a redesign is expected to
 differ, so review the new look and re-capture the baseline. The redesign plan and its decisions are in
 `docs/ui-redesign-plan.md`.

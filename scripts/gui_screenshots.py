@@ -44,6 +44,53 @@ def _setup_env() -> dict:
 _FREEZE = "*,*::before,*::after{caret-color:transparent!important;animation:none!important;transition:none!important;scroll-behavior:auto!important}"
 
 
+def _templates_states(browser, url, shot) -> None:
+    """The Templates view: empty, the field matching, the review panel, and making a template from the open
+    workbook (WP9). The last one needs a workbook open on the server, which `capture` has done by then."""
+    import csv
+    import tempfile
+
+    from py_tbparse import load_template, make_template
+
+    fixtures = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "public"
+    with tempfile.TemporaryDirectory() as tmp:
+        tpl = make_template(str(fixtures / "filtering.twb"), output_path=str(Path(tmp) / "filtering.template.twbx"),
+                            template_id="screenshot-template")
+        entry = next(e for e in load_template(tpl).manifest["datasources"] if e["fields"])
+        data = Path(tmp) / "new-data.csv"
+        with open(data, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            names = [f["remote"] for f in entry["fields"] if f["name"] != "[Burst Out Set list]"] + ["Burst Out Set"]
+            w.writerow(names)
+            w.writerow(["x"] * len(names))
+        page = browser.new_page(viewport={"width": 1360, "height": 900}, color_scheme="light")
+        page.goto(url + "/#templates")
+        page.wait_for_selector("#templatesView:not([hidden])")
+        shot(page, "08-templates-empty.png")
+        page.set_input_files("#tplTemplatePick", str(tpl))
+        page.wait_for_selector("#tplCard1[data-state=done]")
+        page.set_input_files("#tplDataPick", str(data))
+        page.wait_for_selector("#tplMapBody tr")
+        time.sleep(1.0)
+        page.locator("#tplCard3").scroll_into_view_if_needed()
+        shot(page, "09-templates-mapping.png")
+        page.locator("#tplGroup-explain summary").click()
+        page.locator("#tplPlanTitle").scroll_into_view_if_needed()
+        time.sleep(0.4)
+        shot(page, "10-templates-review.png")
+        page.close()
+        page = browser.new_page(viewport={"width": 1360, "height": 900}, color_scheme="light")
+        page.goto(url + "/#templates")
+        page.wait_for_selector("#tplMakeBtn")
+        page.click("#tplMakeBtn")
+        page.wait_for_selector("#tplMadeUse")
+        page.click("#status")   # the toast hides on a click, so it does not cover the card
+        page.evaluate("() => document.getElementById('tplMakeTitle').scrollIntoView()")
+        time.sleep(0.4)
+        shot(page, "11-templates-make.png")
+        page.close()
+
+
 def capture(workbook: str, out: Path) -> list[str]:
     from playwright.sync_api import sync_playwright
 
@@ -100,6 +147,8 @@ def capture(workbook: str, out: Path) -> list[str]:
         shot(page, "06-phone-overview.png")
         open_view(page, "fields")
         shot(page, "07-phone-fields.png")
+        page.close()
+        _templates_states(browser, url, shot)
         browser.close()
     srv.shutdown()
     return names

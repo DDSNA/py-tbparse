@@ -161,14 +161,15 @@ def test_preload_path_cannot_break_out_of_script_tag(server, wenjie_path, tmp_pa
     with urllib.request.urlopen(server + "/") as r:
         page = r.read().decode()
 
-    # The page has exactly one inline <script> (the config block) plus the two external ones,
-    # table.js and app.js: if the path's embedded "</script>" broke out of the inline block, the
+    # The page has exactly one inline <script> (the config block) plus the four external ones,
+    # table.js, graph.js, templates.js and app.js: if the path's embedded "</script>" broke out of the inline block, the
     # HTML parser would see (and this would count) another one.
     assert page.count("<script>") == 1
-    assert page.count("<script") == 4
-    assert page.count("</script>") == 4
+    assert page.count("<script") == 5
+    assert page.count("</script>") == 5
     assert '<script src="/static/table.js"></script>' in page
     assert '<script src="/static/graph.js"></script>' in page
+    assert '<script src="/static/templates.js"></script>' in page
     assert '<script src="/static/app.js"></script>' in page
     # But the path itself (escaped) must still be present and round-trip
     # correctly -- \/ is a legal JSON escape, so json.loads decodes it
@@ -199,7 +200,7 @@ def test_dashboards_endpoint_empty_before_load(server):
     assert data["dashboards"] == []
 
 
-@pytest.mark.parametrize("script", ["app.js", "table.js", "graph.js"])
+@pytest.mark.parametrize("script", ["app.js", "table.js", "graph.js", "templates.js"])
 def test_page_js_has_no_string_literal_split_across_lines(server, script):
     # Regression (from when the page was a Python string): writing '\n' inside
     # the embedded JS made *Python* emit a real newline, splitting a JS
@@ -223,7 +224,7 @@ def test_page_js_escapes_newline_for_javascript(server):
     assert r"'\n'" in _page_script(server)   # and never a quote broken across a real newline
 
 
-@pytest.mark.parametrize("script", ["app.js", "table.js", "graph.js"])
+@pytest.mark.parametrize("script", ["app.js", "table.js", "graph.js", "templates.js"])
 def test_page_js_brackets_are_balanced(server, script):
     js = _page_script(server, script)
     # Strip string literals first so braces/parens inside them don't count.
@@ -512,7 +513,7 @@ def test_everything_in_the_report_via_the_endpoints(server, tmp_path):
 
 def test_static_assets_are_served_with_the_right_types(server):
     expected = {"tokens.css": "text/css", "app.css": "text/css", "app.js": "text/javascript",
-                "table.js": "text/javascript"}
+                "table.js": "text/javascript", "templates.js": "text/javascript"}
     for name, ctype in expected.items():
         with urllib.request.urlopen(server + f"/static/{name}") as r:
             assert r.status == 200
@@ -546,7 +547,7 @@ def test_webui_files_are_shipped_in_the_wheel_and_sdist():
     root = Path(__file__).resolve().parent.parent
     assert '"webui/*"' in (root / "pyproject.toml").read_text(encoding="utf-8")
     assert "recursive-include py_tbparse/webui" in (root / "MANIFEST.in").read_text(encoding="utf-8")
-    for name in ("index.html", "tokens.css", "app.css", "app.js", "table.js"):
+    for name in ("index.html", "tokens.css", "app.css", "app.js", "table.js", "templates.js"):
         assert (root / "py_tbparse" / "webui" / name).is_file(), name
 
 
@@ -612,6 +613,13 @@ _LOCAL = {"Host": "127.0.0.1:1"}
         pytest.param("/load", {**_LOCAL, "Content-Type": "application/json", "Origin": "http://attacker.example"}, id="403-origin"),
         pytest.param("/load", {"Host": "attacker.example", "Content-Type": "application/json"}, id="403-host"),
         pytest.param("/upload", {"Host": "attacker.example"}, id="403-host-upload"),
+        pytest.param("/template/nope", {**_LOCAL, "Content-Type": "application/json"}, id="404-template"),
+        pytest.param("/template/plan", {**_LOCAL, "Content-Type": "text/plain"}, id="415-template"),
+        pytest.param("/template/apply", {**_LOCAL, "Content-Type": "application/json", "Origin": "http://attacker.example"}, id="403-origin-template"),
+        pytest.param("/template/plan", {"Host": "attacker.example", "Content-Type": "application/json"}, id="403-host-template"),
+        pytest.param("/template/plan", {**_LOCAL, "Content-Type": "application/json"}, id="413-json-cap"),
+        pytest.param("/template/upload-template", {"Host": "attacker.example"}, id="403-host-upload-template"),
+        pytest.param("/template/upload-data", {**_LOCAL, "Content-Type": "text/plain"}, id="415-upload-data"),
     ],
 )
 def test_post_refusals_drain_the_whole_body_before_replying(monkeypatch, path, headers):
@@ -628,6 +636,8 @@ def test_post_refusals_drain_the_whole_body_before_replying(monkeypatch, path, h
         ("/nope", {"Content-Type": "application/json"}),
         ("/load", {"Content-Type": "text/plain"}),
         ("/load", {"Content-Type": "application/json", "Origin": "http://attacker.example"}),
+        ("/template/plan", {"Content-Type": "text/plain"}),
+        ("/template/apply", {"Content-Type": "application/json", "Origin": "http://attacker.example"}),
     ],
 )
 def test_post_refusal_status_survives_a_large_body(server, path, headers):

@@ -22,6 +22,8 @@
              aria-label="Workbook path" spellcheck="false" autocomplete="off">
       <button id="loadBtn" class="btn primary" type="button">Load</button>
       <button id="pickBtn" class="btn" type="button">Open file&hellip;</button>
+      <button id="tplBtn" class="btn" type="button" aria-pressed="false"
+              title="Fill a template with new data">Templates</button>
       <button id="themeBtn" class="btn" type="button" aria-haspopup="menu" aria-expanded="false">Theme</button>
       <input id="filePick" type="file" accept=".twb,.twbx" hidden tabindex="-1" aria-hidden="true">
     </div>
@@ -110,6 +112,38 @@
   </main>
 </div>
 
+<section id="templatesView" class="tpl-view" aria-labelledby="tplTitle" hidden>
+  <main class="tpl-main">
+    <div class="tpl-head">
+      <div>
+        <h1 id="tplTitle" class="view-title" tabindex="-1">Templates</h1>
+        <div class="desc">Fill a template with new data in three steps. Everything stays on this computer.</div>
+      </div>
+      <button id="tplBack" class="btn" type="button">Back to start</button>
+    </div>
+    <ol class="tpl-steps">
+      <li id="tplCard1" class="tpl-card" data-slot="template" data-state="todo" aria-labelledby="tplH1">
+        <h2 id="tplH1" class="tpl-h" tabindex="-1"><span class="tpl-num" aria-hidden="true">1</span>Template</h2>
+        <div id="tplBody1" class="tpl-body"></div>
+      </li>
+      <li id="tplCard2" class="tpl-card" data-slot="data" data-state="locked" aria-disabled="true" aria-labelledby="tplH2">
+        <h2 id="tplH2" class="tpl-h" tabindex="-1"><span class="tpl-num" aria-hidden="true">2</span>New data</h2>
+        <div id="tplBody2" class="tpl-body"></div>
+      </li>
+      <li id="tplCard3" class="tpl-card" data-slot="review" data-state="locked" aria-disabled="true" aria-labelledby="tplH3">
+        <h2 id="tplH3" class="tpl-h" tabindex="-1"><span class="tpl-num" aria-hidden="true">3</span>Review and create</h2>
+        <div id="tplBody3" class="tpl-body"></div>
+      </li>
+    </ol>
+    <section id="tplMake" class="tpl-make" aria-labelledby="tplMakeTitle">
+      <h2 id="tplMakeTitle" class="tpl-h" tabindex="-1">Make a template from your open workbook</h2>
+      <div id="tplMakeBody" class="tpl-body"></div>
+    </section>
+    <input id="tplTemplatePick" type="file" accept=".twbx" hidden tabindex="-1" aria-hidden="true">
+    <input id="tplDataPick" type="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.twb,.twbx,.tds" hidden tabindex="-1" aria-hidden="true">
+  </main>
+</section>
+
 <aside id="drawer" class="drawer" role="dialog" aria-modal="false" aria-labelledby="drawerTitle" hidden>
   <header class="drawer-head">
     <h2 id="drawerTitle" tabindex="-1">Row details</h2>
@@ -124,7 +158,7 @@
 <div id="menu" class="menu" role="menu" hidden></div>
 
 <div id="dropzone" class="dropzone" aria-hidden="true" hidden>
-  <div class="dropzone-card"><strong>Drop to open</strong><span>It stays on this computer.</span></div>
+  <div class="dropzone-card"><strong id="dropTitle">Drop to open</strong><span id="dropNote">It stays on this computer.</span></div>
 </div>
 
 <div id="status" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -132,6 +166,7 @@
 
 <script src="/static/table.js"></script>
 <script src="/static/graph.js"></script>
+<script src="/static/templates.js"></script>
 <script src="/static/app.js"></script>
 
 </body>

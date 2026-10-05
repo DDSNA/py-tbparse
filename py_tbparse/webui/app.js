@@ -47,6 +47,8 @@ const state = { table: 'overview', columns: [], data: [], sortCol: -1, sortDir: 
                 loaded: false, uploaded: false, req: 0, dot: '', fresh: false, dsLabels: {}, hay: null, hayKey: '',
                 colLower: {}, sortKeys: {}, numeric: {}, natural: null, drawerIdx: null,
                 drawerInfo: null, drawerOpener: null, graph: {nodes: [], edges: []} };
+let tplOpen = false;        // the Templates view is showing (it lives in templates.js)
+let keepTemplates = false;  // a workbook opened by the page itself (not by a click) leaves the view open
 let filterTimer = null;
 let toastTimer = null;
 
@@ -70,7 +72,7 @@ statusEl.addEventListener('click', hideToast);
 // The skip link moves focus without touching the URL hash, which remembers the current table.
 document.querySelector('.skip').addEventListener('click', (e) => {
   e.preventDefault();
-  $('main').focus();
+  (tplOpen ? $('tplTitle') : $('main')).focus();
 });
 
 // A view fades in when you switch to it (not on every filter keystroke), and screen readers hear
@@ -252,6 +254,8 @@ async function openWorkbook(label, request) {
     $('createBtn').hidden = state.uploaded;
     $('empty').hidden = true;
     $('controls').hidden = false;
+    if (tplOpen && keepTemplates) { TemplatesView.refresh(); $('controls').hidden = true; $('tplBack').textContent = 'Back to workbook'; }
+    else if (tplOpen) setTemplatesMode(false);
     $('wbName').textContent = data.name || data.path;
     $('wbName').title = data.path || data.name;
     document.title = (data.name || 'workbook') + ' - py-tbparse';
@@ -1386,6 +1390,28 @@ $('filePick').addEventListener('change', () => {
   $('filePick').value = '';
   if (file) uploadFile(file);
 });
+// The Templates view replaces the start screen or the workbook while it is open; #templates is its address.
+// The view itself is in templates.js, so this is the only place app.js knows about it.
+function setTemplatesMode(on) {
+  tplOpen = on;
+  $('tplBtn').setAttribute('aria-pressed', on ? 'true' : 'false');
+  $('templatesView').hidden = !on;
+  $('empty').hidden = on || state.loaded;
+  $('controls').hidden = on || !state.loaded;
+  $('tplBack').textContent = state.loaded ? 'Back to workbook' : 'Back to start';
+  document.querySelector('.skip').textContent = on ? 'Skip to the templates' : 'Skip to the table';
+  if (on) {
+    TemplatesView.show();
+    if (location.hash !== '#templates') history.replaceState(null, '', '#templates');
+    $('tplTitle').focus();
+  } else {
+    TemplatesView.hide();
+    history.replaceState(null, '', state.loaded ? '#' + state.table : location.pathname + location.search);
+  }
+}
+$('tplBtn').addEventListener('click', () => setTemplatesMode(!tplOpen));
+$('tplBack').addEventListener('click', () => setTemplatesMode(false));
+
 // Drop a file anywhere. The overlay only shows for drags that carry files, and a counter copes with
 // dragenter/dragleave firing for every child element on the way.
 let dragDepth = 0;
@@ -1393,6 +1419,8 @@ function hasFiles(e) { return e.dataTransfer && Array.from(e.dataTransfer.types 
 window.addEventListener('dragenter', (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault(); dragDepth++; $('dropzone').hidden = false;
+  const hint = tplOpen ? TemplatesView.dropHint() : ['Drop to open', 'It stays on this computer.'];
+  $('dropTitle').textContent = hint[0]; $('dropNote').textContent = hint[1];
 });
 window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
 window.addEventListener('dragleave', (e) => {
@@ -1404,6 +1432,7 @@ window.addEventListener('drop', (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault(); dragDepth = 0; $('dropzone').hidden = true;
   const files = Array.from(e.dataTransfer.files);
+  if (tplOpen) { TemplatesView.acceptDrop(files, e.target); return; }
   if (files.length > 1) setStatus('Opening the first of ' + files.length + ' files; one workbook at a time.', false, 'ok');
   if (files.length) uploadFile(files[0]);
 });
@@ -1484,13 +1513,15 @@ $('filter').addEventListener('keydown', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
-  if (e.key === '/' && !typing && state.loaded && !$('filter').hidden) {
+  if (e.key === '/' && !typing && state.loaded && !tplOpen && !$('filter').hidden) {
     e.preventDefault();
     $('filter').focus();
   }
 });
 window.addEventListener('hashchange', () => {
   const name = decodeURIComponent(location.hash.slice(1));
+  if (name === 'templates') { if (!tplOpen) setTemplatesMode(true); return; }
+  if (tplOpen) setTemplatesMode(false);
   if (state.loaded && name !== state.table) selectTable(name);
 });
 
@@ -1499,6 +1530,8 @@ try { savedDensity = localStorage.getItem('py-tbparse.density'); } catch (e) { /
 applyDensity(savedDensity === 'compact' ? 'compact' : 'comfortable', false);
 
 populateTables();
+TemplatesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural});
+if (location.hash === '#templates') setTemplatesMode(true);
 if (window.SERVER_MODE) {
   // A shared server opens only dropped files, never a path on its own disk.
   $('path').hidden = true;
@@ -1506,5 +1539,6 @@ if (window.SERVER_MODE) {
 }
 if (window.PRELOAD_PATH) {
   $('path').value = window.PRELOAD_PATH;
-  loadWorkbook();
+  keepTemplates = tplOpen;
+  loadWorkbook().finally(() => { keepTemplates = false; });
 }

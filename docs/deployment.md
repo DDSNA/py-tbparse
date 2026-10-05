@@ -52,10 +52,12 @@ The image starts `py-tbparse-gui` with `--server-mode --trust-proxy` (through en
 - **One session per browser.** Each browser gets a random, `HttpOnly`, `SameSite=Strict` cookie and its own
   workbook, so nobody sees anyone else's file. Sessions end after `PY_TBPARSE_SESSION_TTL` seconds without a
   request (default 3600); when more than `PY_TBPARSE_MAX_SESSIONS` (default 20) are open, the least recently used
-  one is dropped. Ending a session deletes its uploaded file. Sessions live in memory, so a restart or a second
+  one is dropped. Ending a session deletes its uploaded files. Sessions live in memory, so a restart or a second
   replica starts everyone over: run one container.
 - **Uploads only.** Typing a server path (`/load`) and "Create fixed workbook" (which saves beside the original)
-  are refused, and the path box is hidden. Download the fixed copy instead.
+  are refused, and the path box is hidden. Download the fixed copy instead. The same holds for the templates
+  endpoints: opening a template or data file by path and saving beside the template are refused, and nothing in
+  a request body is ever opened as a file.
 - **Host and origin checks follow the proxy.** The app accepts the names in `PY_TBPARSE_ALLOWED_HOSTS` (comma or
   space separated, any port). With `--trust-proxy` it also accepts the `https://` form of the same `Host` as the
   `Origin` of a POST, and marks the cookie `Secure` when the proxy sends `X-Forwarded-Proto: https`. A request
@@ -81,10 +83,12 @@ location / {
 
 ## Sizing
 
-An upload is written to `/tmp` (the container's `TMPDIR`) and kept until the session ends, so the worst case is
-`PY_TBPARSE_MAX_SESSIONS` x 200 MB. The compose file gives `/tmp` a 512 MB tmpfs, which assumes most files are
-far smaller; raise it, or lower the session limit, to match your workbooks. Parsing a large workbook uses memory
-on top of that.
+An upload is written to `/tmp` (the container's `TMPDIR`) and kept until the session ends. A session can hold an
+opened workbook, a template, a data file (200 MB limit each) and one workbook made from the template, so the worst
+case is `PY_TBPARSE_MAX_SESSIONS` x about 600 MB plus the outputs. An upload is refused with 507 when the temp
+folder has less than twice its size plus 16 MB free. The compose file gives `/tmp` a 512 MB tmpfs, which assumes
+most files are far smaller; raise it, or lower the session limit, to match your workbooks. Parsing a large
+workbook or template uses memory on top of that.
 
 ## Settings
 

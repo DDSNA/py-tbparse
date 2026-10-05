@@ -18,9 +18,11 @@ import collections.abc
 import secrets
 import shutil
 import signal
+import re
 import tempfile
 import threading
 import time
+import warnings
 import webbrowser
 from pathlib import Path
 from http.cookies import SimpleCookie
@@ -29,7 +31,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse, urlsplit
 
 import pandas as pd
 
-from . import __version__
+from . import __version__, template_gui
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .parser import TwbParser
 from .rename import (
@@ -40,8 +42,11 @@ from .rename import (
     suggest_field_renames,
     suggest_renames,
 )
+from .templates import TemplateError, load_template, make_template, read_data
 
-_STATE_DEFAULTS = {"parser": None, "path": None, "uploaded": False, "report": None}
+# "tpl" is the Templates view's state (see `_tpl_new`); it stays None until the view is used. Defaults are copied
+# shallowly into each session, so every default must be immutable: a fresh dict is assigned on first use.
+_STATE_DEFAULTS = {"parser": None, "path": None, "uploaded": False, "report": None, "tpl": None}
 
 # Server mode (`--server-mode`): the page is shared by several people behind a proxy, so each browser gets its
 # own workbook state, keyed by a random cookie. `_STATE` and `_UPLOAD` below look like plain dicts but read and
@@ -104,10 +109,13 @@ def _drop_session(session: dict) -> None:
     if session["upload"]["dir"]:
         shutil.rmtree(session["upload"]["dir"], ignore_errors=True)
         session["upload"]["dir"] = None
+    _drop_tpl(session["state"].get("tpl"))
 
 
 def _clear_all_uploads() -> None:
     _clear_upload()
+    _drop_tpl(_STATE.base.get("tpl"))
+    _STATE.base["tpl"] = None
     with _SESSIONS_LOCK:
         for session in _SESSIONS.values():
             _drop_session(session)
@@ -148,14 +156,248 @@ def _session_for(sid: str | None, create: bool):
 atexit.register(_clear_all_uploads)
 
 
-def _upload_problem(name: str, head: bytes) -> str | None:
-    """Why these bytes are not a workbook named `name`, or None. The extension and the content must agree,
-    so a renamed .exe or a text file is refused before the parser sees it."""
+# ---- the Templates view (/template/*) ----
+# Each session has one template slot and one data slot, each file in its own folder inside a private temp
+# directory, plus at most one output. The parsed Template and DataSource are kept, so a plan reads no file again.
+# In server mode nothing in a JSON body is ever opened as a file: only the routes in _PATH_ROUTES take a path,
+# and they are refused there.
+MAX_JSON_BYTES = 1 * 1024 * 1024
+_DISK_HEADROOM = 16 * 1024 * 1024  # small: a proxy's /tmp tmpfs can be 64 MB, and a 127 KB workbook must still upload
+_TPL_CREATE_LOCK = threading.Lock()  # only makes creating a session's template state atomic; holds no user data
+_WARN_LOCK = threading.Lock()  # `warnings.catch_warnings` is not thread safe; holds no user data
+
+_UPLOAD_ROUTES = frozenset({"/upload", "/template/upload-template", "/template/upload-data"})
+_UPLOAD_SLOTS = {"/upload": "workbook", "/template/upload-template": "template", "/template/upload-data": "data"}
+_PATH_ROUTES = frozenset({"/load", "/create-workbook", "/template/open", "/template/open-data", "/template/save"})
+_JSON_ROUTES = _PATH_ROUTES | frozenset({"/template/select-data", "/template/plan", "/template/apply", "/template/clear",
+                                         "/template/make", "/template/use-made"})
+
+_PLAN_KEYS = frozenset({"datasource", "mapping", "params", "tokens"})
+# The only keys each route accepts. Anything else (path, output_path, answers, profile, data, ...) is refused by
+# name: an answers file or profile would make the server read a file, and an output path would make it write one.
+_TEMPLATE_KEYS = {
+    "/template/open": frozenset({"path"}),
+    "/template/open-data": frozenset({"path"}),
+    "/template/select-data": frozenset({"sheet", "datasource"}),
+    "/template/plan": _PLAN_KEYS | {"allow_missing"},   # so "create anyway" can show what it would do
+    "/template/apply": _PLAN_KEYS | {"allow_missing", "data_path"},
+    "/template/save": _PLAN_KEYS | {"allow_missing", "data_path"},
+    "/template/clear": frozenset(),
+    # make takes no path and no option that reads one: the file is named by the server, inside the session folder
+    "/template/make": frozenset({"name", "description"}),
+    "/template/use-made": frozenset(),
+}
+MAX_NAME = 120
+MAX_DESCRIPTION = 2000
+_DATA_EXTENSIONS = (".csv", ".tsv", ".txt", ".xlsx", ".xlsm", ".twb", ".twbx", ".tds")
+
+
+def _tpl_new() -> dict:
+    return {"dir": None, "lock": threading.Lock(), "dropped": False,
+            "template": None, "template_label": None, "template_path": None, "template_uploaded": False,
+            "template_summary": None,
+            "data": None, "data_label": None, "data_path": None, "data_uploaded": False, "data_summary": None,
+            "sheets": None, "datasources": None,
+            "output": None, "output_name": None,
+            "made": None, "made_name": None, "made_summary": None}
+
+
+def _tpl_state(create: bool = False):
+    """This session's template state; with `create`, made on first use (never by a GET)."""
+    tpl = _STATE["tpl"]
+    if tpl is None and create:
+        with _TPL_CREATE_LOCK:
+            tpl = _STATE["tpl"]
+            if tpl is None:
+                tpl = _STATE["tpl"] = _tpl_new()
+    return tpl
+
+
+def _tpl_dir(tpl: dict) -> str:
+    """The session's private directory, made when first needed. Call with the state's lock held."""
+    if tpl["dropped"]:
+        raise OSError("this session has ended; reload the page")
+    if tpl["dir"] is None or not os.path.isdir(tpl["dir"]):
+        tpl["dir"] = tempfile.mkdtemp(prefix="py-tbparse-tpl-")
+    return tpl["dir"]
+
+
+def _tpl_reset(tpl: dict) -> None:
+    """Forget both slots and the output and delete their files (the lock is kept)."""
+    if tpl["dir"]:
+        shutil.rmtree(tpl["dir"], ignore_errors=True)
+    fresh = _tpl_new()
+    del fresh["lock"], fresh["dropped"]
+    tpl.update(fresh)
+
+
+def _drop_tpl(tpl) -> None:
+    """A session ends (expired, evicted, exit): delete its files. Not under the state's lock, so a running apply
+    cannot hold up the session table; that apply then fails, and nothing new can be written for this session."""
+    if tpl is None:
+        return
+    tpl["dropped"] = True
+    if tpl["dir"]:
+        shutil.rmtree(tpl["dir"], ignore_errors=True)
+    tpl["dir"] = None
+
+
+def _free_bytes(path: str) -> int:
+    return shutil.disk_usage(path).free
+
+
+def _path_forms(path: str) -> set:
+    forms = {path, os.path.realpath(path), os.path.abspath(path)}
+    return {f for f in forms | {Path(f).as_posix() for f in forms} if f and f not in (os.sep, "/")}
+
+
+def _scrub(value, tpl=None, extra=()):
+    """`value` with every server temp path replaced by a label: an uploaded file's path by its file name, the
+    session's directory by `(upload)`, and in server mode the whole temp root by `(temp)`. Applied to every
+    /template/ answer, so a message from deep inside the template API cannot name the server's disk."""
+    pairs = list(extra)
+    if tpl is not None:
+        for slot in ("template", "data"):
+            if tpl[slot + "_uploaded"] and tpl[slot + "_path"]:
+                pairs.append((tpl[slot + "_path"], tpl[slot + "_label"]))
+        if tpl["dir"]:
+            pairs.append((tpl["dir"], "(upload)"))
+    if _CONFIG["server_mode"]:
+        pairs.append((tempfile.gettempdir(), "(temp)"))
+    swaps = sorted({(form, label) for path, label in pairs if path for form in _path_forms(str(path))},
+                   key=lambda p: -len(p[0]))
+    if not swaps:
+        return value
+
+    def clean(v):
+        if isinstance(v, str):
+            for form, label in swaps:
+                if form in v:
+                    v = v.replace(form, label)
+            return v
+        if isinstance(v, dict):
+            return {k: clean(x) for k, x in v.items()}
+        if isinstance(v, (list, tuple)):
+            return [clean(x) for x in v]
+        return v
+
+    return clean(value)
+
+
+def _payload_problem(route: str, payload: dict):
+    """Why this JSON body is refused, or None: an unknown key (named), or a value of the wrong type."""
+    allowed = _TEMPLATE_KEYS[route]
+    for key in sorted(payload, key=str):
+        if key not in allowed:
+            names = ", ".join(sorted(allowed)) or "none"
+            return f"unknown key {key!r} (this request takes: {names})"
+
+    def text_map(name, values_ok):
+        v = payload.get(name)
+        if v is None:
+            return None
+        if not isinstance(v, dict) or not all(isinstance(k, str) and values_ok(x) for k, x in v.items()):
+            return f"{name!r} must be an object of names to values"
+        return None
+
+    for name in ("datasource", "sheet", "path", "name", "description"):
+        if payload.get(name) is not None and not isinstance(payload[name], str):
+            return f"{name!r} must be text"
+    if len(payload.get("name") or "") > MAX_NAME:
+        return f"'name' is longer than {MAX_NAME} characters"
+    if any(ord(c) < 32 or ord(c) == 127 for c in payload.get("name") or ""):
+        return "'name' must be one line of text"
+    description = payload.get("description") or ""
+    if len(description) > MAX_DESCRIPTION:
+        return f"'description' is longer than {MAX_DESCRIPTION} characters"
+    if any((ord(c) < 32 and c not in "\n\r\t") or ord(c) == 127 for c in description):
+        return "'description' has a character that cannot be saved"
+    problem = (text_map("mapping", lambda x: x is None or isinstance(x, str))
+               or text_map("params", lambda x: isinstance(x, (str, int, float)))
+               or text_map("tokens", lambda x: isinstance(x, str)))
+    if problem:
+        return problem
+    if "allow_missing" in payload and not isinstance(payload["allow_missing"], bool):
+        return "'allow_missing' must be true or false"
+    data_path = payload.get("data_path")
+    if data_path is not None:
+        if not isinstance(data_path, str):
+            return "'data_path' must be text"
+        if len(data_path) > 1024:
+            return "'data_path' is longer than 1024 characters"
+        if any(c in data_path for c in "\x00\r\n"):
+            return "'data_path' must be one line of text"
+    return None
+
+
+def _param_text(v) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return str(v)
+
+
+def _plan_args(payload: dict) -> dict:
+    params = payload.get("params")
+    return {"datasource": payload.get("datasource") or None,
+            "mapping": payload.get("mapping") or None,
+            "params": {k: _param_text(v) for k, v in params.items()} if params else None,
+            "tokens": payload.get("tokens") or None}
+
+
+def _read_data_slot(path: str, label: str, sheet=None, datasource=None):
+    """(DataSource or None, its summary or None, {sheets, datasources}). A file with several sheets or
+    datasources and no choice yet gives no DataSource: the page asks which one (`/template/select-data`)."""
+    ext = os.path.splitext(path)[1].lower()
+    choices = {"sheets": None, "datasources": None}
+    if ext in (".xlsx", ".xlsm"):
+        choices["sheets"] = template_gui.excel_sheets(path)
+        if sheet is None and len(choices["sheets"]) > 1:
+            return None, None, choices
+    elif ext in (".twb", ".twbx", ".tds"):
+        choices["datasources"] = template_gui.tableau_datasources(path)
+        if datasource is None and len(choices["datasources"]) > 1:
+            return None, None, choices
+    elif ext not in (".csv", ".tsv", ".txt"):
+        raise TemplateError(_upload_problem(label, b"", "data") or f"{label} cannot be used as data")
+    data = read_data(path=path, sheet=sheet, datasource=datasource)
+    if data.kind not in ("csv", "excel", "tableau"):
+        raise TemplateError(f"{label} cannot be used as data in the GUI")
+    return data, template_gui.data_summary(data, label=label), choices
+
+
+def _template_file_name(name: str, source: str) -> str:
+    """A safe file name for a made template: letters, digits, spaces, dots, dashes and underscores only, so
+    the typed name can never be a path. With no usable name, the workbook's own name."""
+    stem = re.sub(r"[^\w .\-]", "_", name or "").replace("..", "_").strip(" ._")[:80].strip(" ._")
+    return (stem or Path(source).stem or "workbook") + ".template.twbx"
+
+
+def _upload_problem(name: str, head: bytes, slot: str = "workbook") -> str | None:
+    """Why these bytes are not a file named `name` for `slot` (`workbook`, `template` or `data`), or None. The
+    extension and the content must agree, so a renamed .exe or a text file is refused before a parser sees it."""
     ext = os.path.splitext(name)[1].lower()
+    is_zip = head[:2] == b"PK"
+    is_xml = head.lstrip(b"\xef\xbb\xbf \t\r\n")[:1] == b"<"
+    if slot == "template":
+        if ext != ".twbx":
+            return "A template is a .twbx file made with py-tbparse template make."
+        return None if is_zip else "That file is not a template (a .twbx is a zip archive)."
+    if slot == "data":
+        if ext in (".csv", ".tsv", ".txt"):
+            return None if b"\x00" not in head else "That file is not a text file (a .csv, .tsv or .txt has no NUL bytes)."
+        if ext in (".xlsx", ".xlsm", ".twbx"):
+            return None if is_zip else f"That file is not a zip archive, which a {ext} file is."
+        if ext in (".twb", ".tds"):
+            return None if is_xml else f"That file is not XML, which a {ext} file is."
+        if ext == ".json":
+            return "Database target files (.json) cannot be used in the GUI yet; use the command line."
+        if ext in (".xls", ".xlsb"):
+            return "Old-style Excel files (.xls, .xlsb) cannot be read; save the sheet as .xlsx or .csv."
+        return "Data must be a " + ", ".join(_DATA_EXTENSIONS[:-1]) + " or " + _DATA_EXTENSIONS[-1] + " file."
     if ext == ".twbx":
-        return None if head[:2] == b"PK" else "That file is not a packaged workbook (a .twbx is a zip archive)."
+        return None if is_zip else "That file is not a packaged workbook (a .twbx is a zip archive)."
     if ext == ".twb":
-        return None if head.lstrip(b"\xef\xbb\xbf \t\r\n")[:1] == b"<" else "That file is not a Tableau workbook (a .twb is XML)."
+        return None if is_xml else "That file is not a Tableau workbook (a .twb is XML)."
     return "Only .twb and .twbx files can be opened."
 
 
@@ -336,6 +578,7 @@ _ASSETS = {
     "app.js": "text/javascript; charset=utf-8",
     "table.js": "text/javascript; charset=utf-8",
     "graph.js": "text/javascript; charset=utf-8",
+    "templates.js": "text/javascript; charset=utf-8",
 }
 
 
@@ -607,6 +850,18 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path == "/template/state":
+            self._template_state()
+            return
+
+        if parsed.path == "/template/output":
+            self._template_download("output", "No workbook has been created yet")
+            return
+
+        if parsed.path == "/template/made":
+            self._template_download("made", "No template has been made yet")
+            return
+
         self._send(404, "not found", "text/plain")
 
     @staticmethod
@@ -666,10 +921,11 @@ class Handler(BaseHTTPRequestHandler):
                 break
             left -= len(chunk)
 
-    def _upload(self) -> None:
-        """Receive a workbook as raw bytes (the file name in `X-Filename`). Neither the content type nor the
-        header is CORS-safelisted, so another site cannot send this without a preflight the server never
-        answers; the Origin check is belt and braces. Streamed to disk in 1 MB pieces, never held whole."""
+    def _upload(self, slot: str = "workbook") -> None:
+        """Receive a file as raw bytes (the file name in `X-Filename`): a workbook to open (`/upload`), or the
+        Templates view's template or data (`slot`). Neither the content type nor the header is CORS-safelisted,
+        so another site cannot send this without a preflight the server never answers; the Origin check is belt
+        and braces. Streamed to disk in 1 MB pieces, never held whole."""
         length = self._declared_length()
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/octet-stream":
@@ -693,10 +949,17 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             return
         head = self.rfile.read(min(length, 16))
-        problem = _upload_problem(name, head)
+        problem = _upload_problem(name, head, slot)
         if problem:
             self._drain(length - len(head))
             self._send_json({"error": problem}, 400)
+            return
+        if _free_bytes(tempfile.gettempdir()) < 2 * length + _DISK_HEADROOM:
+            self._drain(length - len(head))
+            self._send_json({"error": "The server is short of disk space; try again later or with a smaller file."}, 507)
+            return
+        if slot != "workbook":
+            self._template_upload(slot, name, length, head)
             return
         _clear_upload()
         folder = tempfile.mkdtemp(prefix="py-tbparse-")
@@ -723,6 +986,353 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json(_open_response(parser, dest, uploaded=True, name=name))
 
+    def _receive(self, dest: str, head: bytes, length: int) -> None:
+        with open(dest, "wb") as fh:
+            fh.write(head)
+            left = length - len(head)
+            while left > 0:
+                chunk = self.rfile.read(min(1024 * 1024, left))
+                if not chunk:
+                    raise OSError("the upload ended early")
+                fh.write(chunk)
+                left -= len(chunk)
+
+    # ---- the Templates view ----
+
+    def _tpl_send(self, obj, code: int = 200, tpl=None, extra=()) -> None:
+        self._send_json(_scrub(obj, tpl, extra), code)
+
+    def _template_upload(self, slot: str, name: str, length: int, head: bytes) -> None:
+        tpl = _tpl_state(create=True)
+        try:
+            with tpl["lock"]:
+                folder = tempfile.mkdtemp(prefix=slot + "-", dir=_tpl_dir(tpl))
+        except OSError as e:
+            self._drain(length - len(head))
+            self._tpl_send({"error": str(e)}, 400, tpl)
+            return
+        dest = os.path.join(folder, name)
+        extra = [(dest, name), (folder, "(upload)")]
+        try:
+            self._receive(dest, head, length)
+            if slot == "template":
+                obj = load_template(dest)
+                summary, choices = template_gui.template_summary(obj, label=name), {}
+            else:
+                obj, summary, choices = _read_data_slot(dest, name)
+        except (TemplateError, ValueError, FileNotFoundError, OSError) as e:
+            shutil.rmtree(folder, ignore_errors=True)
+            self._tpl_send({"error": str(e)}, 400, tpl, extra)
+            return
+        except Exception as e:  # a broken zip, malformed XML, an unreadable spreadsheet
+            shutil.rmtree(folder, ignore_errors=True)
+            self._tpl_send({"error": f"could not read {name}: {e}"}, 400, tpl, extra)
+            return
+        with tpl["lock"]:
+            if tpl["dropped"] or not os.path.isfile(dest):  # cleared or ended while the file arrived
+                shutil.rmtree(folder, ignore_errors=True)
+                self._tpl_send({"error": "The upload was cancelled; choose the file again."}, 409, tpl, extra)
+                return
+            self._tpl_fill(tpl, slot, obj, summary, choices, dest, name, uploaded=True)
+            answer = {"ok": True, slot: summary, **choices}
+        self._tpl_send(answer, 200, tpl)
+
+    @staticmethod
+    def _tpl_fill(tpl, slot, obj, summary, choices, path, label, uploaded) -> None:
+        """Put a new file into `slot`, deleting the previous uploaded one. Call with the lock held."""
+        old = tpl[slot + "_path"] if tpl[slot + "_uploaded"] else None
+        tpl.update({slot: obj, slot + "_summary": summary, slot + "_path": path, slot + "_label": label,
+                    slot + "_uploaded": uploaded})
+        if slot == "data":
+            tpl.update(sheets=choices.get("sheets"), datasources=choices.get("datasources"))
+        if old and old != path:
+            shutil.rmtree(os.path.dirname(old), ignore_errors=True)
+
+    def _template_post(self, route: str, payload: dict) -> None:
+        problem = _payload_problem(route, payload)
+        if problem:
+            self._tpl_send({"error": problem}, 400)
+            return
+        if route in ("/template/open", "/template/open-data"):
+            self._template_open("template" if route == "/template/open" else "data", payload)
+        elif route == "/template/clear":
+            tpl = _tpl_state()
+            if tpl is not None:
+                with tpl["lock"]:
+                    _tpl_reset(tpl)
+            self._tpl_send({"ok": True})
+        elif route == "/template/select-data":
+            self._template_select(payload)
+        elif route == "/template/plan":
+            self._template_plan(payload)
+        elif route == "/template/make":
+            self._template_make(payload)
+        elif route == "/template/use-made":
+            self._template_use_made()
+        else:
+            self._template_apply(payload, save=route == "/template/save")
+
+    def _template_open(self, slot: str, payload: dict) -> None:
+        """Local GUI only (a path route): open the template or the data by its path on this computer."""
+        path = (payload.get("path") or "").strip()
+        if not path:
+            self._tpl_send({"error": "path is required"}, 400)
+            return
+        name = os.path.basename(path.replace("\\", "/"))
+        try:
+            with open(path, "rb") as fh:
+                head = fh.read(16)
+            problem = _upload_problem(name, head, slot)
+            if problem:
+                raise TemplateError(problem)
+            if slot == "template":
+                obj = load_template(path)
+                summary, choices = template_gui.template_summary(obj, label=name), {}
+            else:
+                obj, summary, choices = _read_data_slot(path, name)
+        except (TemplateError, ValueError, OSError) as e:
+            self._tpl_send({"error": str(e)}, 400)
+            return
+        except Exception as e:
+            self._tpl_send({"error": f"could not read {name}: {e}"}, 400)
+            return
+        tpl = _tpl_state(create=True)
+        with tpl["lock"]:
+            self._tpl_fill(tpl, slot, obj, summary, choices, path, name, uploaded=False)
+        self._tpl_send({"ok": True, slot: summary, "path": path, **choices}, 200, tpl)
+
+    def _template_select(self, payload: dict) -> None:
+        """Re-read the chosen data file with a sheet (Excel) or datasource (workbook, .tds)."""
+        tpl = _tpl_state()
+        if tpl is None or not tpl["data_path"]:
+            self._tpl_send({"error": "Choose the data first."}, 400, tpl)
+            return
+        with tpl["lock"]:
+            label = tpl["data_label"]
+            try:
+                data, summary, choices = _read_data_slot(tpl["data_path"], label, sheet=payload.get("sheet"),
+                                                         datasource=payload.get("datasource"))
+                if data is None:
+                    raise TemplateError(f"{label} has several; choose one")
+            except (TemplateError, ValueError, OSError) as e:
+                self._tpl_send({"error": str(e)}, 400, tpl)
+                return
+            except Exception as e:
+                self._tpl_send({"error": f"could not read {label}: {e}"}, 400, tpl)
+                return
+            tpl.update(data=data, data_summary=summary, sheets=choices["sheets"], datasources=choices["datasources"])
+            answer = {"ok": True, "data": summary, **choices}
+        self._tpl_send(answer, 200, tpl)
+
+    @staticmethod
+    def _tpl_missing(tpl):
+        """Why there is nothing to plan yet, or None."""
+        if tpl is None or tpl["template"] is None:
+            return "Choose a template first."
+        if tpl["data"] is None:
+            if tpl["data_path"] and tpl["sheets"]:
+                return f"Choose a sheet of {tpl['data_label']} first."
+            if tpl["data_path"] and tpl["datasources"]:
+                return f"Choose a datasource of {tpl['data_label']} first."
+            return "Choose the data first."
+        return None
+
+    def _template_plan(self, payload: dict) -> None:
+        tpl = _tpl_state()
+        missing = self._tpl_missing(tpl)
+        if missing:
+            self._tpl_send({"error": missing}, 400, tpl)
+            return
+        with tpl["lock"]:
+            try:
+                answer = template_gui.plan(tpl["template"], tpl["data"], allow_missing=bool(payload.get("allow_missing")),
+                                           **_plan_args(payload))
+            except (TemplateError, ValueError, FileNotFoundError) as e:
+                self._tpl_send({"error": str(e)}, 400, tpl)
+                return
+            except Exception as e:
+                self._tpl_send({"error": f"could not check the mapping: {e}"}, 500, tpl)
+                return
+        self._tpl_send(answer, 200, tpl)
+
+    def _template_apply(self, payload: dict, save: bool) -> None:
+        """Make the workbook in a fresh folder of the session directory, keeping only this one output. With
+        `save` (local GUI, path-opened template only) also copy it beside the template, never over a file."""
+        tpl = _tpl_state()
+        missing = self._tpl_missing(tpl)
+        if missing:
+            self._tpl_send({"error": missing}, 400, tpl)
+            return
+        if save and tpl["template_uploaded"]:
+            self._tpl_send({"error": "This template was dropped in, so it has no folder to save beside. "
+                                     "Use Download instead."}, 409, tpl)
+            return
+        # One apply at a time per session: a double click must not race two writes into the same folder.
+        with tpl["lock"]:
+            t, d = tpl["template"], tpl["data"]
+            try:
+                raw = payload.get("data_path")
+                if tpl["data_uploaded"]:
+                    data_path = template_gui.output_data_path(raw or "", d)  # never the temp path (Q2)
+                else:
+                    data_path = template_gui.output_data_path(raw, d) if raw else None
+            except (TemplateError, ValueError) as e:
+                self._tpl_send({"error": str(e)}, 400, tpl)
+                return
+            if tpl["output"]:
+                shutil.rmtree(os.path.dirname(tpl["output"]), ignore_errors=True)
+                tpl.update(output=None, output_name=None)
+            try:
+                out = tempfile.mkdtemp(prefix="out-", dir=_tpl_dir(tpl))
+            except OSError as e:
+                self._tpl_send({"error": str(e)}, 400, tpl)
+                return
+            try:
+                result = template_gui.apply(t, d, out, data_path=data_path,
+                                            allow_missing=bool(payload.get("allow_missing")), **_plan_args(payload))
+            except (TemplateError, ValueError, FileNotFoundError) as e:
+                shutil.rmtree(out, ignore_errors=True)
+                self._tpl_send({"error": str(e)}, 400, tpl)
+                return
+            except Exception as e:
+                shutil.rmtree(out, ignore_errors=True)
+                self._tpl_send({"error": f"could not create the workbook: {e}"}, 500, tpl)
+                return
+            tpl.update(output=result["path"], output_name=result["name"])
+            answer = {"ok": True, "name": result["name"], "size": result["size"], "report": result["report"]}
+            if save:
+                final = os.path.join(os.path.dirname(os.path.abspath(tpl["template_path"])), result["name"])
+                try:
+                    with open(result["path"], "rb") as src:
+                        data = src.read()
+                    # "xb" refuses an existing file atomically, so nothing is overwritten.
+                    with open(final, "xb") as fh:
+                        fh.write(data)
+                except FileExistsError:
+                    self._tpl_send({"error": f"{final} already exists; move or delete it first"}, 409, tpl)
+                    return
+                except OSError as e:
+                    self._tpl_send({"error": str(e)}, 400, tpl)
+                    return
+                answer["path"] = final
+        self._tpl_send(answer, 200, tpl)
+
+    def _template_make(self, payload: dict) -> None:
+        """Make a template from the open workbook into the session folder (never a path from the page), keeping
+        only the newest one. The answer is the new template's summary, so the page can offer to use it."""
+        parser, source = _STATE["parser"], _STATE["path"]
+        if parser is None:
+            self._tpl_send({"error": "Open a workbook first; the template is made from it."}, 400)
+            return
+        label = os.path.basename(str(source).replace("\\", "/"))
+        extra = [(source, label)]
+        tpl = _tpl_state(create=True)
+        name = (payload.get("name") or "").strip()
+        description = (payload.get("description") or "").strip()
+        try:
+            size = os.path.getsize(parser.twbx_path or parser.path)
+        except OSError:
+            size = 0
+        if _free_bytes(tempfile.gettempdir()) < 2 * size + _DISK_HEADROOM:
+            self._tpl_send({"error": "The server is short of disk space; try again later."}, 507, tpl, extra)
+            return
+        file_name = _template_file_name(name, label)
+        with tpl["lock"]:
+            try:
+                folder = tempfile.mkdtemp(prefix="made-", dir=_tpl_dir(tpl))
+            except OSError as e:
+                self._tpl_send({"error": str(e)}, 400, tpl, extra)
+                return
+            dest = os.path.join(folder, file_name)
+            extra += [(dest, file_name), (folder, "(upload)")]
+            try:
+                with _WARN_LOCK, warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    make_template(parser, output_path=dest, name=name or None, description=description or None)
+                notes = [str(w.message) for w in caught if issubclass(w.category, UserWarning)][:20]
+                made = load_template(dest)
+                summary = template_gui.template_summary(made, label=file_name)
+            except (TemplateError, ValueError, FileExistsError, OSError) as e:
+                shutil.rmtree(folder, ignore_errors=True)
+                self._tpl_send({"error": str(e)}, 400, tpl, extra)
+                return
+            except Exception as e:
+                shutil.rmtree(folder, ignore_errors=True)
+                self._tpl_send({"error": f"could not make the template: {e}"}, 500, tpl, extra)
+                return
+            if tpl["made"]:
+                shutil.rmtree(os.path.dirname(tpl["made"]), ignore_errors=True)
+            tpl.update(made=dest, made_name=file_name, made_summary=summary)
+            answer = {"ok": True, "name": file_name, "size": os.path.getsize(dest), "template": summary,
+                      "notes": notes}
+        self._tpl_send(answer, 200, tpl, extra)
+
+    def _template_use_made(self) -> None:
+        """Put a copy of the made template into the template slot, as if it had been dropped there. It is a
+        copy, so choosing another template later does not delete the made file."""
+        tpl = _tpl_state()
+        if tpl is None or not tpl["made"] or not os.path.isfile(tpl["made"]):
+            self._tpl_send({"error": "Make a template first."}, 400, tpl)
+            return
+        with tpl["lock"]:
+            name = tpl["made_name"]
+            try:
+                folder = tempfile.mkdtemp(prefix="template-", dir=_tpl_dir(tpl))
+            except OSError as e:
+                self._tpl_send({"error": str(e)}, 400, tpl)
+                return
+            dest = os.path.join(folder, name)
+            extra = [(dest, name), (folder, "(upload)")]
+            try:
+                shutil.copyfile(tpl["made"], dest)
+                obj = load_template(dest)
+                summary = template_gui.template_summary(obj, label=name)
+            except Exception as e:
+                shutil.rmtree(folder, ignore_errors=True)
+                self._tpl_send({"error": f"could not use {name}: {e}"}, 400, tpl, extra)
+                return
+            self._tpl_fill(tpl, "template", obj, summary, {}, dest, name, uploaded=True)
+        self._tpl_send({"ok": True, "template": summary}, 200, tpl)
+
+    def _template_state(self) -> None:
+        """What a reloaded page needs to restore the view: the two summaries, the data choices, the output."""
+        tpl = _tpl_state()
+        if tpl is None:
+            self._tpl_send({"template": None, "data": None, "sheets": None, "datasources": None, "output": None,
+                            "workbook": self._open_workbook_name(), "made": None})
+            return
+        output = None
+        if tpl["output"] and os.path.isfile(tpl["output"]):
+            output = {"name": tpl["output_name"], "size": os.path.getsize(tpl["output"])}
+        made = None
+        if tpl["made"] and os.path.isfile(tpl["made"]):
+            made = {"name": tpl["made_name"], "size": os.path.getsize(tpl["made"]), "template": tpl["made_summary"]}
+        self._tpl_send({"template": tpl["template_summary"], "data": tpl["data_summary"], "sheets": tpl["sheets"],
+                        "datasources": tpl["datasources"], "output": output, "workbook": self._open_workbook_name(),
+                        "made": made}, 200, tpl)
+
+    @staticmethod
+    def _open_workbook_name():
+        """The open workbook as the Templates view needs it: its file name only, or None."""
+        if _STATE["parser"] is None:
+            return None
+        return {"name": os.path.basename(str(_STATE["path"]).replace("\\", "/"))}
+
+    def _template_download(self, key: str, missing: str) -> None:
+        """Send this session's output workbook (`output`) or made template (`made`), or a 404."""
+        tpl = _tpl_state()
+        data = name = None
+        if tpl is not None:
+            with tpl["lock"]:
+                if tpl[key] and os.path.isfile(tpl[key]):
+                    with open(tpl[key], "rb") as fh:
+                        data = fh.read()
+                    name = tpl[key + "_name"]
+        if data is None:
+            self._send(404, missing, "text/plain")
+            return
+        self._send(200, data, "application/octet-stream", {"Content-Disposition": _attachment(name)})
+
     def _refuse_post(self, status: int, message: str, *, as_json: bool = True) -> None:
         """Refuse a POST before its body is read: drain the body first (see `_drain`), then answer."""
         self._drain(self._declared_length())
@@ -735,14 +1345,15 @@ class Handler(BaseHTTPRequestHandler):
         if not _host_allowed(self.headers.get("Host"), self.server.server_address):
             self._refuse_post(403, "forbidden: unrecognized Host header", as_json=False)
             return
-        if self.path == "/upload":
-            self._upload()
+        if self.path in _UPLOAD_ROUTES:
+            self._upload(_UPLOAD_SLOTS[self.path])
             return
-        if self.path not in ("/load", "/create-workbook"):
+        if self.path not in _JSON_ROUTES:
             self._refuse_post(404, "not found", as_json=False)
             return
-        if _CONFIG["server_mode"]:
-            # Both take a path on this machine's disk; on a shared server only uploads are allowed.
+        if _CONFIG["server_mode"] and self.path in _PATH_ROUTES:
+            # These read or write a path on this machine's disk (open a workbook, a template or data by path,
+            # save beside the original or the template); on a shared server only uploads are allowed.
             self._refuse_post(403, "Opening a path on the server is turned off here. Drop a file onto the page instead.")
             return
 
@@ -758,6 +1369,15 @@ class Handler(BaseHTTPRequestHandler):
             self._refuse_post(403, "cross-origin request rejected")
             return
 
+        if self.path.startswith("/template/"):
+            declared = self._declared_length()
+            if declared < 0:
+                self._refuse_post(400, "bad Content-Length")
+                return
+            if declared > MAX_JSON_BYTES:
+                self._refuse_post(413, f"That request is too big (the limit is {MAX_JSON_BYTES // 1024} KB).")
+                return
+
         length = int(self.headers.get("Content-Length", 0) or 0)
         raw = self.rfile.read(length) if length else b"{}"
         try:
@@ -771,6 +1391,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/create-workbook":
             self._create_workbook(payload)
+            return
+        if self.path.startswith("/template/"):
+            self._template_post(self.path, payload)
             return
 
         path = str(payload.get("path", "")).strip()
