@@ -1,0 +1,27 @@
+name: Commit attribution
+
+# Fails a pull request when one of its commits names Claude/Anthropic as co-author, has a
+# "Generated with" line, or has an author or committer other than DDSNA (AGENTS.md, Hard rules).
+# Checks the PR's own commits; the squash commit on main is authored by GitHub as "Dan" and is not checked.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  attribution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check the pull request's commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/check_commit_attribution.py "$BASE_SHA..$HEAD_SHA"
