@@ -1,6 +1,6 @@
 name: Docker publish
 
-# DRAFT: not yet reviewed by the owner. Publishes the server image (Dockerfile, docs/deployment.md) to GHCR
+# Publishes the server image (Dockerfile, docs/deployment.md) to GHCR
 # when a GitHub Release is published, the same trigger as release.yml. The two workflows run side by side and
 # do not depend on each other: the Dockerfile builds the wheel from this checkout, not from PyPI, so the image
 # does not wait for (or fail with) the PyPI publish.
@@ -68,7 +68,7 @@ jobs:
   publish:
     needs: smoke
     runs-on: ubuntu-latest
-    environment: release  # same approval gate as the PyPI publish
+    environment: release  # same environment name as the PyPI publish; no required-reviewer gate is configured, so this job runs without approval
     timeout-minutes: 20
     permissions:
       contents: read
