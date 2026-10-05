@@ -67,8 +67,8 @@ def ids(df, rule=None):
 
 
 def test_the_template_rules_have_stable_ids():
-    assert template_rule_ids() == ["T001", "T002", "T003", "T004", "T005", "T006", "T007", "T008", "T010"]
-    assert "T009" in RESERVED         # the token rule (WP19): reserved, so the number is never reused
+    assert template_rule_ids() == ["T001", "T002", "T003", "T004", "T005", "T006", "T007", "T008", "T009", "T010"]
+    assert "T009" not in RESERVED     # built now (issue #36); the number was reserved so it is never reused
 
 
 def test_a_clean_template_has_no_findings(clean):
@@ -81,9 +81,11 @@ def test_check_accepts_a_loaded_template(clean):
     assert check_template(load_template(clean)).empty
 
 
-def test_reserved_id_is_explained(clean):
-    with pytest.raises(ValueError, match="T009.*token"):
-        check_template(clean, only=["T009"])
+def test_reserved_id_is_explained(clean, monkeypatch):
+    monkeypatch.setitem(RESERVED, "T950", "a future rule")
+    for kw in ({"only": ["T950"]}, {"skip": "t950"}):
+        with pytest.raises(ValueError, match="T950.*future rule"):
+            check_template(clean, **kw)
 
 
 # --- T001 -------------------------------------------------------------------
@@ -333,6 +335,59 @@ def test_t008_ignores_parameter_defaults(clean):
     assert check_template(clean, only=["T008"]).empty
 
 
+# --- T009 -------------------------------------------------------------------
+
+def _token_template(tmp_path, title="Sales for {{customer}}", formula=None, **kw):
+    src = tmp_path / "tok.twb"
+
+    def edit(root):
+        root.xpath("//worksheet/layout-options/title//run")[0].text = title
+        if formula:
+            root.xpath("//column[@caption='SHOW']/calculation")[0].set("formula", formula)
+    doc = etree.parse(str(PUBLIC / "filtering.twb"))
+    edit(doc.getroot())
+    src.write_bytes(etree.tostring(doc, xml_declaration=True, encoding="utf-8"))
+    return make_template(str(src), **kw)
+
+
+def test_t009_token_without_a_default(tmp_path):
+    df = check_template(_token_template(tmp_path), only=["T009"])
+    assert len(df) == 1 and df.iloc[0]["severity"] == "info" and df.iloc[0]["object"] == "{{customer}}"
+    assert "no default" in df.iloc[0]["detail"] and "--token" in df.iloc[0]["fix"]
+    ok = _token_template(tmp_path, tokens={"customer": "Your company"}, output_path=str(tmp_path / "ok.twbx"))
+    assert check_template(ok, only=["T009"]).empty
+
+
+def test_t009_token_inside_a_formula(tmp_path):
+    with pytest.warns(UserWarning):
+        path = _token_template(tmp_path, formula='"{{customer}} HQ"', tokens={"customer": "x"})
+    df = check_template(path, only=["T009"])
+    assert len(df) == 1 and df.iloc[0]["severity"] == "warning" and "SHOW" in df.iloc[0]["object"]
+    assert "formula" in df.iloc[0]["detail"] and "HQ" not in df.iloc[0]["detail"]
+
+
+def test_t009_broken_syntax(tmp_path):
+    with pytest.warns(UserWarning):
+        path = _token_template(tmp_path, title="Sales for {{customer")
+    df = check_template(path, only=["T009"])
+    assert len(df) == 1 and df.iloc[0]["severity"] == "warning"
+    assert "title" in df.iloc[0]["object"] and "{{" in df.iloc[0]["detail"]
+
+
+def test_t009_has_nothing_to_say_about_a_template_without_tokens(clean, tmp_path):
+    assert check_template(clean, only=["T009"]).empty
+    assert check_template(_template(tmp_path), only=["T009"]).empty            # a version 2 manifest, no `tokens` key
+
+
+def test_t009_on_the_command_line(tmp_path, capsys):
+    path = _token_template(tmp_path)
+    assert main(["template", "check", path, "--only", "T009", "--format", "json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert [r["rule"] for r in rows] == ["T009"]
+    assert main(["template", "check", path, "--only", "T009", "--fail-on", "info"]) == 1
+    capsys.readouterr()
+
+
 # --- T010 -------------------------------------------------------------------
 
 def test_t010_no_description_and_default_name(tmp_path):
@@ -416,7 +471,7 @@ def test_cli_help_lists_the_rules(capsys):
     text = capsys.readouterr().out
     for rid in ("T001", "T007", "T010", "--fail-on", "--only", "--skip", "--format"):
         assert rid in text
-    assert "T009" in text and "reserved" in text.lower()
+    assert "T009" in text and "token" in text.lower()
 
 
 def test_check_leaves_the_template_untouched(tmp_path):

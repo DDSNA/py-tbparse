@@ -6,9 +6,9 @@ keeps its number. To add a rule, write one more function with `@rule("T0xx", "te
 below, add a test with a passing and a failing case, and add the id to the list in
 `tests/test_template_check.py`.
 
-T009 is reserved for the token rule of WP19 (a declared token never used, or `{{x}}` present but
-undeclared). Tokens are not merged yet, so the rule does not exist; it is one function that reads
-`template.manifest["tokens"]` and the workbook's text, and nothing else here changes.
+T009 is the token rule (WP19, `tokens.py`): a declared token with no default, a `{{token}}` inside a
+formula (never filled), and `{{` syntax that is not a whole token. `RESERVED` holds ids set aside for
+rules not written yet (empty now); a reserved id is refused by `only`/`skip` with its reason.
 
 Every rule is a heuristic about what a template author probably did not mean; none of them says
 Tableau will refuse the file (that is what `docs/verify-in-tableau.md` is for).
@@ -22,6 +22,7 @@ from typing import Iterable, Optional, Union
 
 import pandas as pd
 
+from . import tokens as _tokens
 from .findings import Subject, finding, rule, rule_ids, rules, run_rules
 from .templates import (
     ANSWERS_NAME,
@@ -40,7 +41,7 @@ from .templates import (
 from .verify import validate_workbook
 
 SCOPE = "template"
-RESERVED = {"T009": "the template-token rule (WP19), not built yet"}
+RESERVED: dict[str, str] = {}
 
 # Connection attributes that say where one particular copy of the data lives.
 _PLACES = ("server", "dbname", "filename", "directory", "warehouse", "service")
@@ -258,6 +259,27 @@ def literals_in_calculations(s: Subject):
                 yield finding(f"{ds.get('caption') or ds.get('name')}: {col.get('caption') or _strip(col.get('name'))}",
                               f"the formula has a string that looks like a URL, path, address or long text "
                               f"(heuristic, value hidden): {shown}{more}")
+
+
+@rule("T009", SCOPE, severity="info",
+      fix="Give the token a default with `template make --token NAME=VALUE`, or pass --token NAME=VALUE on every apply")
+def tokens_rule(s: Subject):
+    """A template token has no default, sits in a formula, or is written with broken `{{` syntax."""
+    for t in s.template.manifest.get("tokens") or []:
+        if t.get("default") is None:
+            yield finding("{{%s}}" % t["name"], "the token has no default, so every apply must be given a value "
+                                                 "(a token with none stops the apply)")
+    doc = s.parser.xml_doc
+    for name, _formula in _tokens.formula_hits(doc):        # the formula itself is not shown
+        yield finding(name, "a {{token}} inside a formula is never filled in; tokens belong in titles, text, "
+                            "captions and string parameters", severity="warning",
+                      fix="Move the text out of the formula (a string parameter or a caption can hold the token)")
+    for kind, obj, _text in _tokens.broken_hits(doc):
+        yield finding(f"{kind}: {obj}", "the text has a `{{` or `}}` that is not a whole token or an escape "
+                                        "(a token cut in two by a change of format, or a missing brace)",
+                      severity="warning",
+                      fix="Retype the token in one go and format all of it the same way; write a literal brace pair as "
+                          "`{{{{` or `}}}}`")
 
 
 @rule("T010", SCOPE, severity="info",
