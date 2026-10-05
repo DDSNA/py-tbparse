@@ -165,6 +165,36 @@ def _connections(ds) -> list[dict]:
     return out
 
 
+# What a page or a finding may say about a connection: where the data lives, never who is logged in.
+_SHOWN_CONNECTION_ATTRS = ("class", "server", "dbname", "schema", "port", "filename", "warehouse", "service",
+                           "authentication")
+_FILE_CLASSES = ("textscan", "excel-direct", "dataengine", "hyper", "ogrdirect", "msaccess")   # a file, packaged or not
+_USERINFO = re.compile(r"(?<=//)[^/@\s]*@|^[^/@\s]+:[^/@\s]*@")
+_KEYED_SECRET = re.compile(r"(?i)\b(pass(?:word)?|pwd|token|secret|api[-_]?key|key|sig|signature)\s*=\s*[^;&\s]+")
+
+
+def _base_name(path: str) -> str:
+    return re.split(r"[\\/]", path.rstrip("\\/"))[-1]
+
+
+def safe_connection(conn: dict) -> dict:
+    """`conn` reduced to an allowlist of attributes (`_SHOWN_CONNECTION_ATTRS`) that is safe to print or put in a
+    finding: a file is shown by its name only (the folder can hold a user name), a `user:password@` or
+    `password=...` inside a value is replaced by `***`, and anything else (`username`, `password`, `token`,
+    `oauth-...`, `directory`, whatever a hand-edited or future manifest adds) is dropped."""
+    out = {}
+    for key in _SHOWN_CONNECTION_ATTRS:
+        value = conn.get(key)
+        if value in (None, ""):
+            continue
+        value = str(value)
+        if key == "filename" or (key == "dbname" and conn.get("class") in _FILE_CLASSES):
+            value = _base_name(value)
+        value = _KEYED_SECRET.sub(lambda m: m.group(1) + "=***", _USERINFO.sub("***@", value))
+        out[key] = value
+    return out
+
+
 def _scrub(doc) -> None:
     for el in doc.iter():
         if isinstance(el.tag, str) and el.tag == "connection":

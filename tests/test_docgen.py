@@ -142,6 +142,66 @@ def test_template_markdown_non_latin_and_pipes(tmp_path):
     assert md.startswith("# Продажи \\| 売上")
 
 
+def test_dashboard_sheets_listed_for_named_zones(tmp_path):
+    # filtering.twb's zones are `<zone name='Sheet 1'>`, with no @worksheet (issue #29)
+    t = load_template(make_template(str(shutil.copy(PUBLIC / "filtering.twb", tmp_path / "f.twb"))))
+    md = template_markdown(t)
+    row = next(l for l in md.splitlines() if l.startswith("| setTest"))
+    assert cells(row)[1].strip() == "Sheet 1; Sheet 2"
+
+
+def test_connections_use_an_allowlist(tmp_path):
+    t = load_template(make_template(str(shutil.copy(PUBLIC / "filtering.twb", tmp_path / "f.twb"))))
+    t.manifest["datasources"][0]["connections"] = [{
+        "class": "sqlserver", "server": "https://u:pw@host.example/", "dbname": "sales",
+        "token": "TOK-123", "oauth-access-token": "OAUTH-456", "Password": "hunter2", "secret": "S3CR3T",
+        "filename": "C:\\Users\\alice\\data.csv", "directory": "/home/alice/data"}]
+    md = template_markdown(t)
+    for secret in ("TOK-123", "OAUTH-456", "hunter2", "S3CR3T", "u:pw", "alice", "C:\\"):
+        assert secret not in md, secret
+    assert "class=sqlserver" in md and "dbname=sales" in md and "host.example" in md and "filename=data.csv" in md
+    t.manifest["datasources"][0]["connections"] = [{"class": "sqlserver", "server": "u:pw@host", "dbname": "x;password=zz"}]
+    md = template_markdown(t)
+    assert "pw" not in md.replace("password", "") and "zz" not in md
+
+
+@pytest.mark.parametrize("text", [
+    "```\nnot closed", "~~~\nnot closed", "# Heading", "- item", "+ item", "1. item", "---", "===",
+    "[x](http://a.example)", "![i](http://a.example/p.png)", "&lt;b&gt;", "`code`", "> quote",
+])
+def test_escape_cell_adversarial(text):
+    out = escape_cell(text)
+    for line in out.split("<br>"):
+        assert not re.match(r"\s*(```|~~~|#|[-+*>]\s|\d+[.)]\s|-{3}|={3})", line), (text, out)
+    assert not re.search(r"(?<!\\)\[", out) and not re.search(r"(?<!\\)`", out)     # no link or code span can open
+    assert "&lt;" not in out.replace("&amp;lt;", "")            # an entity stays literal text
+
+
+def test_escape_cell_line_start_markers():
+    assert escape_cell("1. item") == "1\\. item" and escape_cell("2) item") == "2\\) item"
+    assert escape_cell("# H") == "\\# H" and escape_cell("a\n- b") == "a<br>\\- b"
+    assert escape_cell("R&D 2024-25 (v1)") == "R&amp;D 2024-25 (v1)"
+
+
+def test_free_text_cannot_open_a_fence_or_a_heading(tmp_path):
+    t = load_template(make_template(str(shutil.copy(PUBLIC / "Cache.twbx", tmp_path / "c.twbx")), name="Q"))
+    t.manifest["description"] = "intro\n```\n# Heading\n- item\n[x](http://evil.example)"
+    md = template_markdown(t)
+    for line in md.splitlines():
+        assert not line.startswith(("```", "# Heading", "- item")), line
+    assert "](http" not in md.replace("\\](http", "")
+
+
+def test_long_descriptions_and_allowed_values_are_capped(tmp_path):
+    t = load_template(make_template(str(shutil.copy(PUBLIC / "Cache.twbx", tmp_path / "c.twbx")), name="Q"))
+    p = t.manifest["parameters"][0]
+    p["description"] = "d" * 5000
+    p["allowed"] = ["v" * 5000, "short"]
+    md = template_markdown(t)
+    assert "d" * 400 not in md and "v" * 400 not in md and "short" in md
+    assert "truncated" in md
+
+
 def test_cli_show_markdown(cache_template, tmp_path, capsys):
     assert main(["template", "show", cache_template, "--markdown"]) == 0
     out = capsys.readouterr().out
