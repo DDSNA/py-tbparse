@@ -337,7 +337,8 @@ def test_a_text_file_renamed_to_twbx_is_refused_by_the_server_in_plain_words(gui
     page.set_input_files("#tplTemplatePick", str(fake))
     assert "not a template" in _error_shown(page)
     assert page.locator("#tplCard1[data-state=todo]").is_visible()
-    assert page.js_errors == []
+    # the server answered 400 on purpose; the browser logs that as a console error, anything else is a bug
+    assert [e for e in page.js_errors if "status of 400" not in e] == []
 
 
 def test_an_unknown_data_file_is_refused_before_it_is_sent(gui, tpl_file, tmp_path):

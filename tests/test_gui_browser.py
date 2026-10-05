@@ -558,7 +558,7 @@ def test_there_is_no_persistent_loaded_line_and_the_page_has_landmarks(page, wen
     assert page.locator("header.top").count() == 1
     assert page.locator("main#main").count() == 1
     assert page.get_attribute("nav#nav", "aria-label") == "Tables"
-    assert page.locator("h1").count() == 2  # the start screen's (hidden) and the view's
+    assert page.locator("h1").count() == 3  # the start screen's, the view's and the Templates view's (two hidden)
     assert page.locator("h1:visible").count() == 1
 
 
