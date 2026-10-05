@@ -172,7 +172,7 @@ the upstream package, function-for-function:
 |---|---|---|
 | `_clean.py` | `R/utils.R` (`.twb_clean_table`, `.twb_clean_field`, `attr_safe_get`, `.strip_brackets`) | Regex-based name cleaners shared by everything else |
 | `_xml.py` | `R/utils.R` (`twbx_list`, `extract_twb_from_twbx`, `twbx_extract_files`) | `.twbx` zip handling |
-| `datasources.py` | `R/datasources.R` | `extract_named_connections`, `extract_datasource_details`, `extract_parameters` |
+| `datasources.py` | `R/datasources.R` | `extract_named_connections`, `extract_datasource_details`, `extract_parameters`. The Datasources table has one row per logical table of the object graph (per datasource when there is no graph), each tied to the `<datasource>` it sits in (never matched on `primary_table`, never a row for the internal `Parameters` datasource); a value the workbook does not hold reads "not stored in the workbook", never NaN (`connection_id` stays None) |
 | `fields.py` | `R/fields.R` | `extract_columns_with_table_source`, `infer_implicit_relationships` |
 | `calculated_fields.py` | `R/calculated_fields.R` | `extract_calculated_fields`, `extract_raw_fields` |
 | `joins.py` | `R/joins.R` | `extract_joins` (legacy `<relation type="join">`) |

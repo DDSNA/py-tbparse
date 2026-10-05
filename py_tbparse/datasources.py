@@ -55,7 +55,7 @@ def _location_named(cls, target, dbname, schema, region, fn) -> str:
         return label
     if cls == "ogrdirect":
         return f"Shapefile: {basename_safe(fn)}"
-    if cls == "excel":
+    if cls in ("excel", "excel-direct"):
         return f"Excel: {basename_safe(fn)}"
     if cls == "textscan":
         return f"CSV: {basename_safe(fn)}"
@@ -106,6 +106,7 @@ def extract_named_connections(xml_doc) -> pd.DataFrame:
                 "warehouse": warehouse,
                 "region": region,
                 "filename": fn,
+                "directory": directory,
                 "location_named": _location_named(cls, target, dbname, schema, region, fn),
             }
         )
@@ -149,105 +150,139 @@ def extract_parameters(xml_doc) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=_PARAMETER_COLUMNS).drop_duplicates()
 
 
+_NOT_STORED = "not stored in the workbook"
+_PARAMETERS_DATASOURCE = "Parameters"
+
+
+def _first_text(*vals):
+    """First non-empty string (an empty `server=''` says nothing about where the data is)."""
+    for v in vals:
+        if v:
+            return v
+    return None
+
+
+def _real_datasources(xml_doc) -> list:
+    """The `<datasource>` elements that hold data: everything but Tableau's internal
+    `Parameters` datasource (its columns are the parameters, listed in their own table)."""
+    return [
+        ds for ds in xml_doc.xpath(_DATASOURCE_XPATH)
+        if ds.get("name") != _PARAMETERS_DATASOURCE
+    ]
+
+
+def _own_connection(ds) -> dict:
+    """What a datasource says about its own connection, for rows with no named connection."""
+    conn = ds.find(".//connection")
+    if conn is None:
+        return {}
+    a = dict(conn.attrib)
+    cls = attr_safe_get(a, "class")
+    server = attr_safe_get(a, "server")
+    filename = attr_safe_get(a, "filename")
+    if cls == "excel":
+        location = f"Excel: {basename_safe(filename) if filename else '<unknown>'}"
+    elif cls == "textscan":
+        location = f"CSV: {basename_safe(filename) if filename else '<unknown>'}"
+    elif cls == "federated":
+        location = f"Federated: {server or '<unknown>'}"
+    else:
+        location = f"No Known File {(cls or 'Unknown').title()}: {server or '<unknown>'}"
+    return {
+        "connection_class": cls,
+        "connection_target": _first_text(server, attr_safe_get(a, "directory"), filename),
+        "location": location,
+    }
+
+
+def _owner(rel, real, by_table):
+    """The datasource a logical table belongs to: the `<datasource>` the object graph sits in,
+    else the one whose own relations name the table, else the only real datasource."""
+    for anc in rel.xpath("ancestor::datasource"):
+        if any(anc is d for d in real):
+            return anc
+    owner = by_table.get(rel.get("table"))
+    if owner is not None:
+        return owner
+    return real[0] if len(real) == 1 else None
+
+
 def extract_datasource_details(xml_doc) -> dict:
-    """Port of `extract_datasource_details()`.
+    """Port of `extract_datasource_details()` (reworked for issue #65).
+
+    One row per logical table of the object graph (per datasource when there is no graph),
+    never one for the internal `Parameters` datasource. A row's connection comes from its
+    relation's named connection; its datasource name and field count from the datasource it
+    sits in; whatever the workbook does not store reads "not stored in the workbook".
 
     Returns a dict with `data_sources`, `parameters`, `all_sources`.
     """
+    real = _real_datasources(xml_doc)
+    by_table = {}
+    for ds in real:
+        for r in ds.xpath(".//relation[@type='table']"):
+            by_table.setdefault(r.get("table"), ds)
+
+    conn_meta = extract_named_connections(xml_doc)
+    conns = (
+        {r["connection_id"]: r for r in conn_meta.astype(object).where(conn_meta.notna(), None)
+         .to_dict("records")}
+        if "connection_id" in conn_meta.columns else {}
+    )
+
     rels = xml_doc.xpath(
         "//*[contains(local-name(), 'object-graph')]"
         "//object//properties[@context='']/relation[@type='table']"
     )
-    if rels:
-        runtime_ds = pd.DataFrame(
-            {
-                "datasource": [r.get("name") for r in rels],
-                "primary_table": [r.get("table") for r in rels],
-                "connection_id": [r.get("connection") for r in rels],
-            }
-        ).drop_duplicates()
-    else:
-        runtime_ds = pd.DataFrame(
-            columns=["datasource", "primary_table", "connection_id"]
-        )
-
-    conn_meta = extract_named_connections(xml_doc)
-    need_conn_cols = [
-        "connection_id", "connection_class", "connection_caption",
-        "connection_target", "location_named",
-    ]
-    for col in need_conn_cols:
-        if col not in conn_meta.columns:
-            conn_meta[col] = pd.Series(dtype="object")
-    conn_meta = conn_meta[[c for c in need_conn_cols if c in conn_meta.columns]]
-
-    defs = xml_doc.xpath(_DATASOURCE_XPATH)
-    meta_rows = []
-    for ds in defs:
-        nm = ds.get("name")
-        ncol = len(ds.findall(".//column"))
-
-        tbl = ds.find(".//relation[@type='table']")
-        pt = tbl.get("table") if tbl is not None else None
-
-        conn = ds.find(".//connection")
-        a = dict(conn.attrib) if conn is not None else {}
-
-        cls = attr_safe_get(a, "class", "inline")
-        server = attr_safe_get(a, "server")
-        filename = attr_safe_get(a, "filename")
-
-        server_label = server if server else "<unknown>"
-
-        def _file_label(x):
-            return basename_safe(x) if x else "<unknown>"
-
-        if cls == "excel":
-            location = f"Excel: {_file_label(filename)}"
-        elif cls == "textscan":
-            location = f"CSV: {_file_label(filename)}"
-        elif cls == "federated":
-            location = f"Federated: {server_label}"
+    # (datasource element or None, relation name, table, connection id)
+    entries = []
+    seen = set()
+    for r in rels:
+        owner = _owner(r, real, by_table)
+        key = (id(owner), r.get("name"), r.get("table"), r.get("connection"))
+        if key not in seen:
+            seen.add(key)
+            entries.append((owner, r.get("name"), r.get("table"), r.get("connection")))
+    covered = {id(o) for o, *_ in entries if o is not None}
+    for ds in real:
+        if id(ds) in covered:
+            continue
+        rel = ds.find(".//relation[@type='table']")
+        if rel is not None:
+            entries.append((ds, rel.get("name"), rel.get("table"), rel.get("connection")))
         else:
-            location = "Unknown"
+            nc = ds.find(".//named-connection")
+            entries.append((ds, ds.get("caption") or ds.get("name"), None,
+                            nc.get("name") if nc is not None else None))
 
-        meta_rows.append(
+    rows = []
+    for ds, name, table, conn_id in entries:
+        own = _own_connection(ds) if ds is not None else {}
+        if conn_id is None and ds is not None:
+            nc = ds.find(".//named-connection")
+            if nc is not None and ds.find(".//relation[@type='table']") is None:
+                conn_id = nc.get("name")
+        c = conns.get(conn_id, {})
+        cls = _first_text(c.get("connection_class"), own.get("connection_class"))
+        rows.append(
             {
-                "datasource_name": nm,
-                "primary_table": pt,
-                "field_count": ncol,
-                "connection_type": cls,
-                "location": location,
+                "datasource": name,
+                "primary_table": table,
+                "connection_id": conn_id,
+                "connection_caption": _first_text(c.get("connection_caption")) or _NOT_STORED,
+                "connection_class": cls or _NOT_STORED,
+                "connection_target": _first_text(
+                    c.get("connection_target"), c.get("directory"), c.get("filename"), own.get("connection_target")
+                ) or _NOT_STORED,
+                "datasource_name": (ds.get("name") if ds is not None else None)
+                or _first_text(c.get("connection_caption")) or _NOT_STORED,
+                "field_count": len(ds.findall(".//column")) if ds is not None else 0,
+                "connection_type": cls or _NOT_STORED,
+                "location": _first_text(c.get("location_named"), own.get("location")) or _NOT_STORED,
             }
         )
-
-    need_meta_cols = [
-        "primary_table", "datasource_name", "field_count",
-        "connection_type", "location",
-    ]
-    meta = pd.DataFrame(meta_rows, columns=need_meta_cols)
-
-    final = runtime_ds.merge(conn_meta, on="connection_id", how="left")
-    final = final.merge(meta, on="primary_table", how="left")
-
-    if "location_named" in final.columns:
-        final["location"] = final["location"].where(
-            final["location"].notna(), final["location_named"]
-        )
-    if "connection_class" in final.columns:
-        final["connection_type"] = final["connection_type"].where(
-            final["connection_type"].notna(), final["connection_class"]
-        )
-    final["field_count"] = final.get("field_count", pd.Series(dtype="float64")).fillna(0).astype(int)
-    if "connection_caption" in final.columns:
-        final["datasource_name"] = final["datasource_name"].where(
-            final["datasource_name"].notna(), final["connection_caption"]
-        )
-
-    for c in _DATASOURCE_COLUMNS:
-        if c not in final.columns:
-            final[c] = pd.Series(dtype="object")
-    final = final[_DATASOURCE_COLUMNS]
+    final = pd.DataFrame(rows, columns=_DATASOURCE_COLUMNS)
+    final["field_count"] = final["field_count"].astype(int)
 
     try:
         params = extract_parameters(xml_doc)
