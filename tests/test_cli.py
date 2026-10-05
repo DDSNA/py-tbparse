@@ -34,7 +34,7 @@ def test_csv_format(wenjie_path, capsys):
     rc = cli.main([wenjie_path, "fields", "--format", "csv"])
     out = capsys.readouterr().out
     assert rc == 0
-    assert out.splitlines()[0].startswith("datasource,")
+    assert out.splitlines()[0].startswith("caption,datatype,")
 
 
 def test_validate_ok_exit_code(wenjie_path, capsys):
@@ -56,7 +56,7 @@ def test_output_to_file(wenjie_path, tmp_path):
     rc = cli.main([wenjie_path, "datasources", "--format", "csv", "--output", str(out_file)])
     assert rc == 0
     content = out_file.read_text()
-    assert content.splitlines()[0].startswith("datasource,")
+    assert content.splitlines()[0].startswith("primary_table,")
 
 
 def test_dashboard_sheets_with_filter(wenjie_path, capsys):

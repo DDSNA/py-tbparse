@@ -117,3 +117,20 @@ def basename_safe(x: Optional[str], fallback: str = "<unknown>") -> str:
     import os
 
     return os.path.basename(x)
+
+
+# Columns that identify things to Tableau rather than to a person; tables show them last.
+INTERNAL_COLUMNS = ("tableau_internal_name", "connection_id", "connection", "zone_id", "datasource")
+
+
+def internal_last(df):
+    """`df` with the internal columns (`INTERNAL_COLUMNS`, plus the raw `name` of a table that also
+    shows a `current` or `caption` column) moved to the end, in their original order."""
+    cols = list(df.columns)
+    last = [c for c in cols if c in INTERNAL_COLUMNS]
+    if "name" in cols and ("current" in cols or "caption" in cols):
+        last.append("name")
+    if not last:
+        return df
+    last = [c for c in cols if c in last]
+    return df[[c for c in cols if c not in last] + last]
