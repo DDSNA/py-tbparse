@@ -17,6 +17,7 @@ from typing import Union
 
 import pandas as pd
 
+from .dashboards import dashboard_targets
 from .parser import TwbParser
 from .usage import _datasource_fields, _sheet_uses, missing_references
 
@@ -33,8 +34,6 @@ _TEXT_REMOTE_TYPES = {
     "datetime": ("135", "7"),
 }
 _AUTO_COLUMN = "{http://www.tableausoftware.com/xml/user}auto-column"
-# Zones of these kinds are named after the worksheet they show or control.
-_SHEET_ZONE_TYPES = {None, "filter", "color", "size", "shape", "highlighter", "map", "legend"}
 
 
 def _row(check: str, severity: str, datasource: str, obj: str, detail: str) -> dict:
@@ -67,13 +66,6 @@ def _sheet_fields(doc, by_ds) -> list[dict]:
                     rows.append(_row("sheet-field", "error", ds_name, sheet,
                                      f"worksheet uses {name}, which the datasource does not have"))
     return rows
-
-
-def dashboard_targets(db) -> list[str]:
-    """The sheets (or dashboards) a `<dashboard>` element shows, in document order: a zone names one in
-    `@worksheet` or, in some files, only in `@name` (layout containers, text and the like are skipped)."""
-    return [z.get("worksheet") or z.get("name") for z in db.xpath(".//zone[@name or @worksheet]")
-            if (z.get("type-v2") or z.get("type")) in _SHEET_ZONE_TYPES]
 
 
 def _dashboard_sheets(doc) -> list[dict]:

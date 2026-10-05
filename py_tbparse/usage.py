@@ -13,6 +13,7 @@ from typing import Optional
 
 import pandas as pd
 
+from .dashboards import dashboard_targets
 from .parser import TwbParser
 
 USAGE_COLUMNS = [
@@ -92,10 +93,8 @@ def _dashboards_of(doc) -> dict[str, set]:
     """worksheet -> dashboards that show it."""
     out: dict[str, set] = {}
     for db in doc.xpath("/workbook/dashboards/dashboard[@name]"):
-        for z in db.xpath(".//zone"):
-            sheet = z.get("worksheet") or z.get("name")
-            if sheet:
-                out.setdefault(sheet, set()).add(db.get("name"))
+        for sheet in dashboard_targets(db):
+            out.setdefault(sheet, set()).add(db.get("name"))
     return out
 
 
