@@ -1,6 +1,6 @@
 # py-tbparse GUI redesign plan: smoother, clearer, more accessible
 
-Target: phases 0-1 (the file split and the new look) go out as **0.4.1**, and phase 2 (the table) as **0.4.2**, both decided by the user on 2026-10-02: patch releases, because nothing breaks. The versions for phases 2-4 are open (the earlier proposal was 0.5.0 and 0.6.0).
+Target: phases 0-1 (the file split and the new look) go out as **0.4.1**, and phase 2 (the table) as **0.4.2**, both decided by the user on 2026-10-02: patch releases, because nothing breaks. Phase 3 then shipped as 0.4.3 and 0.4.4 (section 11), so the 0.5.0 and 0.6.0 proposed earlier were not used; 0.5.0 is now the first templating release (see "Versioning" in `AGENTS.md`). Phase 4 has no version.
 Method: design-critique, accessibility-review and design-system frameworks applied to the real GUI
 (9 screenshots: start, overview, fields, renames, graph, dark, phone; one 190-field workbook), plus measurements from the page's CSS and JS.
 No third-party UI-redesign skill was installed; the three installed design skills were used.
@@ -157,7 +157,7 @@ the source), so use them as progressive enhancement behind a feature check, neve
 1. **Split the page into `webui/` files:** yes. Done in phase 0.
 2. **Drag-and-drop upload on the local-only server:** yes, keeping the existing Host/Origin checks and adding a size limit. Dropped files have no path on disk, so "create beside the original" becomes "download" for them, and the UI says so.
 3. **Graph:** write our own small dependency-free SVG layout.
-4. **Versions:** phases 0-1 ship as 0.4.1 and phase 2 as 0.4.2 (the user's calls, 2026-10-02). Phases 3-4 are open; the earlier proposal was 0.6.0.
+4. **Versions:** phases 0-1 ship as 0.4.1 and phase 2 as 0.4.2 (the user's calls, 2026-10-02). Phase 3 later shipped as 0.4.3 and 0.4.4; phase 4 has no version (the 0.6.0 proposed earlier was not used).
 5. **Default density:** comfortable; a Compact rows button in the table toolbar switches to compact and is remembered.
 6. **Branch discipline:** all redesign work lives on `ui-redesign` (pushed 2026-10-02). Later pushes and any PR only when the user says so.
 
@@ -250,8 +250,8 @@ Every text/background pair the stylesheet uses (22 per theme) passes 4.5:1, and 
   - Only a sort glides, for 120 ms: while a view transition runs Chromium sends clicks to the page root and no CSS (`pointer-events: none` on the pseudo-elements included) prevents it.
   - Responsive: the Field renames toolbar overflowed below about 400 px (an `inline-flex` box sizes to its content and never wraps); it is a full-width flex row on phones.
 - **Process note:** measuring 50,000 rows against the OLD table crashed the session twice (400,000 page nodes plus a multi-second sort on a 2-CPU, 7.9 GB machine). The measuring scripts now check free memory, set timeouts and print progress; the heavy tests skip below 1.5 GB free.
-- **Next: phase 3** (open, overview report card, rendered graph) plus colour themes: see section 11. Re-capture the screenshot baseline first, since phase 2 changed the table's look.
-- Pushed to `origin/ui-redesign` on 2026-10-02 at the user's word. Version bumped to 0.4.1 and pushed on the user's word. No PR yet; open one only when asked, and a release only on an explicit go.
+- **History:** this section is the state at the end of phase 2. Phase 3 (open, overview report card, rendered graph, colour themes) was planned in section 11 and has since been built (0.4.3, 0.4.4).
+- Phases 0 to 2 were pushed to `origin/ui-redesign` on 2026-10-02 at the user's word, with the version bumped to 0.4.1 and then 0.4.2, and merged through PR #9. Later PRs and a release only on an explicit go.
 
 ## 11. Plan: phase 3 (open, overview, graph) and colour themes
 
@@ -353,8 +353,7 @@ step with what is in fashion now but kept calm enough to work in all day:
 - **3c done:** `graph_data()` (DOT output is byte-identical: hashed across all 206 workbooks before and after), `webui/graph.js` with a deterministic layered layout (components, cycle breaking, longest-path layers, 4 barycentre sweeps), SVG drawing with fanned parallel edges, pan, wheel and button zoom, Fit, hover and focus highlighting without opacity (colour only), one tab stop with arrow-key navigation, drawer details for a table or a connection, a list view, SVG export with literal colours, one group at a time above 300 tables. Layout invariants are tested on 25 + 15 + 10 + 10 seeded random graphs (no overlap, every table placed once, edges point right in acyclic graphs, order-independent). Not done: edge labels are shown on hover only, and the layout stacks groups vertically instead of packing them.
 
 ### Version, size and risks
-- **Version:** 3a+3d could ship as **0.5.0** (new endpoint, new feature) and 3b+3c as 0.5.1, or all of phase 3 as
-  0.5.0. The user decides; bump in the branch before any PR.
+- **Version:** shipped as 0.4.3 (3a, 3d) and 0.4.4 (3b, 3c); the 0.5.0 and 0.5.1 options considered here were not used.
 - **Rough size:** 3a medium, 3d medium (most of it is choosing palettes that pass contrast), 3b medium, 3c the
   largest. Each lands as its own commits with its tests.
 - **Risks:** uploads on a 7.9 GB machine (streamed to disk, size-limited); layout cost on big graphs (cap and
