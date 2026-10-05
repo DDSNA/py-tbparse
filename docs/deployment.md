@@ -26,22 +26,25 @@ docker run -d --name tbparse -p 127.0.0.1:8080:8080 \
 
 ## Published image
 
-Each GitHub Release also publishes the image to the GitHub Container Registry, tagged with the release version
-(without the leading `v`); `latest` follows the newest release that is not a pre-release.
+From the next GitHub Release on, each release also publishes the image to the GitHub Container Registry, tagged with
+the release version (without the leading `v`); `latest` follows the newest release that is not a pre-release. No
+image exists yet: the publish workflow was added after 0.4.6 and has not run, so there is no `0.4.6` image (build it
+from the source as above).
 
 ```bash
-docker pull ghcr.io/ddsna/py-tbparse:0.4.6
+docker pull ghcr.io/ddsna/py-tbparse:<version>
 docker run -d --name tbparse -p 127.0.0.1:8080:8080 \
     --read-only --tmpfs /tmp:size=512m \
     -e PY_TBPARSE_ALLOWED_HOSTS=tbparse.example.com \
-    ghcr.io/ddsna/py-tbparse:0.4.6
+    ghcr.io/ddsna/py-tbparse:<version>
 ```
 
 Pin a version rather than `latest` for anything you run for a team. To use it with the compose file, replace
 `build: .` with `image: ghcr.io/ddsna/py-tbparse:<version>`. The image is built from the release's source, not
 from PyPI.
 
-The publish job uses the same `release` environment as the PyPI upload, so it waits for the same approval. The first push creates the package as private; the maintainer makes it public once in the package settings on GitHub so it can be pulled without logging in.
+The publish job uses the same `release` environment as the PyPI upload; that environment has no protection rules
+yet (checked 2026-10-04), so neither job waits for an approval until the maintainer adds one. The first push creates the package as private; the maintainer makes it public once in the package settings on GitHub so it can be pulled without logging in.
 
 ## What server mode changes
 
