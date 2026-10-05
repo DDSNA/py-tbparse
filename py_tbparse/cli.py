@@ -298,7 +298,8 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
 
     sh = sub.add_parser("show", help="list the fields and parameters a template needs")
     sh.add_argument("template")
-    sh.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    sh.add_argument("--format", "-f", choices=["table", "csv", "json"], default=None,
+                    help="table (default), csv or json; not with --markdown")
     sh.add_argument("--markdown", action="store_true",
                     help="print a documentation page instead (fields, parameters, connections without secrets, "
                          "sheets, dashboards)")
@@ -309,7 +310,8 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description="Look for what a template author probably did not mean. Findings go to stdout, a count to "
                     "stderr; the exit code is 1 when a finding is at or above --fail-on, 2 when the template "
-                    "cannot be read or an option is wrong. Rule ids are stable: use them in CI configs.",
+                    "cannot be read or an option is wrong, 3 when a rule crashed (whatever --fail-on says; the "
+                    "traceback goes to stderr). Rule ids are stable: use them in CI configs.",
         epilog="rules:\n" + rules_help(),
     )
     ck.add_argument("template")
@@ -581,18 +583,31 @@ def _run_template_update(ap, args) -> int:
     return 0
 
 
-def _ids(text: str | None) -> list[str] | None:
-    return [i for i in text.split(",") if i.strip()] if text else None
+def _ids(text: str | None, option: str = "--only") -> list[str] | None:
+    """Rule ids from a comma-separated option. Nothing given (`None` or `""`) is None; a text that holds no id
+    (`" "`, `","`) is an error, so a CI variable that expands to blanks cannot switch the check off."""
+    if not text:
+        return None
+    ids = [i.strip() for i in text.split(",") if i.strip()]
+    if not ids:
+        raise ValueError(f"{option}: no rule ids in {text!r}")
+    return ids
 
 
 def _run_template_check(args) -> int:
     try:
-        found = check_template(args.template, only=_ids(args.only), skip=_ids(args.skip) or ())
+        found = check_template(args.template, only=_ids(args.only, "--only"), skip=_ids(args.skip, "--skip") or ())
     except (FileNotFoundError, ValueError, OSError, zipfile.BadZipFile, json.JSONDecodeError, etree.XMLSyntaxError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     _write(format_findings(found, args.format), None)
     print(findings_summary(found), file=sys.stderr)
+    crashed = found.attrs.get("crashed") or []
+    if crashed:
+        for rule_id in crashed:
+            print(f"rule {rule_id} crashed (a bug in py-tbparse, not a finding about the template):\n"
+                  + found.attrs["tracebacks"][rule_id], file=sys.stderr)
+        return 3
     return 1 if exceeds(found, args.fail_on) else 0
 
 
@@ -601,6 +616,10 @@ def _run_template(argv: list[str]) -> int:
     args = ap.parse_args(argv)
     if args.action == "show" and args.output and not args.markdown:
         ap.error("--output needs --markdown")
+    if args.action == "show":
+        if args.markdown and args.format:
+            ap.error("--format has no effect with --markdown")
+        args.format = args.format or "table"
     if args.action == "check":
         return _run_template_check(args)
     try:
@@ -628,6 +647,8 @@ def _run_template(argv: list[str]) -> int:
         t = load_template(args.template)
         if args.action == "show" and args.markdown:
             page = template_markdown(t)
+            if args.output and Path(args.output).resolve() == Path(args.template).resolve():
+                raise ValueError(f"--output {args.output} is the template itself; it would be overwritten")
             if args.output:
                 Path(args.output).write_text(page, encoding="utf-8")
                 print(f"wrote {args.output}", file=sys.stderr)

@@ -328,3 +328,96 @@ def test_check_leaves_the_template_untouched(tmp_path):
     check_template(path)
     assert Path(path).read_bytes() == before
     assert not findings.exceeds(pd.DataFrame(columns=FINDING_COLUMNS), "info")
+
+
+# --- exit codes and crashes (issue #28) -------------------------------------
+
+def _manifest_replaced(path, manifest):
+    with zipfile.ZipFile(path) as z:
+        members = [(i, z.read(i.filename)) for i in z.infolist()]
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for info, data in members:
+            z.writestr(info, json.dumps(manifest).encode("utf-8") if info.filename == MANIFEST_NAME else data)
+    Path(path).write_bytes(out.getvalue())
+    return str(path)
+
+
+def test_cli_check_malformed_manifest_is_exit_2(clean, tmp_path, capsys):
+    def nameless(m):
+        del m["datasources"][0]["name"]
+    for label, bad in (("nameless", _rewrite(shutil.copy(clean, tmp_path / "a.twbx"), nameless)),
+                       ("list", _manifest_replaced(shutil.copy(clean, tmp_path / "b.twbx"), [])),
+                       ("datasources", _rewrite(shutil.copy(clean, tmp_path / "c.twbx"),
+                                                lambda m: m.update(datasources="x")))):
+        assert main(["template", "check", bad]) == 2, label
+        err = capsys.readouterr().err
+        assert "error:" in err and "Traceback" not in err, label
+    # the other template subcommands report it as an error too (exit 1 there), not as a traceback
+    assert main(["template", "show", _manifest_replaced(shutil.copy(clean, tmp_path / "d.twbx"), [])]) == 1
+    capsys.readouterr()
+
+
+@pytest.fixture
+def crashing_rule():
+    saved = dict(findings._RULES)
+
+    @findings.rule("T990", "template", severity="info")
+    def boom(subject):
+        """A rule that always fails (test only)."""
+        raise KeyError("used_by")
+    yield
+    findings._RULES.clear()
+    findings._RULES.update(saved)
+
+
+def test_cli_check_crashing_rule_has_its_own_exit_code(clean, crashing_rule, capsys):
+    for fail_on in ("never", "error", "info"):
+        assert main(["template", "check", clean, "--fail-on", fail_on]) == 3, fail_on
+        out = capsys.readouterr()
+        assert "T990" in out.out and "rule failed" in out.out
+        assert "Traceback" in out.err and "T990" in out.err and "Traceback" not in out.out
+    assert main(["template", "check", clean, "--skip", "T990"]) == 0
+    capsys.readouterr()
+
+
+def test_crash_output_has_no_absolute_path(clean, crashing_rule, capsys):
+    @findings.rule("T991", "template", severity="info")
+    def leaky(subject):
+        """leaks a path (test only)"""
+        raise OSError(f"cannot read {subject.path}")
+    assert main(["template", "check", clean, "--only", "T991", "--format", "csv"]) == 3
+    out = capsys.readouterr().out
+    assert str(Path(clean).parent) not in out and "<path>" in out
+
+
+@pytest.mark.parametrize("value", [" ", ",", " , "])
+def test_only_whitespace_is_an_error(clean, value, capsys):
+    assert main(["template", "check", clean, "--only", value]) == 2
+    assert "--only" in capsys.readouterr().err
+    assert main(["template", "check", clean, "--skip", value]) == 2
+    capsys.readouterr()
+
+
+def test_only_and_skip_cancel_is_an_error(clean, capsys):
+    assert main(["template", "check", clean, "--only", "T001", "--skip", "T001"]) == 2
+    assert "no rule to run" in capsys.readouterr().err
+
+
+def test_only_string_is_one_id(tmp_path):
+    path = _template(tmp_path)
+    assert set(check_template(path, only="T001")["rule"]) == {"T001"}
+    rules_run = set(check_template(path, skip="T001")["rule"])
+    assert "T001" not in rules_run and "T010" in rules_run
+
+
+def test_show_markdown_with_format_is_an_error(clean, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(["template", "show", clean, "--markdown", "--format", "json"])
+    assert e.value.code == 2 and "--format" in capsys.readouterr().err
+
+
+def test_show_markdown_output_never_overwrites_the_template(clean, capsys):
+    before = Path(clean).read_bytes()
+    assert main(["template", "show", clean, "--markdown", "-o", clean]) == 1
+    assert "template" in capsys.readouterr().err and Path(clean).read_bytes() == before

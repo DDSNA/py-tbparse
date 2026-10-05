@@ -466,11 +466,16 @@ def load_template(path: str) -> Template:
             raise TemplateError(f"{path} has no {MANIFEST_NAME}; make one with `py-tbparse template make`")
         raw = z.read(MANIFEST_NAME)
     manifest = json.loads(raw.decode("utf-8"))
+    if not isinstance(manifest, dict):
+        raise TemplateError(f"{path}: {MANIFEST_NAME} is not a template manifest (a JSON object was expected)")
     if manifest.get("format") != TEMPLATE_FORMAT:
         raise TemplateError(f"{path}: unknown template format {manifest.get('format')!r}")
     if int(manifest.get("version", 0)) > MANIFEST_VERSION:
         raise TemplateError(f"{path} was made by a newer py-tbparse (manifest v{manifest['version']})")
-    _fill_version_1(manifest)
+    try:
+        _fill_version_1(manifest)
+    except (KeyError, AttributeError, TypeError) as e:
+        raise TemplateError(f"{path}: {MANIFEST_NAME} is malformed ({type(e).__name__}: {e})") from None
     return Template(path=str(path), parser=TwbParser(str(path)), manifest=manifest,
                     manifest_sha256=hashlib.sha256(raw).hexdigest())
 

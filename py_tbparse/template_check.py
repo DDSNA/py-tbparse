@@ -54,6 +54,8 @@ def check_template(source: Union[str, Template], only: Optional[Iterable[str]] =
     (`findings.FINDING_COLUMNS`), sorted so the same template always gives the same frame.
     `only`/`skip` take rule ids; an unknown id is an error. Nothing is read beyond the template and
     nothing is written."""
+    only = [only] if isinstance(only, str) else only
+    skip = [skip] if isinstance(skip, str) else skip
     for chosen in (only or (), skip):
         for i in chosen:
             if i.strip().upper() in RESERVED:
