@@ -369,6 +369,10 @@ def make_template(
     for field_name, formula in _tokens.formula_hits(parser.xml_doc):
         warnings.warn(f"{field_name}: a {{{{token}}}} inside a formula is left alone (formulas are never changed): {formula[:60]!r}",
                       stacklevel=2)
+    for where, text in _tokens.unscanned_hits(parser.xml_doc):
+        warnings.warn(f"{where}: {text[:60]!r} has a {{{{token}}}} in text that is not a place for tokens "
+                      "(tooltips, annotations, axis titles and other text runs are not scanned); it is left as typed",
+                      stacklevel=2)
     for kind, obj, text in _tokens.broken_hits(parser.xml_doc):
         warnings.warn(f"{kind} of {obj}: {text[:60]!r} has braces that are not a whole token; a token must sit in one "
                       "text run (format all of it the same way)", stacklevel=2)
@@ -1017,10 +1021,10 @@ def _param_literal(datatype: str, raw: str) -> str:
     return '"' + raw.replace('"', '""') + '"'
 
 
-def _fill_tokens(doc, template: Template, given: dict[str, str]) -> Optional[dict[str, str]]:
-    """Replace the template's `{{tokens}}` in `doc`. `given` are the values chosen so far (explicit, profile,
-    answers); a token's default fills the rest. Returns every token's value, or None when the template has
-    none declared (then the text is left exactly as it was)."""
+def _token_values(template: Template, given: dict[str, str]) -> Optional[dict[str, str]]:
+    """Every token's value: `given` (explicit, profile, answers), then the default. Raises `TemplateError` for a
+    name the template does not have, a token with no value, or a value XML cannot hold. None when the template
+    declares no tokens (then nothing is filled)."""
     declared = template.manifest.get("tokens")
     if declared is None:
         if given:
@@ -1037,7 +1041,20 @@ def _fill_tokens(doc, template: Template, given: dict[str, str]) -> Optional[dic
         raise TemplateError("no value for token(s): " + "; ".join(
             f"{name} (in " + ", ".join(f"{w['kind']} of {w['object']}" for w in by_name[name].get("where", [])) + ")"
             for name in missing) + " (pass tokens=, or give the token a default in make_template)")
-    _tokens.expand(doc, values)
+    for name, value in values.items():
+        bad = _tokens.illegal_character(str(value))
+        if bad:
+            raise TemplateError(f"token {name!r}: the value holds {bad}, which is not allowed in XML (a control "
+                                "character; tab, newline and return are fine)")
+    return values
+
+
+def _fill_tokens(doc, template: Template, given: dict[str, str]) -> Optional[dict[str, str]]:
+    """Replace the template's `{{tokens}}` in `doc` (see `_token_values` for where the values come from). Returns
+    every token's value, or None when the template has none declared (then the text is left exactly as it was)."""
+    values = _token_values(template, given)
+    if values is not None:
+        _tokens.expand(doc, values)
     return values
 
 
@@ -1051,8 +1068,27 @@ def _render_literal(literal: str, values: Optional[dict[str, str]]) -> str:
     return '"' + _tokens.render(text, values).replace('"', '""') + '"'
 
 
+def allowed_as_saved(manifest: dict, p: dict, saved_tokens: Optional[dict[str, str]]) -> list[str]:
+    """A parameter's allowed literals as they read with the token values a saved run used (the saved value, else
+    the token's default); a token with neither stays as written."""
+    values = {t["name"]: t.get("default") for t in manifest.get("tokens") or []}
+    values.update({k: v for k, v in (saved_tokens or {}).items() if v is not None})
+    values = {k: v for k, v in values.items() if v is not None}
+    out = []
+    for literal in p.get("allowed") or []:
+        try:
+            out.append(_render_literal(literal, values))
+        except KeyError:
+            out.append(literal)
+    return out
+
+
 def _set_parameters(doc, params: dict[str, str], template: Template,
-                    token_values: Optional[dict[str, str]] = None) -> dict[str, str]:
+                    token_values: Optional[dict[str, str]] = None, kept: frozenset = frozenset(),
+                    saved_tokens: Optional[dict[str, str]] = None) -> dict[str, str]:
+    """Set the parameters to `params` (checked against type and allowed values). A value in `kept` is one the
+    saved answers hold, filled with the token values of that earlier run: it stays valid when the token has
+    another value now (`ACME HQ` stays, though the list now says `Globex HQ`)."""
     known = {p["caption"]: p for p in template.manifest.get("parameters", [])}
     known.update({p["name"].strip("[]"): p for p in template.manifest.get("parameters", [])})
     applied = {}
@@ -1065,7 +1101,8 @@ def _set_parameters(doc, params: dict[str, str], template: Template,
             literal = _param_literal(p["datatype"], raw)
         except TemplateError as e:
             raise TemplateError(f"parameter {p['caption']!r}: {e}") from None
-        if p.get("allowed") and literal not in [_render_literal(a, token_values) for a in p["allowed"]]:
+        if p.get("allowed") and literal not in [_render_literal(a, token_values) for a in p["allowed"]] \
+                and not (key in kept and literal in allowed_as_saved(template.manifest, p, saved_tokens)):
             raise TemplateError(f"parameter {p['caption']!r}: {raw!r} is not one of its allowed values")
         for col in doc.xpath("/workbook/datasources/datasource[@name='Parameters']/column[@name=$n]", n=p["name"]):
             col.set("value", literal)
@@ -1377,6 +1414,8 @@ class ApplyPlan:
     stale: list = _field(default_factory=list)    # saved mapping entries that no longer fit
     changed: bool = False              # the data's columns differ from the answers' last run
     tokens: dict = _field(default_factory=dict)   # token values given: explicit, then profile, then answers
+    kept_params: frozenset = frozenset()          # parameters whose value is the saved one (not given this time)
+    saved_tokens: dict = _field(default_factory=dict)   # the token values the saved answers were made with
 
 
 def resolve_apply(
@@ -1438,9 +1477,17 @@ def resolve_apply(
         prior["data"]["schema_fingerprint"] != data.fingerprint()
     merged = {**(_answers_parameters(saved, template) if saved is not None else {}),
               **(chosen_profile.get("parameters") or {}), **(params or {})}
-    given = {**((saved or {}).get("tokens") or {}), **(chosen_profile.get("tokens") or {}), **(tokens or {})}
+    saved_tokens = (saved or {}).get("tokens") or {}
+    given = {**saved_tokens, **(chosen_profile.get("tokens") or {}), **(tokens or {})}
+    nulls = sorted(k for k, v in given.items() if v is None)
+    if nulls:
+        raise TemplateError(f"token {', '.join(repr(k) for k in nulls)}: the value is null (JSON null or None); "
+                            "give a text, or leave the token out")
+    kept = frozenset(k for k in (_answers_parameters(saved, template) if saved is not None else {})
+                     if k not in (chosen_profile.get("parameters") or {}) and k not in (params or {}))
     return ApplyPlan(template=template, entry=entry, data=data, mapping=mapping, params=merged,
-                     saved=saved, stale=stale, changed=changed, tokens={k: str(v) for k, v in given.items()})
+                     saved=saved, stale=stale, changed=changed, tokens={k: str(v) for k, v in given.items()},
+                     kept_params=kept, saved_tokens={k: str(v) for k, v in saved_tokens.items()})
 
 
 def apply_template(
@@ -1585,7 +1632,7 @@ def apply_template(
         if c.get(_AUTO_COLUMN) == "numrec" and c.find("calculation") is None and c.get("name") not in fed:
             etree.SubElement(c, "calculation", {"class": "tableau", "formula": "1"})
 
-    applied_params = _set_parameters(doc, params, template, token_values)
+    applied_params = _set_parameters(doc, params, template, token_values, plan.kept_params, plan.saved_tokens)
     this = {
         "datasource": entry["name"],
         "data": {"file": data.path, "kind": data.kind,

@@ -50,6 +50,11 @@ def read_inputs(path: Union[str, os.PathLike], template: Template) -> dict[str, 
         raise TemplateError(f"{Path(path).name} needs a 'file' column; it has: {', '.join(frame.columns) or 'none'}")
     captions = {p["caption"] for p in template.manifest.get("parameters", [])}
     token_names = {t["name"] for t in template.manifest.get("tokens") or []}
+    reserved = sorted((captions | token_names) & set(_SIDECAR_RESERVED) & set(frame.columns))
+    if reserved:
+        raise TemplateError(f"{Path(path).name}: column(s) {', '.join(reserved)} are reserved for the sidecar itself "
+                            "(the data file and its Excel sheet), but the template has a parameter or token of that "
+                            "name; rename it in the template, or give its value with --token / -p for the whole run")
     both = sorted(captions & token_names & set(frame.columns))
     if both:
         raise TemplateError(f"{Path(path).name}: column(s) {', '.join(both)} are both a parameter and a token of the "

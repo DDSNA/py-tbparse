@@ -38,7 +38,7 @@ from .template_update import template_update_report, update_from_answers
 from .docgen import template_markdown
 from .findings import exceeds, format_findings, summary as findings_summary
 from .template_check import check_template, rules_help
-from .templates import TemplateError
+from .templates import TemplateError, _token_values
 from .rename import (
     STYLES,
     apply_field_renames,
@@ -680,6 +680,10 @@ def _run_template(argv: list[str]) -> int:
             if len(found):
                 _write(_df_text(found, args.format), None, stream=sys.stderr)
         if args.write is None:
+            try:
+                _token_values(t, plan.tokens)    # what a write would refuse about the tokens, said before it is tried
+            except TemplateError as e:
+                print(f"note: --write would stop: {e}", file=sys.stderr)
             if not broken.empty:
                 print("required fields are unmapped; edit the mapping (--mapping-out / --mapping) "
                       "or pass --allow-missing", file=sys.stderr)
