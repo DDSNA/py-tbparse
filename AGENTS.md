@@ -124,6 +124,35 @@ The owner's policy (2026-10-05); older statements in other docs are superseded b
 - 0.4.x stays reserved for UI-redesign releases.
 - No version bump inside a PR; the version is bumped for a release.
 
+### Release rules
+
+These add to the steps above; practices were collected from popular release and git skill files on 2026-10-05
+(`handover-issues/AGENTS-RELEASE-PROPOSAL-2026-10-05.md`, a judgment sample read through a summarising fetch tool, so
+treat the sources as unverified). Owner rules are marked (owner).
+
+- **Merged is not released.** A release is cut only on the owner's explicit word. (owner)
+- **Agents never publish a release, push to `main`, force-push or merge.** An agent prepares the PR; the owner
+  merges it and publishes the GitHub Release. (owner)
+- **The release commit changes only `pyproject.toml`**; there is no `CHANGELOG.md`, so the notes go in the PR and the
+  GitHub Release body. Start from a clean `main` that matches `origin/main`.
+- **Pick the bump from the change, not the calendar.** While we are 0.x, a breaking change to the CLI, the Python
+  API or a stable rule id needs a new minor, and the PR says so.
+- **Check CI on the exact release commit** (`test`, `gui`, `build`, `docker`), not from memory of an earlier run.
+- **Release notes**: one short entry per user-visible change, grouped Added / Changed / Fixed, written for someone who
+  runs the CLI or the GUI. Leave out tests, CI and pure refactors. Edit by hand, do not paste the commit log, and link
+  only issues and PRs that exist.
+- **The release PR states what is not verified** (an agent never opens generated workbooks in Tableau; the Docker
+  image is built only in CI) **and how to undo it**: yank on PyPI, delete the GHCR tag, ship the next patch. PyPI
+  files cannot be replaced.
+- **After the owner publishes, an agent only reads**: check that the `release` and `docker-publish` runs finished and
+  that the version and the GHCR tag exist, and report what could and could not be seen. A failed publish job is
+  reported to the owner; do not re-run it, re-tag or delete a release.
+- **Commits**: no `--no-verify`, no changes to git config; if a hook fails, fix the cause and make a new commit. Read
+  `git diff --staged` for secrets, tokens and local paths before each commit. One logical change per commit.
+
+Open owner questions: whether to add a `CHANGELOG.md`, whether to test-publish to TestPyPI first, and whether a hook
+should block pushes to `main`.
+
 ## Architecture
 
 Each `py_tbparse/*.py` module is a direct port of one R source file in
