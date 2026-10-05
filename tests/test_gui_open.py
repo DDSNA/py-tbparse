@@ -158,8 +158,15 @@ def test_a_missing_path_suggests_dropping_the_file(page):
 
 
 def test_the_open_controls_work_from_the_keyboard(page):
+    # Playwright only intercepts the native file dialog once a "filechooser" listener is registered, and it
+    # switches that on asynchronously. Registering the listener inside expect_file_chooser() and pressing
+    # Enter straight away can beat it: the page does click the hidden input, but the dialog is then not
+    # intercepted and the event never arrives (1 of 15 runs of this test, 11 of 40 in a bare loop). So register an idle
+    # listener first, and let the focus round trip below give the interception time to switch on.
+    page.on("filechooser", lambda _chooser: None)
     pick = page.locator("#pickBtn")
     pick.focus()
+    page.wait_for_function("() => document.activeElement && document.activeElement.id === 'pickBtn'")
     with page.expect_file_chooser() as chooser:
         page.keyboard.press("Enter")
     assert chooser.value is not None
