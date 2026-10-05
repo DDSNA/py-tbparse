@@ -86,7 +86,7 @@ location / {
 An upload is written to `/tmp` (the container's `TMPDIR`) and kept until the session ends. A session can hold an
 opened workbook, a template, a data file (200 MB limit each) and one workbook made from the template, so the worst
 case is `PY_TBPARSE_MAX_SESSIONS` x about 600 MB plus the outputs. An upload is refused with 507 when the temp
-folder has less than twice its size plus 256 MB free. The compose file gives `/tmp` a 512 MB tmpfs, which assumes
+folder has less than twice its size plus 16 MB free. The compose file gives `/tmp` a 512 MB tmpfs, which assumes
 most files are far smaller; raise it, or lower the session limit, to match your workbooks. Parsing a large
 workbook or template uses memory on top of that.
 
