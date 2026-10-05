@@ -4,15 +4,19 @@ on:
   push:
     branches: [main, master]
   pull_request:
+    # A PR that only changes prose or the README pictures has nothing for the tests to see.
+    # Pushes to main always run everything.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**/*.png"
 
 jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest, ubuntu-24.04-arm]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+      # A PR gets the ends of the range on the two systems most people use; main gets all 20 combinations.
+      matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"os":"ubuntu-latest","python-version":"3.9"},{"os":"ubuntu-latest","python-version":"3.13"},{"os":"windows-latest","python-version":"3.13"}]}' || '{"os":["ubuntu-latest","macos-latest","windows-latest","ubuntu-24.04-arm"],"python-version":["3.9","3.10","3.11","3.12","3.13"]}') }}
     steps:
       - uses: actions/checkout@v4
 
