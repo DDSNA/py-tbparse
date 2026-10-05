@@ -164,7 +164,9 @@ def test_expired_sessions_are_dropped(server, wenjie_path):
 
 
 def test_server_paths_are_not_openable(server, wenjie_path):
-    for route, body in (("/load", {"path": str(wenjie_path)}), ("/create-workbook", {})):
+    for route, body in (("/load", {"path": str(wenjie_path)}), ("/create-workbook", {}),
+                        ("/template/open", {"path": str(wenjie_path)}), ("/template/open-data", {"path": str(wenjie_path)}),
+                        ("/template/save", {})):
         status, raw, _ = _request(
             server, "POST", route, body=json.dumps(body),
             headers={"Content-Type": "application/json", "Origin": f"https://{PUBLIC}"},

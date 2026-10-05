@@ -612,6 +612,13 @@ _LOCAL = {"Host": "127.0.0.1:1"}
         pytest.param("/load", {**_LOCAL, "Content-Type": "application/json", "Origin": "http://attacker.example"}, id="403-origin"),
         pytest.param("/load", {"Host": "attacker.example", "Content-Type": "application/json"}, id="403-host"),
         pytest.param("/upload", {"Host": "attacker.example"}, id="403-host-upload"),
+        pytest.param("/template/nope", {**_LOCAL, "Content-Type": "application/json"}, id="404-template"),
+        pytest.param("/template/plan", {**_LOCAL, "Content-Type": "text/plain"}, id="415-template"),
+        pytest.param("/template/apply", {**_LOCAL, "Content-Type": "application/json", "Origin": "http://attacker.example"}, id="403-origin-template"),
+        pytest.param("/template/plan", {"Host": "attacker.example", "Content-Type": "application/json"}, id="403-host-template"),
+        pytest.param("/template/plan", {**_LOCAL, "Content-Type": "application/json"}, id="413-json-cap"),
+        pytest.param("/template/upload-template", {"Host": "attacker.example"}, id="403-host-upload-template"),
+        pytest.param("/template/upload-data", {**_LOCAL, "Content-Type": "text/plain"}, id="415-upload-data"),
     ],
 )
 def test_post_refusals_drain_the_whole_body_before_replying(monkeypatch, path, headers):
@@ -628,6 +635,8 @@ def test_post_refusals_drain_the_whole_body_before_replying(monkeypatch, path, h
         ("/nope", {"Content-Type": "application/json"}),
         ("/load", {"Content-Type": "text/plain"}),
         ("/load", {"Content-Type": "application/json", "Origin": "http://attacker.example"}),
+        ("/template/plan", {"Content-Type": "text/plain"}),
+        ("/template/apply", {"Content-Type": "application/json", "Origin": "http://attacker.example"}),
     ],
 )
 def test_post_refusal_status_survives_a_large_body(server, path, headers):

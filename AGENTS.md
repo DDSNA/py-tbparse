@@ -64,8 +64,14 @@ app side is `webgui._CONFIG` (`--server-mode`, `--allowed-host`, `--trust-proxy`
 - `_STATE` and `_UPLOAD` are `_Scoped` mappings: in server mode they read the current request's session
   (a thread-local set by `Handler._bind_session`), otherwise the one global dict. New per-user state goes in
   `_STATE_DEFAULTS` / the session dict, never in a new module-level global, or users will see each other's data.
-- Origin checks go through `_origin_ok()`, not an inline comparison; `/load` and `/create-workbook` stay
-  refused in server mode (they touch the server's disk).
+- Origin checks go through `_origin_ok()`, not an inline comparison. POST routes are listed in `_UPLOAD_ROUTES`,
+  `_PATH_ROUTES` and `_JSON_ROUTES`; every route in `_PATH_ROUTES` (`/load`, `/create-workbook`, `/template/open`,
+  `/template/open-data`, `/template/save`) stays refused in server mode (they touch the server's disk), and no
+  other route may take a path from its body. Every refusal before the body is read goes through `_refuse_post`.
+- The Templates view's endpoints (`/template/*`, built on `template_gui.py`) keep their state in
+  `_STATE["tpl"]` (one template slot, one data slot, one output, in a per-session temp folder deleted by
+  `_drop_session`). Their JSON bodies are capped at `MAX_JSON_BYTES`, accept only the keys in `_TEMPLATE_KEYS`,
+  and every answer goes through `_scrub()`, so no server temp path reaches the page.
 - A POST handler that refuses a request before reading its body (wrong host, origin or content type, unknown
   path) must drain the body first with `Handler._drain(length)` (`_refuse_post` does it). Answering and closing
   while bytes still arrive can make the client, Windows in particular, see a connection reset instead of the
@@ -308,7 +314,10 @@ Keep apostrophes out of JS strings and comments (the test counts quotes per line
 `POST /upload` (drag and drop, Open file) takes raw bytes with `Content-Type: application/octet-stream` and the name
 in `X-Filename`: neither is CORS-safelisted, so another site cannot send it without a preflight. It streams to a
 `mkdtemp` directory, refuses over `MAX_UPLOAD_BYTES` (413) and content that does not match the extension, and keeps
-only one upload at a time. An uploaded workbook cannot "create beside the original" (409), only download.
+only one upload at a time. An uploaded workbook cannot "create beside the original" (409), only download. `POST /template/upload-template` and
+`/template/upload-data` use the same `_upload` with a slot: the template slot takes a `.twbx` only, the data slot
+`.csv/.tsv/.txt/.xlsx/.xlsm/.twb/.twbx/.tds` (content checked per extension); tests are in
+`tests/test_webgui_templates.py`.
 
 Any server-side value spliced into the page (currently `TABLE_NAMES`, the preloaded workbook path
 and the version, all in `_render_index()`'s config script) must go through `_json_for_script()`, not
