@@ -404,6 +404,13 @@ def test_a_low_disk_refuses_an_upload_with_507(server, tpl_file, monkeypatch):
     assert webgui._STATE.base["tpl"] is None or webgui._STATE.base["tpl"]["template"] is None
 
 
+def test_a_small_tmpfs_still_takes_a_small_upload(server, tpl_file, monkeypatch):
+    # the CI container gives /tmp 64 MB; a template of a few hundred KB must not be refused for lack of room
+    monkeypatch.setattr(webgui, "_free_bytes", lambda path: 64 * 1024 * 1024)
+    status, data = Client(server).upload_file("/template/upload-template", tpl_file)
+    assert status == 200, data
+
+
 @pytest.mark.parametrize("route", ["/template/plan", "/template/apply", "/template/select-data", "/template/clear"])
 def test_a_json_body_over_the_cap_is_413(server, route):
     body = json.dumps({"pad": "a" * (webgui.MAX_JSON_BYTES + 10)}).encode()

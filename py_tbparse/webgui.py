@@ -160,7 +160,7 @@ atexit.register(_clear_all_uploads)
 # In server mode nothing in a JSON body is ever opened as a file: only the routes in _PATH_ROUTES take a path,
 # and they are refused there.
 MAX_JSON_BYTES = 1 * 1024 * 1024
-_DISK_HEADROOM = 256 * 1024 * 1024
+_DISK_HEADROOM = 16 * 1024 * 1024  # small: a proxy's /tmp tmpfs can be 64 MB, and a 127 KB workbook must still upload
 _TPL_CREATE_LOCK = threading.Lock()  # only makes creating a session's template state atomic; holds no user data
 
 _UPLOAD_ROUTES = frozenset({"/upload", "/template/upload-template", "/template/upload-data"})
