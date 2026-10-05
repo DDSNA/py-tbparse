@@ -205,7 +205,7 @@ def test_sorting_filtering_and_density_do_not_move_the_furniture(page, wenjie_pa
     page.wait_for_timeout(300)
     before = boxes(page, FURNITURE)
     stamp = render_stamp(page)
-    _header(page, "name").click()
+    _header(page, "caption").click()
     wait_render(page, stamp)
     page.wait_for_timeout(300)
     assert boxes(page, FURNITURE) == before, "sorting moved the page furniture"

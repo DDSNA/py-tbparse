@@ -863,7 +863,7 @@ def test_dragging_the_edge_of_a_header_resizes_the_column(page, wenjie_path):
     _load(page, wenjie_path)
     _open(page, "fields")
     _wait_meta(page, "55 row(s)")
-    th = _header(page, "name")
+    th = _header(page, "caption")
     before = th.bounding_box()["width"]
     grip = th.locator(".col-resize").bounding_box()
     x, y = grip["x"] + grip["width"] / 2, grip["y"] + grip["height"] / 2
@@ -871,12 +871,12 @@ def test_dragging_the_edge_of_a_header_resizes_the_column(page, wenjie_path):
     page.mouse.down()
     page.mouse.move(x + 60, y, steps=4)
     page.mouse.up()
-    after = _header(page, "name").bounding_box()["width"]
+    after = _header(page, "caption").bounding_box()["width"]
     assert 50 < after - before < 70
     # it survives a re-render (a sort rebuilds the table)
-    _header(page, "name").click()
+    _header(page, "caption").click()
     page.wait_for_function("() => document.querySelector(\"#tableWrap th[aria-sort='ascending']\")", timeout=10_000)
-    assert abs(_header(page, "name").bounding_box()["width"] - after) < 2
+    assert abs(_header(page, "caption").bounding_box()["width"] - after) < 2
 
 
 def test_column_filter_chips(page, wenjie_path):
@@ -965,7 +965,8 @@ def test_datasources_read_by_caption_and_search_finds_both_names(page, wenjie_pa
     _load(page, wenjie_path)
     _open(page, "fields")
     _wait_meta(page, "55 row(s)")
-    cell = page.locator("#tableWrap tbody tr[data-pos] td").first
+    labels = page.eval_on_selector_all("#tableWrap th .th-label", "els => els.map(e => e.textContent)")
+    cell = page.locator("#tableWrap tbody tr[data-pos]").first.locator("td").nth(labels.index("datasource"))
     assert cell.text_content() == "Sheet1 (test_county)"
     assert "federated.0grgaor1pd01yy1f0yr380of1ags" in cell.get_attribute("title")  # the full id on hover
     # the copied column and the drawer keep the real id
