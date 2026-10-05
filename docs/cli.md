@@ -54,6 +54,21 @@ Notes from `--help`:
 - `template check` exits 0 (nothing at `--fail-on`), 1 (a finding at `--fail-on`), 2 (the template cannot be read or an option is wrong) or 3 (a rule crashed).
 - `.xlsx` and `.xlsm` input needs `pip install "py-tbparse[excel]"`.
 
+## Libraries
+
+`py-tbparse library` has three subcommands: `export`, `show` and `import`. They move calculated fields and parameters between workbooks; [libraries.md](libraries.md) explains the clash handling and what is not covered. The output was never opened in Tableau: check a copy first.
+
+```bash
+py-tbparse library export sales.twb -o kpis.library.json --folder KPIs   # also --field NAME (repeatable), --datasource, --no-dependencies, --no-parameters, --name, --description, --overwrite
+py-tbparse library show kpis.library.json --markdown                     # without --markdown: a table and the formulas with captions
+py-tbparse library import other.twb kpis.library.json                    # the plan only
+py-tbparse library import other.twb kpis.library.json --mapping map.csv --on-clash skip --write -o out.twb
+```
+
+- `import` writes nothing without `--write`. The output defaults to `<name>_library.<ext>` beside the workbook, keeps the workbook's extension, and never replaces the input (`--overwrite` replaces an existing output only).
+- `--on-clash` is `rename` (default), `skip` or `fail`. `--mapping` is a CSV with `field` and `mapped_to`.
+- Exit codes of `import`: 0, 1 (an error, including `--on-clash fail` meeting a clash), 2 (some entry could not be imported; the others are written).
+
 ## The GUI command
 
 ```bash
