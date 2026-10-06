@@ -105,6 +105,13 @@ def _pick_datasource(doc, datasource: Optional[str], what: str = "workbook"):
     return with_conn[0]
 
 
+def datasource_choices(parser: TwbParser) -> list[tuple]:
+    """`(internal name, caption, has a connection)` of each datasource a library can come from or go to
+    (the `Parameters` datasource is left out). What the GUI offers when a workbook has more than one."""
+    return [(d.get("name"), d.get("caption"), d.find("connection") is not None)
+            for d in _datasources(parser.xml_doc) if d.get("name") != _PARAMETERS]
+
+
 def _is_auto(col) -> bool:
     """A column Tableau made on its own (record count, split field, date bin)."""
     if any(col.get(_USER + a) is not None for a in ("auto-column", "SplitFieldIndex", "SplitFieldOrigin")):
@@ -829,12 +836,12 @@ def _build_param(a: dict):
     col.set("name", a["name"])
     if e.get("domain"):
         col.set("param-domain-type", e["domain"])
-    col.set("role", e["role"])
-    col.set("type", e["type"])
-    col.set("value", e["value"])
+    for k in ("role", "type", "value"):       # a hand-made parameter may lack one; Tableau's own never do
+        if e.get(k) is not None:
+            col.set(k, e[k])
     for k in sorted(e.get("attrs") or {}):
         col.set(k, e["attrs"][k])
-    etree.SubElement(col, "calculation", {"class": "tableau", "formula": e["formula"]})
+    etree.SubElement(col, "calculation", {"class": "tableau", "formula": e["formula"] if e.get("formula") is not None else ""})
     if e.get("aliases"):
         al = etree.SubElement(col, "aliases")
         for item in e["aliases"]:
