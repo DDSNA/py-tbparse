@@ -21,6 +21,7 @@ from test_gui_browser import (  # noqa: F401  (fixtures and helpers shared with 
     _open_column_menu,
     _wait_meta,
     new_page,
+    wait_settled,
 )
 from test_gui_table import open_synthetic, render_stamp, wait_render
 
@@ -43,7 +44,7 @@ def go(page, view):
         timeout=10_000,
     )
     page.wait_for_selector(CONTENT, timeout=10_000)
-    page.wait_for_timeout(350)  # fades finish
+    wait_settled(page)  # fades and rises finish
 
 
 OVERFLOW = """() => {
@@ -69,6 +70,7 @@ def test_nothing_overflows_the_page_sideways(browser, gui_server, wenjie_path, s
     pg = new_page(browser, gui_server, viewport={"width": size[0], "height": size[1]})
     problems = []
     try:
+        wait_settled(pg)
         start = pg.evaluate(OVERFLOW)
         assert not start["offenders"] and start["scrollWidth"] <= start["vw"] + 1, f"start screen: {start}"
         _load(pg, wenjie_path)
@@ -130,13 +132,13 @@ def test_menu_drawer_and_toast_stay_inside_the_screen(browser, gui_server, wenji
         last = pg.eval_on_selector_all("#tableWrap th .th-label", "els => els[els.length - 1].textContent")
         for column in (last, "name"):                           # the column furthest right, and one at the left
             _open_column_menu(pg, column)
-            pg.wait_for_timeout(250)
+            wait_settled(pg)
             r = inside_viewport(pg, "#menu")
             assert r["left"] >= -1 and r["right"] <= r["vw"] + 1 and r["top"] >= -1 and r["bottom"] <= r["vh"] + 1, (column, r)
             pg.keyboard.press("Escape")
         pg.locator("#tableWrap tbody tr[data-pos]").first.click(position={"x": 12, "y": 6})
         pg.wait_for_selector("#drawer.show", timeout=10_000)
-        pg.wait_for_timeout(350)
+        wait_settled(pg)
         for sel in ("#drawer", "#drawerClose", "#drawerCopy"):
             r = inside_viewport(pg, sel)
             assert r["left"] >= -1 and r["right"] <= r["vw"] + 1 and r["top"] >= -1 and r["bottom"] <= r["vh"] + 1, (sel, r)
@@ -145,7 +147,7 @@ def test_menu_drawer_and_toast_stay_inside_the_screen(browser, gui_server, wenji
         pg.fill("#path", "/no/such/place/" + "a-very-long-folder-name/" * 6 + "workbook.twb")
         pg.click("#loadBtn")
         pg.wait_for_function("() => document.getElementById('status').classList.contains('err')", timeout=10_000)
-        pg.wait_for_timeout(350)
+        wait_settled(pg)
         r = inside_viewport(pg, "#status")
         assert r["left"] >= -1 and r["right"] <= r["vw"] + 1 and r["bottom"] <= r["vh"] + 1, r
         assert [e for e in pg.js_errors if "400" not in e and "Bad Request" not in e] == []
@@ -170,7 +172,7 @@ def test_column_widths_never_change_with_the_rows_on_show(page, wenjie_path):
     hides it, cannot make the columns jump."""
     rows = [[f"{SHORT}{i}", LONG if i % 7 == 0 else SHORT] for i in range(300)]
     open_synthetic(page, wenjie_path, ["name", "text"], rows)
-    page.wait_for_timeout(700)                 # the view's entrance rise (--dur-slow) has finished
+    wait_settled(page)                         # the view's entrance rise (--dur-slow) has finished
     before = boxes(page, "#tableWrap th")
     width = page.evaluate("() => document.querySelector('#tableWrap table').getBoundingClientRect().width")
     for target in (0, 2000, 5000, 11000):
@@ -202,17 +204,14 @@ def test_sorting_filtering_and_density_do_not_move_the_furniture(page, wenjie_pa
     _load(page, wenjie_path)
     go(page, "fields")
     _wait_meta(page, "55 row(s)")
-    page.wait_for_timeout(300)
     before = boxes(page, FURNITURE)
     stamp = render_stamp(page)
     _header(page, "caption").click()
     wait_render(page, stamp)
-    page.wait_for_timeout(300)
     assert boxes(page, FURNITURE) == before, "sorting moved the page furniture"
     stamp = render_stamp(page)
     page.fill("#filter", "a")
     wait_render(page, stamp)
-    page.wait_for_timeout(300)
     assert boxes(page, FURNITURE) == before, "filtering moved the page furniture"
     expect(page.locator("#chips")).to_be_hidden()
 
@@ -222,7 +221,7 @@ def test_no_layout_shift_while_sorting_filtering_and_scrolling(page, wenjie_path
         pytest.skip("this browser does not report layout shifts")
     rows = [[f"r{i}", i] for i in range(2000)]
     open_synthetic(page, wenjie_path, ["name", "n"], rows)
-    page.wait_for_timeout(500)
+    wait_settled(page)
     page.evaluate(
         "() => { window.__cls = 0; new PerformanceObserver((list) => { for (const e of list.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; })"
         ".observe({type: 'layout-shift', buffered: false}); }"
@@ -241,7 +240,7 @@ def test_no_layout_shift_while_sorting_filtering_and_scrolling(page, wenjie_path
         else:
             page.fill("#filter", "")
             wait_render(page, stamp)
-        page.wait_for_timeout(350)
+        wait_settled(page)
     assert page.evaluate("() => window.__cls") < 0.02, "the page layout shifted while the table changed"
 
 
@@ -252,9 +251,8 @@ def test_sticky_header_and_pinned_column_stay_where_they_belong(page, wenjie_pat
     page.click("#menu >> text=Pin to the left")
     page.wait_for_function("() => document.querySelector('#tableWrap th .th-label').textContent === 'c2'", timeout=10_000)
     # The view fades and rises in (translateY 8px) when a table opens, and a bounding box includes that
-    # transform. Measured mid-animation, wrap_box was a few px lower than where the wrap ends up, which
-    # looked like the pinned corner moving. Wait for the animation to finish before taking it.
-    page.wait_for_function("() => document.getAnimations().every((a) => a.playState !== 'running')", timeout=10_000)
+    # transform; measured mid-animation, wrap_box looked like the pinned corner moving (#70). Settle first.
+    wait_settled(page)
     wrap_box = page.locator("#tableWrap").bounding_box()
     page.evaluate("() => { const w = document.getElementById('tableWrap'); w.scrollTop = 3000; w.scrollLeft = 400; }")
     page.wait_for_function("() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))")
@@ -295,11 +293,11 @@ def test_stretched_text_spacing_clips_no_label(browser, gui_server, wenjie_path,
         go(pg, "fields")
         _wait_meta(pg, "55 row(s)")
         pg.add_style_tag(content=SPACING)
-        pg.wait_for_timeout(250)
+        wait_settled(pg)
         clipped = pg.evaluate(CLIPPED)
         assert clipped == [], f"labels clipped under WCAG text spacing: {clipped}"
         pg.click("#colsBtn") if pg.is_visible("#colsBtn") else None
-        pg.wait_for_timeout(150)
+        wait_settled(pg)
         clipped = pg.evaluate(CLIPPED)
         assert clipped == [], f"labels clipped in the menu: {clipped}"
         go(pg, "field-renames")

@@ -34,6 +34,7 @@ from test_gui_browser import (  # noqa: F401  (fixtures and helpers shared with 
     _open,
     _open_column_menu,
     _wait_meta,
+    wait_settled,
     new_page,
 )
 
@@ -73,6 +74,7 @@ def wait_render(page, stamp):
         arg=stamp,
         timeout=15_000,
     )
+    wait_settled(page)  # the sort glide and the entrance rise move boxes until they end
 
 
 # ====================================================================================== 1. regressions

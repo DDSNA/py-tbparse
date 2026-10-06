@@ -72,10 +72,28 @@ def _header(page, column):
     return page.locator("#tableWrap th").filter(has=page.locator(".th-label", has_text=re.compile(rf"^{column}$"))).first
 
 
+def wait_settled(page):
+    """Wait until nothing on the page is still animating, so a bounding box can be measured.
+
+    Opening a table plays a `rise` animation (translateY 8px) and sorting glides; a box taken meanwhile
+    includes that transform and is a few pixels off (#70, #80). The two animation frames first let a render
+    that was just triggered start its animations. Endless animations (the loading shimmer) are not waited for.
+    This is the one place that knows how; `_wait_meta` and `wait_render` call it, so a test that waits for its
+    table the usual way gets settled boxes."""
+    page.wait_for_function("() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))")
+    page.wait_for_function(
+        """() => document.getAnimations().every((a) =>
+             (a.playState !== 'running' && a.playState !== 'pending')
+             || (a.effect && a.effect.getComputedTiming().iterations === Infinity))""",
+        timeout=10_000,
+    )
+
+
 def _wait_meta(page, text):
     page.wait_for_function(
         "t => document.getElementById('meta').textContent === t", arg=text, timeout=10_000
     )
+    wait_settled(page)
 
 
 # --- the regression that motivated this file ---------------------------------
