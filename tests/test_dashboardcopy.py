@@ -270,3 +270,63 @@ def test_twbx_target_keeps_format(tmp_path, src, dst):
     copy_dashboards(src, str(x), ["Dash"], str(out))
     with zipfile.ZipFile(out) as z:
         assert "Data/extra.txt" in z.namelist()
+
+
+# ------------------------------------------- needs only the dashboard's zones have --
+
+def only_dashboard_source(formula="[Sales] * 3"):
+    """A source whose dashboard has a filter zone on [Extra] and a parameter control for [Parameter 2]; no
+    sheet uses either."""
+    wb = source_text()
+    wb = wb.replace("<column name='[Size]'", f"<column name='[Extra]' datatype='real' role='measure'>"
+                    f"<calculation class='tableau' formula='{formula}'/></column><column name='[Size]'", 1)
+    wb = wb.replace("<column name='[Parameter 1]' caption='Rate'",
+                    "<column name='[Parameter 2]' caption='Cap' datatype='real' param-domain-type='any' role='measure' "
+                    "value='9'><calculation class='tableau' formula='9'/></column>"
+                    "<column name='[Parameter 1]' caption='Rate'", 1)
+    wb = wb.replace("</datasource-dependencies>\n<datasource-dependencies datasource='Parameters'>",
+                    "<column name='[Extra]' datatype='real' role='measure'><calculation class='tableau' "
+                    "formula='[Sales] * 3'/></column><column-instance column='[Extra]' derivation='Sum' "
+                    "name='[sum:Extra:qk]' pivot='key' type='quantitative'/></datasource-dependencies>\n"
+                    "<datasource-dependencies datasource='Parameters'>"
+                    "<column name='[Parameter 2]' datatype='real' role='measure'><calculation class='tableau' "
+                    "formula='9'/></column>", 1)
+    return wb.replace("<zone h='10000' id='9'", f"<zone h='1' id='10' name='Sheet 1' param='[{DS}].[sum:Extra:qk]' "
+                      "type-v2='filter'/><zone h='1' id='11' param='[Parameters].[Parameter 2]' type-v2='paramctrl'/>"
+                      "<zone h='10000' id='9'", 1)
+
+
+def test_calc_and_parameter_only_the_dashboard_needs_are_imported(tmp_path, dst):
+    s = write(tmp_path, only_dashboard_source(), "od.twb")
+    rep = plan_dashboard_copy(s, dst, ["Dash"])
+    assert rep["copied"] == 1
+    assert {"[Extra]", "[Parameter 2]"} <= {a["name"] for a in rep["added"]}
+    data, _ = build_dashboard_copy(s, dst, ["Dash"])
+    doc = out_doc(data)
+    assert "[Extra]" in doc.xpath(f"/workbook/datasources/datasource[@name='{DS}']/column/@name")
+    assert "[Parameter 2]" in doc.xpath("//datasource[@name='Parameters']/column/@name")
+    assert not integrity_check(doc)
+
+
+def test_dashboard_only_calc_clash_fails_then_rename_reaches_zones_and_dependencies(tmp_path):
+    s = write(tmp_path, only_dashboard_source(), "od.twb")
+    clash = datasource(calcs=False).replace("<column name='[Size]'", "<column name='[Extra]' datatype='real' "
+        "role='measure'><calculation class='tableau' formula='[Sales] * 4'/></column><column name='[Size]'")
+    t = write(tmp_path, target_text(ds=clash).replace(PARAMS, ""), "t.twb")
+    with pytest.raises(SheetCopyAbort, match="on_clash='fail'|clash|fail"):
+        plan_dashboard_copy(s, t, ["Dash"])
+    data, rep = build_dashboard_copy(s, t, ["Dash"], on_clash="rename")
+    doc = out_doc(data)
+    new = [r["target_name"] for r in rep["added"] if r["name"] == "[Extra]"][0]
+    assert new != "[Extra]"
+    db = doc.xpath("/workbook/dashboards/dashboard")[0]
+    text = etree.tostring(db).decode()
+    assert f"[sum:{new[1:-1]}:qk]" in text and "[sum:Extra:qk]" not in text
+    assert new in db.xpath(f"./datasource-dependencies[@datasource='{DS}']/column/@name")
+
+
+def test_dashboard_only_calc_the_target_cannot_take_refuses_the_dashboard(tmp_path, dst):
+    s = write(tmp_path, only_dashboard_source("[Ghost] * 3"), "od.twb")
+    rep = plan_dashboard_copy(s, dst, ["Dash"])
+    assert rep["refused"] == 1 and "Extra" in rep["dashboards"][0]["reason"]
+    assert rep["sheets"] == []

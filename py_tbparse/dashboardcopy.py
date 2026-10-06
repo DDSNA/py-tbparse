@@ -132,6 +132,50 @@ def _analyse(sdoc, name: str) -> dict:
     return info
 
 
+def _dashboard_needs(sdoc, name: str, info: dict) -> dict:
+    """The calculations and parameters the dashboard's own dependencies name (filter, parameter and legend
+    zones), as `{datasource: [names]}` for `_run(extra=...)`: calculations under their datasource, parameters
+    (bare names) under the dashboard's first datasource. The planner skips what the sheets already bring or
+    the target already has."""
+    db = sdoc.xpath(_dashboard_xpath(name))[0]
+    out: dict = {}
+    pcols = set(sdoc.xpath("/workbook/datasources/datasource[@name=$n]/column/@name", n=_PARAMETERS))
+    first = info["datasources"][0] if info["datasources"] else None
+    for dep in db.xpath("./datasource-dependencies"):
+        ds = dep.get("datasource")
+        bases = []
+        for col in dep:
+            if isinstance(col.tag, str):
+                ref = col.get("name") if col.tag == "column" else col.get("column")
+                if ref:
+                    bases.append(_base_of_instance(ref))
+        if ds == _PARAMETERS:
+            if first:
+                out.setdefault(first, []).extend(b for b in bases if b in pcols)
+            continue
+        found = sdoc.xpath("/workbook/datasources/datasource[@name=$n]", n=ds)
+        if not found:
+            continue
+        calcs = {c.get("name") for c in found[0].xpath("./column[calculation/@class='tableau']")
+                 if not c.get("param-domain-type")}
+        out.setdefault(ds, []).extend(b for b in bases if b in calcs)
+    return {k: list(dict.fromkeys(v)) for k, v in out.items() if v}
+
+
+def _need_keys(sdoc, name: str, info: dict) -> set:
+    """`_dashboard_needs` as the keys the planner reports: `[Calc]`, `[Parameters].[Param]`."""
+    pcols = set(sdoc.xpath("/workbook/datasources/datasource[@name=$n]/column/@name", n=_PARAMETERS))
+    out = set()
+    for ns in _dashboard_needs(sdoc, name, info).values():
+        out |= {("[Parameters]." + n) if n in pcols and not _is_calc_name(sdoc, n) else n for n in ns}
+    return out
+
+
+def _is_calc_name(sdoc, n: str) -> bool:
+    return bool(sdoc.xpath("/workbook/datasources/datasource[@name!='Parameters']/column[@name=$n]"
+                           "[calculation/@class='tableau']", n=n))
+
+
 def _available(doc, ds: str) -> set:
     if ds == _PARAMETERS:
         return set(doc.xpath("/workbook/datasources/datasource[@name=$n]/column/@name", n=_PARAMETERS))
@@ -223,9 +267,24 @@ def _run_dashboards(source, target, dashboards: Iterable[str], on_clash: str = "
         live = [d for d in wanted if results[d]["status"] == "copy"]
         sheets = list(dict.fromkeys(s for d in live for s in info[d]["sheets"]))
         ctx: dict = {}
-        doc, rep = _run(src, dst, sheets, on_clash, False, ctx, report_actions=False, allow_empty=True)
+        extra: dict = {}
+        for d in live:
+            for ds, ns in _dashboard_needs(sdoc, d, info[d]).items():
+                extra.setdefault(ds, []).extend(ns)
+        doc, rep = _run(src, dst, sheets, on_clash, False, ctx, report_actions=False, allow_empty=True,
+                        extra=extra)
         sres = ctx.get("results", {})
         changed = False
+        failed = {k: v for f in ctx.get("failed", {}).values() for k, v in f.items()}
+        for d in live:
+            keys = _need_keys(sdoc, d, info[d])
+            hit = [k for k in failed if k in keys]
+            if hit:
+                results[d].update(status="refused", reason="not importable: " + "; ".join(
+                    f"{k} ({failed[k]['reason']})" for k in hit))
+                changed = True
+        if changed:
+            continue
         for d in live:
             bad = [s for s in info[d]["sheets"] if sres[s]["status"] != "copy"]
             if bad:

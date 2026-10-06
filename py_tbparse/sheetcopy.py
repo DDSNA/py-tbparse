@@ -109,10 +109,11 @@ def _entry_key(row: dict) -> str:
 
 
 def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: bool = False,
-         ctx: Optional[dict] = None, report_actions: bool = True, allow_empty: bool = False):
+         ctx: Optional[dict] = None, report_actions: bool = True, allow_empty: bool = False, extra: Optional[dict] = None):
     """Do everything on a copy of the target's XML. Returns `(doc, report)`. `ctx`, when given, is filled with what
     `dashboardcopy` needs afterwards (`results`, `names`, `params`, `taken`, `copied`, `src`, `dst`);
-    `report_actions=False` leaves out the "dashboard actions are not copied" note; `allow_empty` accepts no sheets."""
+    `extra` maps a datasource to calculation and parameter names (bracketed, parameters bare) to import besides the
+    sheets' own needs (a dashboard's filter, parameter and legend zones); `report_actions=False` leaves out the "dashboard actions are not copied" note; `allow_empty` accepts no sheets."""
     if on_clash not in CLASH_POLICIES:
         raise SheetCopyAbort(f"on_clash must be one of {', '.join(CLASH_POLICIES)}, got {on_clash!r}")
     src, dst = _parser(source), _parser(target)
@@ -190,9 +191,13 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
     by_ds: dict[str, list] = {}
     for s in live:
         by_ds.setdefault(results[s]["datasource"], []).append(s)
+    for ds in (extra or {}):
+        by_ds.setdefault(ds, [])
+    all_failed: dict = {}
     tparser = _FakeParser(dst, doc)
     for ds, group in by_ds.items():
-        select = list(dict.fromkeys(n for s in group for n in closures[s].calcs + closures[s].parameters))
+        select = list(dict.fromkeys([n for s in group for n in closures[s].calcs + closures[s].parameters]
+                                    + list((extra or {}).get(ds, []))))
         names[ds], params[ds] = {}, {}
         if not select:
             continue
@@ -212,6 +217,7 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
             else:
                 _insert_column(doc.xpath("/workbook/datasources/datasource[@name=$n]", n=ds)[0], _lib._build_calc(a))
         failed = {_entry_key(r): r for r in rows if r["action"].startswith("fail")}
+        all_failed[ds] = failed
         for r in rows:
             if r["action"].startswith("fail") or not r["target_name"]:
                 continue
@@ -271,7 +277,7 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
         raise SheetCopyAbort("integrity check failed on the result: " + "; ".join(p["check"] + " " + p["detail"] for p in new))
 
     if ctx is not None:
-        ctx.update(results=results, names=names, params=params, taken=taken, copied=copied, src=src, dst=dst,
+        ctx.update(failed=all_failed, results=results, names=names, params=params, taken=taken, copied=copied, src=src, dst=dst,
                    closures=closures)
     sheets_out = [results[s] for s in wanted]
     report = {
