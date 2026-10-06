@@ -7,9 +7,31 @@ from pathlib import Path
 import pytest
 from lxml import etree
 
+import py_tbparse
 from py_tbparse import webgui
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _check_same_checkout():
+    """Fail fast when py_tbparse comes from another checkout than these tests.
+
+    A venv with an editable install points at one checkout; running its `pytest` inside a git worktree
+    then tests the other copy and passes or fails for the wrong code. See docs/development.md."""
+    tests_root = Path(__file__).resolve().parent.parent
+    imported = Path(py_tbparse.__file__).resolve().parent
+    # An installed copy (a wheel in site-packages, as the sdist check uses) has no pyproject.toml beside it;
+    # only another source checkout is a mistake.
+    other_checkout = imported.parent != tests_root and (imported.parent / "pyproject.toml").exists()
+    if other_checkout and os.environ.get("TBPARSE_ALLOW_OTHER_CHECKOUT") != "1":
+        raise pytest.UsageError(
+            f"py_tbparse was imported from {imported}, but these tests are in {tests_root}. "
+            f"Run with PYTHONPATH={tests_root} (or scripts/ci-like-tests.sh), "
+            "or set TBPARSE_ALLOW_OTHER_CHECKOUT=1 to test an installed copy on purpose."
+        )
+
+
+_check_same_checkout()
 
 
 @pytest.fixture

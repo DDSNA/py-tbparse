@@ -7,6 +7,7 @@ them these tests skip, so the normal suite is unaffected.
 import csv
 import hashlib
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,8 @@ from py_tbparse import (
 from py_tbparse._tables import TABLE_SPECS
 from py_tbparse.rename import build_renamed_workbook
 from py_tbparse.templates import read_data
+
+sys.path.insert(0, str(Path(__file__).parent))
 
 CORPUS = Path(__file__).parent / "corpus"
 FILES = sorted((CORPUS / "files").glob("*.twb")) if (CORPUS / "files").is_dir() else []
@@ -255,7 +258,7 @@ def test_style_palettes_on_every_workbook(tmp_path):
     schema error that the workbook did not already have."""
     from lxml import etree
     from py_tbparse import build_with_palettes, check_style_file, export_palettes, plan_palette_import, read_palettes
-    from tests.schema_check import new_schema_errors
+    from schema_check import new_schema_errors
 
     with_palettes = {}
     for path in FILES:
