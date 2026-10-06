@@ -108,15 +108,18 @@ def _entry_key(row: dict) -> str:
     return ("[Parameters]." + row["name"]) if row["kind"] == "parameter" else row["name"]
 
 
-def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: bool = False):
-    """Do everything on a copy of the target's XML. Returns `(doc, report)`."""
+def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: bool = False,
+         ctx: Optional[dict] = None, report_actions: bool = True, allow_empty: bool = False):
+    """Do everything on a copy of the target's XML. Returns `(doc, report)`. `ctx`, when given, is filled with what
+    `dashboardcopy` needs afterwards (`results`, `names`, `params`, `taken`, `copied`, `src`, `dst`);
+    `report_actions=False` leaves out the "dashboard actions are not copied" note; `allow_empty` accepts no sheets."""
     if on_clash not in CLASH_POLICIES:
         raise SheetCopyAbort(f"on_clash must be one of {', '.join(CLASH_POLICIES)}, got {on_clash!r}")
     src, dst = _parser(source), _parser(target)
     sdoc = src.xml_doc
     doc = copy.deepcopy(dst.xml_doc)
     wanted = list(dict.fromkeys(sheets))
-    if not wanted:
+    if not wanted and not allow_empty:
         raise SheetCopyAbort("no sheets named; use --sheets A,B")
     have = set(sdoc.xpath("/workbook/worksheets/worksheet/@name"))
     unknown = [s for s in wanted if s not in have]
@@ -253,7 +256,7 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
             if vp.get("name") == s:
                 vp.set("name", new)
         n_actions = len(sdoc.xpath("/workbook/actions/action[source/@worksheet=$n or .//param[@value=$n]]", n=s))
-        if n_actions:
+        if n_actions and report_actions:
             res["dropped"].append(f"{n_actions} dashboard action(s) naming the sheet (actions are not copied)")
     if strict and any(r["dropped"] for r in results.values() if r["status"] == "copy"):
         what = "; ".join(f"{s}: {', '.join(r['dropped'])}" for s, r in results.items() if r["dropped"])
@@ -267,6 +270,9 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
     if new:
         raise SheetCopyAbort("integrity check failed on the result: " + "; ".join(p["check"] + " " + p["detail"] for p in new))
 
+    if ctx is not None:
+        ctx.update(results=results, names=names, params=params, taken=taken, copied=copied, src=src, dst=dst,
+                   closures=closures)
     sheets_out = [results[s] for s in wanted]
     report = {
         "source": str(src.twbx_path or src.path), "target": str(dst.twbx_path or dst.path), "on_clash": on_clash,
