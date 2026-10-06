@@ -591,6 +591,7 @@ _ASSETS = {
     "table.js": "text/javascript; charset=utf-8",
     "graph.js": "text/javascript; charset=utf-8",
     "templates.js": "text/javascript; charset=utf-8",
+    "rename.js": "text/javascript; charset=utf-8",
 }
 
 

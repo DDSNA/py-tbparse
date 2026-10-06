@@ -9,6 +9,7 @@
   const BUFFER = 10;
   const MIN_WIDTH = 80;  // narrower and the options button would cover the whole header
   const MAX_WIDTH = 900;
+  const CHECK_WIDTH = 72;  // the checkbox column, when a table has one
 
   function el(tag, cls, text) {
     const node = document.createElement(tag);
@@ -22,6 +23,8 @@
   class VTable {
     // handlers: cell(colIndex, value) -> td, sort(colIndex), openRow(pos, rowElement),
     //           menu(colIndex, th), resized(colIndex, width)
+    // options.check, when set, adds a leading column of checkboxes: {head, applicable(index) -> bool,
+    //           checked(index) -> bool, label(index) -> string, toggle(index, on)}
     constructor(wrap, handlers) {
       this.wrap = wrap;
       this.h = handlers;
@@ -39,6 +42,7 @@
       this.pinned = null;
       this.sort = {col: -1, dir: 0};
       this.current = null;
+      this.check = null;
       this.rowH = 40;
       this.headH = 41;
       this.start = -1;
@@ -79,10 +83,16 @@
 
       const table = el('table', 'tbl');
       table.setAttribute('aria-rowcount', String(n + 1));
-      table.setAttribute('aria-colcount', String(this.display.length));
+      table.setAttribute('aria-colcount', String(this.display.length + (this.check ? 1 : 0)));
 
       const colgroup = document.createElement('colgroup');
       let total = 0;
+      if (this.check) {
+        const box = document.createElement('col');
+        box.style.width = CHECK_WIDTH + 'px';
+        total += CHECK_WIDTH;
+        colgroup.appendChild(box);
+      }
       this.display.forEach((ci) => {
         const col = document.createElement('col');
         const w = this.widthOf(ci);
@@ -133,7 +143,7 @@
       const tr = el('tr', 'spacer');
       tr.setAttribute('aria-hidden', 'true');
       const td = document.createElement('td');
-      td.colSpan = Math.max(1, this.display.length);
+      td.colSpan = Math.max(1, this.display.length + (this.check ? 1 : 0));
       tr.appendChild(td);
       return tr;
     }
@@ -141,11 +151,16 @@
     headerRow() {
       const tr = document.createElement('tr');
       tr.setAttribute('aria-rowindex', '1');
+      if (this.check) {
+        const th = el('th', 'sel', this.check.head);
+        th.setAttribute('aria-colindex', '1');
+        tr.appendChild(th);
+      }
       this.display.forEach((ci, k) => {
         const name = this.cols[ci];
         const th = document.createElement('th');
         th.dataset.col = String(ci);
-        th.setAttribute('aria-colindex', String(k + 1));
+        th.setAttribute('aria-colindex', String(k + 1 + (this.check ? 1 : 0)));
         th.setAttribute('aria-keyshortcuts', 'Alt+ArrowDown');
         th.tabIndex = k === this.activeHead ? 0 : -1;
         const sorted = this.sort.col === ci;
@@ -171,7 +186,7 @@
       const head = this.thead;
       head.addEventListener('click', (e) => {
         const th = e.target.closest('th');
-        if (!th || e.target.closest('.col-resize')) return;
+        if (!th || th.classList.contains('sel') || e.target.closest('.col-resize')) return;
         // the click that ends a column drag, released over the header, must not sort it
         if (this.swallowClick) return;
         const ci = Number(th.dataset.col);
@@ -181,8 +196,8 @@
       head.addEventListener('keydown', (e) => this.onHeadKey(e));
       head.addEventListener('focusin', (e) => {
         const th = e.target.closest('th');
-        if (!th) return;
-        const heads = Array.from(head.querySelectorAll('th'));
+        if (!th || th.classList.contains('sel')) return;
+        const heads = Array.from(head.querySelectorAll('th:not(.sel)'));
         this.activeHead = heads.indexOf(th);
         heads.forEach((other) => { other.tabIndex = other === th ? 0 : -1; });
       });
@@ -193,22 +208,22 @@
       const body = this.tbody;
       body.addEventListener('click', (e) => {
         const tr = e.target.closest('tr[data-pos]');
-        if (tr) this.h.openRow(Number(tr.dataset.pos), tr);
+        if (tr && !e.target.closest('td.sel')) this.h.openRow(Number(tr.dataset.pos), tr);
       });
       body.addEventListener('keydown', (e) => this.onRowKey(e));
       body.addEventListener('focusin', (e) => {
         const tr = e.target.closest('tr[data-pos]');
         if (!tr) return;
         this.active = Number(tr.dataset.pos);
-        body.querySelectorAll('tr[tabindex="0"]').forEach((row) => { row.tabIndex = -1; });
-        tr.tabIndex = 0;
+        body.querySelectorAll('tr[tabindex="0"]').forEach((row) => this.setStop(row, false));
+        this.setStop(tr, true);
       });
     }
 
     onHeadKey(e) {
       const th = e.target.closest('th');
       if (!th || e.target !== th) return;
-      const heads = Array.from(this.thead.querySelectorAll('th'));
+      const heads = Array.from(this.thead.querySelectorAll('th:not(.sel)'));
       const at = heads.indexOf(th);
       const ci = Number(th.dataset.col);
       const go = (to) => { e.preventDefault(); heads[clamp(to, 0, heads.length - 1)].focus(); };
@@ -247,7 +262,9 @@
       this.start = first;
       this.end = last;
       const focused = this.tbody.contains(document.activeElement) ? document.activeElement : null;
-      const focusedPos = focused && focused.dataset ? focused.dataset.pos : undefined;
+      const focusedRow = focused && focused.closest ? focused.closest('tr[data-pos]') : null;
+      const focusedPos = focusedRow ? focusedRow.dataset.pos : undefined;
+      const focusedBox = !!focused && focused.tagName === 'INPUT';
       const rows = document.createDocumentFragment();
       for (let pos = first; pos < last; pos++) rows.appendChild(this.rowElement(pos));
       this.top.firstChild.style.height = first * this.rowH + 'px';
@@ -256,12 +273,21 @@
       // The table keeps exactly one tab stop, even when the active row scrolled out of the window.
       if (!this.tbody.querySelector('tr[tabindex="0"]')) {
         const any = this.tbody.querySelector('tr[data-pos]');
-        if (any) any.tabIndex = 0;
+        if (any) this.setStop(any, true);
       }
       if (focusedPos !== undefined) {
         const again = this.tbody.querySelector('tr[data-pos="' + focusedPos + '"]');
-        if (again) again.focus({preventScroll: true});
+        const box = again && focusedBox ? again.querySelector('input') : null;
+        if (box) box.focus({preventScroll: true});
+        else if (again) again.focus({preventScroll: true});
       }
+    }
+
+    // The one tab stop of the table is a row; the checkbox inside it is reached with Tab from there.
+    setStop(tr, on) {
+      tr.tabIndex = on ? 0 : -1;
+      const box = tr.querySelector('input');
+      if (box) box.tabIndex = on ? 0 : -1;
     }
 
     rowElement(pos) {
@@ -271,15 +297,34 @@
       tr.dataset.pos = String(pos);
       tr.setAttribute('aria-rowindex', String(pos + 2));
       tr.tabIndex = pos === this.active ? 0 : -1;
+      if (this.check) this.checkCell(tr, index, pos === this.active);
       // A stable name per row lets the browser animate rows to their new place after a sort.
       tr.style.viewTransitionName = 'r' + index;
       if (index === this.current) tr.setAttribute('aria-current', 'true');
       this.display.forEach((ci) => {
-        const td = this.h.cell(ci, row[ci]);
+        const td = this.h.cell(ci, row[ci], index);
         if (ci === this.pinned) td.classList.add('pin');
         tr.appendChild(td);
       });
       return tr;
+    }
+
+    checkCell(tr, index, stop) {
+      const td = el('td', 'sel');
+      if (this.check.applicable(index)) {
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = this.check.checked(index);
+        box.tabIndex = stop ? 0 : -1;
+        box.setAttribute('aria-label', this.check.label(index));
+        box.addEventListener('change', () => {
+          tr.classList.toggle('left-out', !box.checked);
+          this.check.toggle(index, box.checked);
+        });
+        td.appendChild(box);
+        tr.classList.toggle('left-out', !box.checked);
+      }
+      tr.appendChild(td);
     }
 
     // Scroll row pos into view if it is not, draw it, and focus it.

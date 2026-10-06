@@ -198,7 +198,7 @@ beyond the R package's scope:
 |---|---|
 | `_tables.py` | Name → `TwbParser`-accessor registry shared by `cli.py`, `webgui.py`, `diff.py`, and `batch.py`. Adding a new extractor to `TwbParser`? Add it here too so it's automatically available everywhere else. |
 | `cli.py` | `py-tbparse` command-line entry point, plus the `diff`/`batch`/`rename`/`template` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
-| `webgui.py` + `webui/` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. The server is `webgui.py`; the page is `webui/` (`index.html`, `tokens.css`, `themes.css`, `app.css`, `table.js`, `graph.js`, `app.js`). Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
+| `webgui.py` + `webui/` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. The server is `webgui.py`; the page is `webui/` (`index.html`, `tokens.css`, `themes.css`, `app.css`, `table.js`, `graph.js`, `rename.js`, `app.js`). Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
 | `graph.py` | `to_dot()`: Graphviz DOT export of joins/relationships (+ optional inferred, as dashed edges); `graph_data()` is the same edges as plain data, which the GUI lays out and draws itself (`webui/graph.js`: layered layout, SVG, pan/zoom, keyboard). Replaces the R package's igraph/ggraph-based `plot_dependency_graph`/`plot_relationship_graph` with a dependency-free text format any Graphviz-compatible tool can render. |
 | `diff.py` | `diff_tables()`/`diff_workbooks()`: row-level added/removed diff between two workbooks' same-named table, via `_tables.TABLE_SPECS`. No "changed" classification without a natural key — a changed row shows as one removed + one added row. |
 | `rename.py` | `suggest_field_renames()` (clean-name suggestions, optionally matched against a "before" reference), `suggest_renames()` (the same for every kind of object: field, parameter, worksheet, dashboard, datasource, folder, hierarchy; adds a `kind` column), `load_rename_mapping()` (read an edited CSV back), `compare_field_schemas()` (fields with no counterpart across a datasource switch) and `apply_field_renames()`/`build_renamed_workbook()` (write a copy with captions set; never overwrites). Also the `field-renames` and `report-renames` tables in `_tables.py`. A worksheet/dashboard rename must rewrite every reference (`_SHEET_REFERENCES`); if you learn of another place Tableau writes a sheet name, add it there. |
@@ -307,12 +307,12 @@ one runs); column `MIN_WIDTH` is 80; per-table view settings are keyed by column
 `aria-disabled` so they stay focusable.
 
 The page is real files, not a Python string: `py_tbparse/webui/index.html`, `tokens.css` (the design
-tokens), `themes.css` (the colour themes), `app.css`, `table.js`, `graph.js`, `templates.js` (the Templates view: `window.TemplatesView = {init, show, hide, acceptDrop, dropHint, getState}`) and `app.js`. They are served by `webgui.py` from a fixed whitelist under
+tokens), `themes.css` (the colour themes), `app.css`, `table.js`, `graph.js`, `templates.js` (the Templates view: `window.TemplatesView = {init, show, hide, acceptDrop, dropHint, getState}`), `rename.js` (rename review in Field renames: `window.RenameReview = {init, load, check, body}`; the checkbox column itself is the `check` option of `VTable` in `table.js`) and `app.js`. They are served by `webgui.py` from a fixed whitelist under
 `/static/` (`_ASSETS`), so a request can never reach any other file; add a new asset to
 `_ASSETS` and to the `webui/*` package-data (pyproject and MANIFEST.in) or it will not ship.
 `index.html` is the only thing that gets server values: `_render_index()` replaces
 `<!--APP_CONFIG-->` (now in `<head>`, so the saved theme is on `<html>` before the first paint) with the single
-inline `<script>`. Keep it that way (one inline script plus the four external ones, `table.js`, `graph.js`, `templates.js`, then
+inline `<script>`. Keep it that way (one inline script plus the five external ones, `table.js`, `graph.js`, `templates.js`, `rename.js`, then
 `app.js`); a test counts them. `populateTables();` must appear exactly once
 in `app.js`, and the structural tests (unterminated string literals, bracket balance) read both served scripts.
 Keep apostrophes out of JS strings and comments (the test counts quotes per line).

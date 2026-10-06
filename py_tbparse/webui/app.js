@@ -402,6 +402,7 @@ async function showTable() {
     state.sortCol = sortedName === null ? -1 : state.columns.indexOf(sortedName);
     if (state.sortCol < 0) state.sortDir = 0;
     resetCaches();
+    if (name === 'field-renames') RenameReview.load(state.columns, state.data);
     if (isOverview) renderOverview();
     else { renderTable(); scheduleHay(); }
     finishView(fresh, $('tableWrap'),
@@ -428,7 +429,7 @@ async function createWorkbook() {
     const data = await fetchJSON('/create-workbook', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(renameOptions()),
+      body: JSON.stringify(RenameReview.body(renameOptions())),
     });
     setStatus('Saved a fixed copy next to your original (' + plural(data.renamed, 'change') + '): ' + data.path,
               false, 'ok');
@@ -917,6 +918,7 @@ function emptyState(title, text) {
   return box;
 }
 
+RenameReview.init({$, state, fetchJSON, fail, setStatus, options: renameOptions, redraw: () => renderTable(false, true)});
 const vt = new VTable($('tableWrap'), {
   cell: (ci, value) => cellNode(state.columns[ci], value),
   sort: (ci) => toggleSort(ci),
@@ -952,7 +954,7 @@ function renderTable(animate, keepScroll, after) {
     vt.configure({
       cols: state.columns, data: state.data, order, display: displayCols(v), widths: widthsFor(v),
       pinned: v.pinned === null || colIndex(v.pinned) < 0 ? null : colIndex(v.pinned),
-      sort: {col: state.sortCol, dir: state.sortDir}, current: state.drawerIdx,
+      sort: {col: state.sortCol, dir: state.sortDir}, current: state.drawerIdx, check: RenameReview.check(),
     });
     vt.build(!keepScroll);
     reanchorMenu();
