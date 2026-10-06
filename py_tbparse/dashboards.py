@@ -13,6 +13,7 @@ from typing import Optional
 import pandas as pd
 
 _DASHBOARD_COLUMNS = ["name"]
+_SUMMARY_COLUMNS = ["name", "worksheets", "sheets", "size", "filters", "parameters", "actions"]
 _SHEETS_COLUMNS = ["dashboard", "sheet", "zone_id", "x", "y", "w", "h"]
 # Zones of these kinds are named after the worksheet they show or control.
 _SHEET_ZONE_TYPES = {None, "filter", "color", "size", "shape", "highlighter", "map", "legend"}
@@ -117,3 +118,33 @@ def dashboard_sheets(xml_doc, dashboard: Optional[str] = None) -> pd.DataFrame:
 
     df = pd.DataFrame(rows, columns=_SHEETS_COLUMNS)
     return df.sort_values(["dashboard", "sheet"]).reset_index(drop=True)
+
+
+def _size_text(db) -> str:
+    """`1000 x 800` for a fixed-size dashboard, `automatic` when the size is a range or not stored."""
+    size = db.find("size")
+    if size is None:
+        return "automatic"
+    w, h = size.get("minwidth"), size.get("minheight")
+    if w and h and w == size.get("maxwidth") and h == size.get("maxheight"):
+        return f"{w} x {h}"
+    return "automatic"
+
+
+def dashboard_summary(xml_doc) -> pd.DataFrame:
+    """One row per dashboard: how many distinct worksheets it shows (and which), its size, and how many
+    quick filters, parameter controls and workbook actions it has. `list_dashboards` stays the name-only list."""
+    action_counts: dict[str, int] = {}
+    for src in xml_doc.xpath(".//actions/action/source[@dashboard]"):
+        action_counts[src.get("dashboard")] = action_counts.get(src.get("dashboard"), 0) + 1
+    rows = []
+    for name in list_dashboards(xml_doc)["name"]:
+        for db in xml_doc.xpath(_dashboard_xpath(name))[:1]:
+            sheets = sorted({t for t in dashboard_targets(db) if t})
+            kinds = [z.get("type-v2") or z.get("type") for z in db.xpath(".//zone")]
+            rows.append({
+                "name": name, "worksheets": len(sheets), "sheets": "; ".join(sheets), "size": _size_text(db),
+                "filters": kinds.count("filter"), "parameters": kinds.count("paramctrl"),
+                "actions": action_counts.get(name, 0),
+            })
+    return pd.DataFrame(rows, columns=_SUMMARY_COLUMNS)

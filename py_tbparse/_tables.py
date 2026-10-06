@@ -78,7 +78,7 @@ def _inferred_relationships(p: TwbParser, **_kw) -> pd.DataFrame:
 
 
 def _dashboards(p: TwbParser, **_kw) -> pd.DataFrame:
-    return p.get_dashboards()
+    return p.get_dashboard_summary()
 
 
 def _dashboard_sheets(p: TwbParser, dashboard: str | None = None, **_kw) -> pd.DataFrame:

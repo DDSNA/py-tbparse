@@ -161,3 +161,65 @@ def test_the_shipped_name_only_fixture_has_its_sheets_on_the_dashboard():
     parser = TwbParser(str(Path(__file__).parent / "fixtures" / "public" / "filtering.twb"))
     assert workbook_report(parser)["dashboards"] == [{"name": "setTest", "sheets": ["Sheet 1", "Sheet 2"]}]
     assert parser.get_dashboard_sheets()["sheet"].tolist() == ["Sheet 1", "Sheet 2"]
+
+
+# ---- the Dashboards table: one row per dashboard, saying what is on it ----------------------------------
+
+_RICH_XML = """
+<workbook>
+  <dashboards>
+    <dashboard name="Sales">
+      <size maxheight="800" maxwidth="1000" minheight="800" minwidth="1000"/>
+      <zones>
+        <zone id="1" worksheet="Map" x="0" y="0" w="50000" h="100000"/>
+        <zone id="2" worksheet="Trend" x="50000" y="0" w="50000" h="100000"/>
+        <zone id="3" name="Map" type-v2="filter" param="[ds].[Region]"/>
+        <zone id="4" name="Map" type-v2="filter" param="[ds].[Year]"/>
+        <zone id="5" type-v2="paramctrl" param="[Parameters].[Top N]"/>
+        <zone id="6" type-v2="text"/>
+      </zones>
+    </dashboard>
+    <dashboard name="Empty">
+      <zones><zone id="1" type-v2="layout-basic"/></zones>
+    </dashboard>
+  </dashboards>
+  <actions>
+    <action name="a1"><source dashboard="Sales" type="sheet" worksheet="Map"/></action>
+    <action name="a2"><source dashboard="Sales" type="sheet" worksheet="Trend"/></action>
+    <action name="a3"><source dashboard="Elsewhere" type="sheet"/></action>
+  </actions>
+</workbook>
+"""
+
+
+def test_dashboard_summary_describes_each_dashboard():
+    from py_tbparse.dashboards import dashboard_summary
+    df = dashboard_summary(xml_from_string(_RICH_XML))
+    assert list(df.columns)[:2] == ["name", "worksheets"]
+    sales = df[df["name"] == "Sales"].iloc[0]
+    assert sales["worksheets"] == 2
+    assert sales["sheets"] == "Map; Trend"
+    assert sales["size"] == "1000 x 800"
+    assert sales["filters"] == 2
+    assert sales["parameters"] == 1
+    assert sales["actions"] == 2
+    empty = df[df["name"] == "Empty"].iloc[0]
+    assert (empty["worksheets"], empty["filters"], empty["parameters"], empty["actions"]) == (0, 0, 0, 0)
+    assert empty["sheets"] == "" and empty["size"] == "automatic"
+
+
+def test_dashboard_summary_without_dashboards_is_empty_with_columns():
+    from py_tbparse.dashboards import dashboard_summary
+    df = dashboard_summary(xml_from_string("<workbook/>"))
+    assert df.empty and "worksheets" in df.columns
+
+
+def test_dashboards_table_uses_the_summary():
+    from py_tbparse import TwbParser
+    from py_tbparse._tables import TABLE_SPECS as TABLES
+    p = TwbParser("docs/demo/coffee-shop.twb")
+    df = TABLES["dashboards"](p)
+    assert df["name"].tolist() == ["Product Review", "Weekly Overview"]
+    assert df["worksheets"].tolist() == [2, 2]
+    assert df["sheets"].tolist() == ["Sales by Region; Top Products", "Profit Trend; Sales by Region"]
+    assert p.get_dashboards().columns.tolist() == ["name"]  # the name list others rely on is unchanged
