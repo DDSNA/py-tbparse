@@ -79,8 +79,12 @@ py-tbparse library import other.twb kpis.library.json --mapping map.csv --on-cla
 ```
 
 - `import` writes nothing without `--write`. The output defaults to `<name>_library.<ext>` beside the workbook, keeps the workbook's extension, and never replaces the input (`--overwrite` replaces an existing output only).
-- `--on-clash` is `rename` (default), `skip` or `fail`. `--mapping` is a CSV with `field` and `mapped_to`.
+- `--on-clash` is `fail` (default), `rename` or `skip`. The default was `rename` before; it is `fail` now so the command line and the Libraries view agree, so an old script that relied on renaming needs `--on-clash rename`. `--mapping` is a CSV with `field` and `mapped_to`.
 - Exit codes of `import`: 0, 1 (an error, including `--on-clash fail` meeting a clash), 2 (some entry could not be imported; the others are written).
+
+## Sheet copy
+
+`py-tbparse sheet copy SRC --sheets A,B --to TARGET [--sheet NAME] [--on-clash fail|rename|skip] [--strict] [--write [-o OUT]] [--overwrite] [--format text|json]` copies worksheets into a new copy of TARGET. A dry run unless `--write`; the output defaults to `<TARGET>_sheetcopy.<ext>` and is never an input. `--on-clash` defaults to `fail` and covers calculations, parameters and sheet names. Exit codes: 0, 1 (an error, a clash under `fail`, `--strict` with something to drop, nothing copyable), 2 (some sheet was refused; the others are written). See [sheet-copy.md](sheet-copy.md). Never opened in Tableau.
 
 ## Colour palettes
 
