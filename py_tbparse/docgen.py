@@ -312,8 +312,7 @@ def workbook_markdown(parser, graph: bool = False) -> str:
             blocks.append(md_table(["Table", "Kind", "Source name"], tables))
         rows, long_formulas = [], []
         mine = usage[usage["datasource"] == name]
-        mine = mine.assign(_k=mine.apply(lambda r: ((r["caption"] or str(r["field"]).strip("[]")).casefold(), r["field"]), axis=1))
-        for _, r in mine.sort_values("_k", kind="stable").iterrows():
+        for r in sorted(mine.to_dict("records"), key=lambda r: ((r["caption"] or str(r["field"]).strip("[]")).casefold(), r["field"])):
             col = cols.get(r["field"])
             labels[(name, r["field"])] = r["caption"] or str(r["field"]).strip("[]")
             calc = col.find("calculation") if col is not None else None
@@ -323,7 +322,7 @@ def workbook_markdown(parser, graph: bool = False) -> str:
                          (col.get("role") if col is not None else None) or "", kind,
                          _formula_cell(formula) if formula.strip() else "", _used_by(r)])
             if len(formula.strip()) > _FORMULA_CELL:
-                long_formulas.append((labels[(name, r["field"])], formula.strip()))
+                long_formulas.append((labels[(name, r["field"])], formula.strip().replace("\r\n", "\n").replace("\r", "\n")))
         blocks.append(heading(4, f"Fields ({len(rows)})"))
         blocks.append(md_table(["Field", "Caption", "Type", "Role", "Kind", "Formula", "Used by"], rows) if rows else "None.")
         for fname, formula in long_formulas:
@@ -335,7 +334,7 @@ def workbook_markdown(parser, graph: bool = False) -> str:
     else:
         pcols = {c.get("name"): c for c in doc.xpath("/workbook/datasources/datasource[@name='Parameters']/column[@name]")}
         rows = []
-        for _, r in params.sort_values("field", kind="stable").iterrows():
+        for r in sorted(params.to_dict("records"), key=lambda r: r["field"]):
             labels[("Parameters", r["field"])] = r["caption"] or str(r["field"]).strip("[]")
             col = pcols.get(r["field"])
             allowed = ""

@@ -105,7 +105,9 @@ class _Facts:
     def usage(self) -> pd.DataFrame:
         if self._usage is None:
             usage = field_usage(self.doc)
-            self._usage = usage.astype(object).where(usage.notna(), None)    # a missing caption is None, not NaN
+            usage = usage.astype(object).where(usage.notna(), None)    # a missing caption is None, not NaN
+            usage["used"] = usage["used"].astype(bool)
+            self._usage = usage
         return self._usage
 
     @property
@@ -127,7 +129,8 @@ class _Facts:
             self._graph = {c.key: self._calc_deps(c) for c in self.calcs}
         return self._graph
 
-    def _calc_deps(self, calc: _Calc) -> list[tuple]:
+    def _targets(self, calc: _Calc) -> list[tuple]:
+        """(datasource, `[Name]`) of every field the formula refers to, parameters and other datasources included."""
         refs = _code_refs(calc.formula)
         out = []
         i = 0
@@ -139,9 +142,24 @@ class _Facts:
             else:
                 dep = (calc.ds, refs[i])
                 i += 1
-            if dep in self.by_key and dep not in out:
+            if dep not in out:
                 out.append(dep)
-        return sorted(out)
+        return out
+
+    def _calc_deps(self, calc: _Calc) -> list[tuple]:
+        return sorted(d for d in self._targets(calc) if d in self.by_key)
+
+    @property
+    def parameter_users(self) -> dict[str, list[_Calc]]:
+        """`[Parameter 1]` -> the calculations whose formula refers to it. `field_usage` does not follow a
+        parameter through a formula (it reads the references from a set, so `[Parameters]` and the name after it
+        lose their order), so the parameter rule asks here."""
+        users: dict[str, list[_Calc]] = {}
+        for c in self.calcs:
+            for ds, name in self._targets(c):
+                if ds == "Parameters":
+                    users.setdefault(name, []).append(c)
+        return users
 
 
 def _facts(s: Subject) -> _Facts:
@@ -166,36 +184,35 @@ def _label_of(row) -> str:
 def normalise_formula(formula: str) -> str:
     """A formula without what does not change its meaning: comments (`//` to the end of the line and
     `/* ... */`) removed, runs of whitespace collapsed and dropped around punctuation, and the text outside
-    string literals and `[bracketed names]` lower-cased (keywords are case-insensitive). Two calculations with
-    the same result here are the same calculation written twice."""
-    out: list[str] = []
+    string literals and `[bracketed names]` lower-cased (keywords are case-insensitive). String literals and
+    names are kept as written. Two calculations with the same result here are the same calculation written
+    twice."""
+    parts: list[tuple[bool, str]] = []        # (is code, text)
+    code: list[str] = []
+
+    def flush():
+        if code:
+            parts.append((True, "".join(code)))
+            code.clear()
+
     text, i = formula or "", 0
     while i < len(text):
         c = text[i]
-        if c in "\"'":
+        if c in "\"'" or c == "[":
+            close = "]" if c == "[" else c
             j = i + 1
             while j < len(text):
-                if text[j] == "\\":
+                if c != "[" and text[j] == "\\":
                     j += 2
                     continue
-                if text[j] == c:
-                    if text[j + 1:j + 2] == c:
+                if text[j] == close:
+                    if text[j + 1:j + 2] == close:
                         j += 2
                         continue
                     break
                 j += 1
-            out.append(text[i:j + 1])
-            i = j + 1
-        elif c == "[":
-            j = i + 1
-            while j < len(text):
-                if text[j] == "]":
-                    if text[j + 1:j + 2] == "]":
-                        j += 2
-                        continue
-                    break
-                j += 1
-            out.append(text[i:j + 1])
+            flush()
+            parts.append((False, text[i:j + 1]))
             i = j + 1
         elif text.startswith("//", i):
             j = text.find("\n", i)
@@ -203,16 +220,22 @@ def normalise_formula(formula: str) -> str:
         elif text.startswith("/*", i):
             j = text.find("*/", i + 2)
             i = len(text) if j < 0 else j + 2
-            out.append(" ")
-        elif c.isspace():
-            out.append(" ")
-            i += 1
+            code.append(" ")
         else:
-            out.append(c.lower())
+            code.append(c.lower())
             i += 1
-    joined = "".join(out)
-    joined = re.sub(r"\s+", " ", joined).strip()
-    return re.sub(r" ?([^\w\s\"'\[\]]) ?", r"\1", joined)
+    flush()
+    out = []
+    for n, (is_code, piece) in enumerate(parts):
+        if is_code:
+            piece = re.sub(r"\s+", " ", piece)
+            piece = re.sub(r" ?([^\w\s]) ?", r"\1", piece)
+            if n and not parts[n - 1][0]:
+                piece = piece.lstrip(" ")
+            if n + 1 < len(parts) and not parts[n + 1][0]:
+                piece = piece.rstrip(" ")
+        out.append(piece)
+    return "".join(out).strip()
 
 
 # ------------------------------------------------------------------ the rules --
@@ -326,17 +349,24 @@ def circular_calculation(s: Subject):
 
 
 @rule("A005", SCOPE, severity="info",
-      fix="If nothing needs the parameter, delete it; check first that no title, action or other workbook does")
+      fix="If nothing needs the parameter, delete it; check first that no title, action or other workbook does "
+          "(this rule follows a parameter through calculations, which `field_usage` itself does not yet)")
 def unused_parameter(s: Subject):
     """A parameter that no worksheet, calculation or text uses."""
     f = _facts(s)
+    users = f.parameter_users
+    used_calcs = {(r["datasource"], r["field"]) for _, r in f.usage.iterrows()
+                  if r["kind"] == "calculated" and (r["used"] or r["field"].strip("[]") in f.mentioned)}
     for _, row in f.usage[(f.usage["kind"] == "parameter") & ~f.usage["used"]].iterrows():
         if row["field"].strip("[]") in f.mentioned:
             continue
-        calcs = list(row["calculations"])
+        refs = users.get(row["field"], [])
+        if any(c.key in used_calcs for c in refs):
+            continue
+        names = sorted({c.caption or c.name.strip("[]") for c in refs})
         yield finding(f"Parameters: {_label_of(row)}",
-                      f"no worksheet uses it; only the calculation(s) {_names(calcs)} refer to it, and no worksheet uses those" if calcs
-                      else "no worksheet, dashboard, action or calculation uses it")
+                      f"no worksheet uses it; only the calculation(s) {_names(names)} refer to it, and no worksheet uses those"
+                      if names else "no worksheet, dashboard, action or calculation uses it")
 
 
 def _hidden_sheets(doc) -> set:
@@ -399,7 +429,7 @@ def extract_or_path_leftover(s: Subject):
         if any(isinstance(el.tag, str) and etree.QName(el).localname == "extract" for el in ds):
             yield finding(label, "keeps an extract (a copy of the data, which can show data the workbook was shared without)")
         seen = set()
-        for conn in ds.xpath(".//connection[@class]"):
+        for conn in ds.xpath(".//connection[@class][not(ancestor::*[local-name()='extract'])]"):
             if conn.get("class") not in _FILE_CLASSES:
                 continue
             for attr in ("filename", "directory", "dbname"):

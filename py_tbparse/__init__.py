@@ -50,7 +50,7 @@ from .templates import (
     suggest_mapping,
 )
 from .template_batch import apply_template_folder
-from .audit import audit
+from .workbook_audit import audit
 from .docgen import template_markdown, workbook_markdown
 from .findings import format_findings, run_rules
 from .template_check import check_template

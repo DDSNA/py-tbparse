@@ -47,7 +47,7 @@ from .templates import (
 )
 from .template_batch import DEFAULT_PATTERNS as DEFAULT_BATCH_PATTERNS, apply_template_folder
 from .template_update import template_update_report, update_from_answers
-from .audit import audit, rules_help as audit_rules_help
+from .workbook_audit import audit, rules_help as audit_rules_help
 from .docgen import template_markdown, workbook_markdown
 from .findings import exceeds, format_findings, summary as findings_summary
 from .template_check import check_template, rules_help
