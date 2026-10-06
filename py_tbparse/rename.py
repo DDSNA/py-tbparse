@@ -592,17 +592,18 @@ def select_renames(renames: pd.DataFrame, exclude=None) -> pd.DataFrame:
     gone = set(exclude)
     if known <= gone:
         raise ValueError("Every rename is left out, so there is nothing to apply. Tick at least one rename.")
-    out = renames[[rename_id(r.get("kind"), r["datasource"], r["name"]) not in gone for r in renames.to_dict("records")]]
-    _check_sheet_names(out)
-    return out
+    keep = [rename_id(r.get("kind"), r["datasource"], r["name"]) not in gone for r in renames.to_dict("records")]
+    _check_sheet_names(renames, keep)
+    return renames[keep]
 
 
-def _check_sheet_names(renames: pd.DataFrame) -> None:
+def _check_sheet_names(renames: pd.DataFrame, keep: list) -> None:
     final: dict[str, str] = {}
-    for r in renames.to_dict("records"):
+    for r, kept in zip(renames.to_dict("records"), keep):
         if r.get("kind") not in ("worksheet", "dashboard"):
             continue
-        new = r["suggested"] if r["changed"] and r["reason"] != "conflict" else r["name"]
+        applied = kept and r["changed"] and r["reason"] != "conflict"
+        new = r["suggested"] if applied else r["name"]
         if new in final and final[new] != r["name"]:
             raise ValueError(
                 f"Leaving out a rename would give two sheets or dashboards the name {new!r}. "
