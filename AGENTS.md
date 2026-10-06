@@ -155,6 +155,11 @@ treat the sources as unverified). Owner rules are marked (owner).
   GitHub Release body. Start from a clean `main` that matches `origin/main`.
 - **Pick the bump from the change, not the calendar.** While we are 0.x, a breaking change to the CLI, the Python
   API or a stable rule id needs a new minor, and the PR says so.
+- **Retake the screenshots at every MAJOR release** (owner, 2026-10-05): run `scripts/gui_screenshots.py` (and
+  `scripts/readme_screenshots.py` for the README's pictures; described at the end of "Testing the GUI") on the release commit and
+  commit the new images before the release PR. A minor or patch release does not need it.
+- **A hotfix is a `.postN` release** (owner, 2026-10-06; rule under "Versioning" above): `0.5.2.post1`, tag
+  `v0.5.2.post1`, only `pyproject.toml` changes, the owner's word first.
 - **Check CI on the exact release commit** (`test`, `gui`, `build`, `docker`), not from memory of an earlier run.
 - **Release notes**: one short entry per user-visible change, grouped Added / Changed / Fixed, written for someone who
   runs the CLI or the GUI. Leave out tests, CI and pure refactors. Edit by hand, do not paste the commit log, and link
@@ -168,8 +173,8 @@ treat the sources as unverified). Owner rules are marked (owner).
 - **Commits**: no `--no-verify`, no changes to git config; if a hook fails, fix the cause and make a new commit. Read
   `git diff --staged` for secrets, tokens and local paths before each commit. One logical change per commit.
 
-Open owner questions: whether to add a `CHANGELOG.md`, whether to test-publish to TestPyPI first, and whether a hook
-should block pushes to `main`.
+Open owner questions: whether to add a `CHANGELOG.md` and whether to test-publish to TestPyPI first. An optional
+pre-push hook that blocks pushes to `main` exists (`docs/development.md`).
 
 ## Architecture
 
