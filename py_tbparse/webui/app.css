@@ -451,6 +451,58 @@ button.stat:hover { border-color: var(--primary); transform: translateY(-2px); b
 }
 /* end audit view */
 
+/* libraries view */
+.lib { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); padding: var(--space-5); max-width: 1100px; }
+.lib-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); background: var(--panel); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); min-width: 0; }
+.lib-card h2 { margin: 0; font: 600 var(--text-lg)/1.3 var(--font-display); }
+.lib-card h3 { margin: var(--space-2) 0 0; font-size: var(--text-md); }
+.lib-card .note { max-width: 70ch; margin: 0; }
+.lib-export { align-items: flex-end; }
+.lib-filters, .lib-selbar, .lib-pager, .lib-export, .lib-go, .lib-file { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); align-items: center; }
+.lib-filters input.field { flex: 1 1 220px; max-width: 360px; }
+.lib-field { display: grid; gap: 2px; font-size: var(--text-sm); color: var(--muted); }
+.lib-field .field { color: var(--text); }
+.lib .check { white-space: normal; min-width: 0; }
+.lib-count { font-size: var(--text-sm); color: var(--muted); }
+.lib-hint, .lib-loaded { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+.lib-loaded strong { color: var(--text); }
+.lib-problem { margin: 0; color: var(--danger); font-weight: 600; }
+.lib-empty { margin: 0; padding: var(--space-4); border: 1px dashed var(--border); border-radius: var(--radius-md); color: var(--muted); }
+.lib-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.lib-table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.lib-table th { text-align: left; font-weight: 650; background: var(--bg); padding: var(--space-2) var(--space-3);
+                border-bottom: 1px solid var(--border); white-space: nowrap; }
+.lib-table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); vertical-align: top; }
+.lib-table tr:last-child td { border-bottom: 0; }
+.lib-table input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+.lib-check { width: 1%; }
+.lib-name { overflow-wrap: anywhere; min-width: 10em; }
+.lib-sub { display: block; color: var(--muted); font-size: var(--text-sm); }
+.lib-formula { font-family: var(--mono); font-size: var(--text-sm); overflow-wrap: anywhere; min-width: 14em; white-space: pre-wrap; }
+.lib-why { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.lib-action { white-space: nowrap; font-weight: 600; }
+.lib-plan { display: grid; gap: var(--space-2); }
+.lib-plan-line { margin: 0; font-size: var(--text-lg); }
+.lib-plan-line[data-blocked="true"] { color: var(--danger); }
+.lib-policy { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); display: grid; gap: var(--space-1); margin: 0; min-width: 0; }
+.lib-policy legend { font-weight: 600; padding: 0 var(--space-1); }
+.lib-radio { display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-1) 0; min-height: 32px; }
+.lib-radio input { flex: none; margin-top: 4px; accent-color: var(--primary); }
+.lib-radio > span { min-width: 0; }
+.lib-file .btn.focus { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .lib { padding: var(--space-3); gap: var(--space-3); }
+  .lib-card { padding: var(--space-3); }
+  .lib-table, .lib-table tbody, .lib-table tr, .lib-table td { display: block; width: 100%; }
+  .lib-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .lib-table tr { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+  .lib-table td { border: 0; padding: 2px var(--space-3); }
+  .lib-check { width: auto; }
+  .lib-name, .lib-formula { min-width: 0; }
+}
+/* end libraries view */
+
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }
   .skeleton .row { animation: none; }

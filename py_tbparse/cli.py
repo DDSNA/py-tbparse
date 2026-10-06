@@ -58,6 +58,7 @@ from .ci_formats import CI_FORMATS
 from .findings import exceeds, format_findings, summary as findings_summary
 from .validators import validation_findings
 from .template_check import check_template, rules_help
+from .template_drift import check_drift, rules_help as drift_rules_help, save_union_answers
 from .templates import TemplateError, _token_values
 from .xmldiff import normalised_diff
 from .rename import (
@@ -342,6 +343,35 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
                     help="exit 1 when a finding has this severity or worse (default: error)")
     ck.add_argument("--only", help="comma-separated rule ids to run, e.g. T001,T003")
     ck.add_argument("--skip", help="comma-separated rule ids not to run")
+
+    dr = sub.add_parser(
+        "drift", help="do many data files (a folder or glob) still fit a template or saved answers?",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Read the CSV, TSV and Excel files as one source and report, per file, what differs from the "
+                    "template's mapping or the saved answers: a missing column, another encoding or separator, a "
+                    "renamed or new column, a type conflict, a moved Excel header, an empty file. Findings go to "
+                    "stdout, a count and the fingerprints to stderr; the exit code is 1 when a finding is at or "
+                    "above --fail-on, 2 when the template or files cannot be read or an option is wrong, 3 when a "
+                    "rule crashed. Nothing is written unless --save-answers is given. Rule ids are stable.",
+        epilog="rules:\n" + drift_rules_help(),
+    )
+    dr.add_argument("template", metavar="TEMPLATE_OR_ANSWERS",
+                    help="a template (.twbx), or answers (.json, or a workbook made by 'template apply')")
+    dr.add_argument("files", nargs="+", metavar="GLOB_OR_FOLDER",
+                    help="a folder, a quoted glob such as 'data/sales_*.csv' ('**' reaches subfolders), or files")
+    dr.add_argument("--answers", "-a", metavar="PATH", help="with a template: saved answers (their mapping, columns and files are the reference)")
+    dr.add_argument("--sheet", help="the worksheet of every Excel file (a name, or an index from 0)")
+    dr.add_argument("--datasource", help="which template datasource to check (when it has several)")
+    dr.add_argument("--max-files", type=int, default=500, help="refuse to read more files than this (default 500)")
+    dr.add_argument("--format", "-f", choices=["table", "csv", "json", *CI_FORMATS], default="table",
+                    help="table, csv, json, or a CI format: junit (XML), sarif (2.1.0) or github (workflow commands)")
+    dr.add_argument("--fail-on", choices=["error", "warning", "info", "never"], default="error",
+                    help="exit 1 when a finding has this severity or worse (default: error)")
+    dr.add_argument("--only", help="comma-separated rule ids to run, e.g. D001,D002")
+    dr.add_argument("--skip", help="comma-separated rule ids not to run")
+    dr.add_argument("--save-answers", metavar="PATH",
+                    help="also write a copy of the answers whose data block lists these files and their fingerprints "
+                         "(never overwrites; needs answers)")
 
     sub.add_parser("targets", help="list the database connection classes a target file can use, and how well each is known")
 
@@ -633,6 +663,36 @@ def _run_template_check(args) -> int:
     return 1 if exceeds(found, args.fail_on) else 0
 
 
+def _run_template_drift(args) -> int:
+    files = args.files if len(args.files) > 1 else args.files[0]
+    try:
+        found = check_drift(args.template, files, answers=args.answers, datasource=args.datasource,
+                            sheet=_sheet_arg(args.sheet), only=_ids(args.only, "--only"),
+                            skip=_ids(args.skip, "--skip") or (), max_files=args.max_files)
+        if args.save_answers:
+            save_union_answers(args.template, files, args.save_answers, answers=args.answers,
+                               datasource=args.datasource, sheet=_sheet_arg(args.sheet))
+    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile, json.JSONDecodeError,
+            etree.XMLSyntaxError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    _write(format_findings(found, args.format, path=found.attrs.get("path")), None)
+    saved = found.attrs.get("saved_fingerprint")
+    print(f"{found.attrs['files']} file(s), merged fingerprint {found.attrs['fingerprint']}"
+          + (f" ({'same as' if saved == found.attrs['fingerprint'] else 'differs from'} the saved answers)" if saved else ""),
+          file=sys.stderr)
+    print(findings_summary(found), file=sys.stderr)
+    crashed = found.attrs.get("crashed") or []
+    if crashed:
+        for rule_id in crashed:
+            print(f"rule {rule_id} crashed (a bug in py-tbparse, not a finding about the files):\n"
+                  + found.attrs["tracebacks"][rule_id], file=sys.stderr)
+        return 3
+    if args.save_answers:
+        print(f"wrote {args.save_answers}", file=sys.stderr)
+    return 1 if exceeds(found, args.fail_on) else 0
+
+
 def _run_template(argv: list[str]) -> int:
     ap = build_template_arg_parser()
     args = ap.parse_args(argv)
@@ -644,6 +704,8 @@ def _run_template(argv: list[str]) -> int:
         args.format = args.format or "table"
     if args.action == "check":
         return _run_template_check(args)
+    if args.action == "drift":
+        return _run_template_drift(args)
     try:
         if args.action == "make":
             out = make_template(args.workbook, output_path=args.output, name=args.name,

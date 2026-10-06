@@ -77,6 +77,8 @@ from .workbook_audit import audit
 from .docgen import template_markdown, workbook_markdown
 from .findings import format_findings, run_rules
 from .template_check import check_template
+from .template_drift import check_drift
+from .multifile import read_many
 from .template_update import diff_template_revisions, template_update_report, update_from_answers
 from .usage import field_usage
 from .validators import validate_relationships
@@ -138,6 +140,8 @@ __all__ = [
     "template_update_report",
     "update_from_answers",
     "check_template",
+    "check_drift",
+    "read_many",
     "template_markdown",
     "workbook_markdown",
     "audit",

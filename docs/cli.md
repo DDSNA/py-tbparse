@@ -31,7 +31,7 @@ Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calcul
 
 ## Templates
 
-`py-tbparse template` has eight subcommands: `make`, `show`, `check`, `targets`, `target-make`, `update`, `apply-folder` and `apply`. What a template is, mapping, answers, tokens, databases and the check rules are explained in [templates.md](templates.md). `py-tbparse template SUBCOMMAND --help` lists every option.
+`py-tbparse template` has nine subcommands: `make`, `show`, `check`, `drift`, `targets`, `target-make`, `update`, `apply-folder` and `apply`. What a template is, mapping, answers, tokens, databases and the check rules are explained in [templates.md](templates.md). `py-tbparse template SUBCOMMAND --help` lists every option.
 
 ```bash
 py-tbparse template make sales.twbx --token customer="Your company"   # --token NAME=DEFAULT; also --name, --description, --keep-data, -o
@@ -46,6 +46,7 @@ py-tbparse template apply sales.template.twbx --data q3.xlsx --sheet Sales --wri
 py-tbparse template apply sales.template.twbx --answers sales_q3.twbx --profile prod --write   # saved answers and a profile
 py-tbparse template update sales.v2.template.twbx sales_q3.twbx --write              # bring a workbook up to a newer revision
 py-tbparse template apply-folder sales.template.twbx customers/ -o out/ --inputs customers.csv --min-mapped 0.9
+py-tbparse template drift sales.template.twbx 'data/sales_*.csv' --fail-on warning   # do the monthly files still fit? --answers, --sheet, --save-answers, --format
 ```
 
 Notes from `--help`:
@@ -54,6 +55,7 @@ Notes from `--help`:
 - `--experimental` (on `apply`, `update`, `apply-folder` and `target-make`) allows a connection class that was never checked against a workbook Tableau wrote; see `template targets`.
 - `template update` takes `--old` (the revision the workbook was made from, when its answers do not keep it), `--data`, `--sheet`, `--mapping`, `--allow-missing` and `--token`.
 - `template apply-folder` also takes `--pattern`, `--answers`, `--profile`, `--mapping`, `-p`, `--sheet`, `--on-error {skip,stop}`, `--workers` and `--overwrite`. Without `-o` the workbooks and `summary.csv` go to `DIR/out`. It exits 1 if any file was not written.
+- `template drift TEMPLATE_OR_ANSWERS GLOB_OR_FOLDER` exits like `template check` (rules D001 to D011, see [templates.md](templates.md)).
 - `template check` exits 0 (nothing at `--fail-on`), 1 (a finding at `--fail-on`), 2 (the template cannot be read or an option is wrong) or 3 (a rule crashed).
 - `.xlsx` and `.xlsm` input needs `pip install "py-tbparse[excel]"`.
 

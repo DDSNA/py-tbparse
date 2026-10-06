@@ -20,14 +20,14 @@ They do not depend on the format and did not change.
 
 | Command | 0 | 1 | 2 | 3 |
 | --- | --- | --- | --- | --- |
-| `audit`, `template check` | no finding at `--fail-on` (default `error`) | a finding at or above `--fail-on` | file cannot be read, or a bad option | a rule crashed (the traceback goes to stderr) |
+| `audit`, `template check`, `template drift` | no finding at `--fail-on` (default `error`) | a finding at or above `--fail-on` | file cannot be read, or a bad option | a rule crashed (the traceback goes to stderr) |
 | `validate` | relationships are fine | the workbook cannot be loaded | a relationship refers to a table or field the workbook lacks | (not used) |
 
 So a pipeline step that must not fail on warnings can write a report with `--fail-on never` and still see exit 3 if py-tbparse itself failed.
 
 ## Rule ids
 
-Rule ids are stable and never reused, so they are safe in configs and in suppression lists: `A001` to `A011` for `audit`, `T001` to `T010` for `template check`, and for `validate`:
+Rule ids are stable and never reused, so they are safe in configs and in suppression lists: `A001` to `A011` for `audit`, `T001` to `T010` for `template check`, `D001` to `D011` for `template drift` (the location of a finding is the folder or glob; the file is in the object), and for `validate`:
 
 | Id | Severity | What it finds |
 | --- | --- | --- |

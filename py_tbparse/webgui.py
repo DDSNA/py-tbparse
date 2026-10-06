@@ -46,11 +46,12 @@ from .rename import (
     suggest_renames,
 )
 from .workbook_audit import audit as run_audit, SCOPE as _AUDIT_SCOPE
+from . import library as _library
 from .templates import TemplateError, load_template, make_template, read_data
 
 # "tpl" is the Templates view's state (see `_tpl_new`); it stays None until the view is used. Defaults are copied
 # shallowly into each session, so every default must be immutable: a fresh dict is assigned on first use.
-_STATE_DEFAULTS = {"parser": None, "path": None, "uploaded": False, "report": None, "audit": None, "tpl": None}
+_STATE_DEFAULTS = {"parser": None, "path": None, "uploaded": False, "report": None, "audit": None, "lib": None, "tpl": None}
 
 # Server mode (`--server-mode`): the page is shared by several people behind a proxy, so each browser gets its
 # own workbook state, keyed by a random cookie. `_STATE` and `_UPLOAD` below look like plain dicts but read and
@@ -173,7 +174,13 @@ _WARN_LOCK = threading.Lock()  # `warnings.catch_warnings` is not thread safe; h
 _UPLOAD_ROUTES = frozenset({"/upload", "/template/upload-template", "/template/upload-data"})
 _UPLOAD_SLOTS = {"/upload": "workbook", "/template/upload-template": "template", "/template/upload-data": "data"}
 _PATH_ROUTES = frozenset({"/load", "/create-workbook", "/template/open", "/template/open-data", "/template/save"})
-_JSON_ROUTES = _PATH_ROUTES | frozenset({"/download-workbook", "/template/select-data", "/template/plan", "/template/apply", "/template/clear",
+_LIBRARY_KEYS = {
+    "/library/export": frozenset({"datasource", "select", "with_dependencies", "include_parameters", "name", "description"}),
+    "/library/plan": frozenset({"datasource", "on_clash", "offset", "limit"}),
+    "/library/add": frozenset({"datasource", "on_clash"}),
+    "/library/clear": frozenset(),
+}
+_JSON_ROUTES = _PATH_ROUTES | frozenset(_LIBRARY_KEYS) | frozenset({"/download-workbook", "/template/select-data", "/template/plan", "/template/apply", "/template/clear",
                                          "/template/make", "/template/use-made"})
 
 _PLAN_KEYS = frozenset({"datasource", "mapping", "params", "tokens"})
@@ -596,6 +603,7 @@ _ASSETS = {
     "templates.js": "text/javascript; charset=utf-8",
     "rename.js": "text/javascript; charset=utf-8",
     "audit.js": "text/javascript; charset=utf-8",
+    "libraries.js": "text/javascript; charset=utf-8",
 }
 
 
@@ -650,6 +658,7 @@ def _open_response(parser: TwbParser, path: str, uploaded: bool = False, name: s
     _STATE["uploaded"] = uploaded
     _STATE["report"] = None
     _STATE["audit"] = None
+    _STATE["lib"] = None
     dashboards_df = parser.get_dashboards()
     return {
         "ok": True,
@@ -742,6 +751,197 @@ def _workbook_stem() -> str:
     name = os.path.basename(str(_STATE["path"] or "workbook"))
     stem = re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.splitext(name)[0]).strip("._") or "workbook"
     return stem[:80]
+
+
+# ---- the Libraries view (/library/*) ----
+# Lists the open workbook's calculated fields and parameters, exports a selection as a library file, and adds an
+# uploaded library to the open workbook. The library is kept in memory (`_STATE["lib"]`, at most MAX_LIBRARY_BYTES
+# of JSON) and the new workbook is only ever built as bytes and sent as a download: nothing here takes a path or
+# writes a file, so it cannot touch the open workbook or any other file, and it is allowed in server mode.
+LIBRARY_PAGE = 100
+LIBRARY_PAGE_MAX = 100
+MAX_LIBRARY_BYTES = 8 * 1024 * 1024
+_FORMULA_SHOWN = 300
+
+
+def _lib_state() -> dict:
+    if _STATE["lib"] is None:
+        _STATE["lib"] = {"library": None, "name": None, "entries": {}}
+    return _STATE["lib"]
+
+
+def _lib_datasource(value) -> str | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        raise ValueError("datasource must be text")
+    return value
+
+
+def _lib_source(parser: TwbParser, datasource: str | None) -> dict:
+    """What the workbook can export from one datasource: the library of everything exportable (kept per
+    datasource, so paging does not scan the workbook again) and the calculations that cannot be exported."""
+    st = _lib_state()
+    key = datasource or ""
+    if key not in st["entries"]:
+        report: dict = {}
+        lib = _library.export_library(parser, datasource=datasource, report=report)
+        st["entries"][key] = {"entries": lib["entries"], "unsupported": report.get("unsupported_names", []),
+                              "datasource": lib["source"]["datasource"], "caption": lib["source"]["datasource_caption"]}
+    return st["entries"][key]
+
+
+def _library_datasources(parser: TwbParser) -> list:
+    return [{"name": n, "caption": c, "has_connection": conn} for n, c, conn in _library.datasource_choices(parser)]
+
+
+def _library_entries_answer(qs: dict) -> dict:
+    parser = _STATE["parser"]
+    choices = _library_datasources(parser)
+    ds = _lib_datasource((qs.get("datasource") or [""])[0])
+    if ds is None and sum(1 for c in choices if c["has_connection"]) > 1:
+        # several datasources: the page must choose one (the CLI asks the same)
+        return {"datasources": choices, "datasource": None, "needs_datasource": True, "entries": [], "matching": 0,
+                "total": 0, "offset": 0, "limit": LIBRARY_PAGE, "unsupported": [], "names": []}
+    src = _lib_source(parser, ds)
+    kind = (qs.get("kind") or [""])[0]
+    if kind not in ("", "calc", "parameter"):
+        raise ValueError("kind: use calc or parameter")
+    text = (qs.get("q") or [""])[0].strip().lower()
+    rows = src["entries"]
+    if kind:
+        rows = [e for e in rows if e["kind"] == kind]
+    if text:
+        rows = [e for e in rows if text in " ".join(str(e.get(k) or "") for k in ("caption", "name", "formula", "folder")).lower()]
+    try:
+        offset = max(0, int((qs.get("offset") or ["0"])[0]))
+        limit = min(LIBRARY_PAGE_MAX, max(1, int((qs.get("limit") or [str(LIBRARY_PAGE)])[0])))
+    except ValueError:
+        raise ValueError("offset and limit must be whole numbers")
+    page = [{
+        "name": e["name"], "caption": e.get("caption") or e["name"].strip("[]"), "kind": e["kind"],
+        "datatype": e.get("datatype") or "", "folder": e.get("folder") or "",
+        "formula": (e.get("formula") or "")[:_FORMULA_SHOWN], "truncated": len(e.get("formula") or "") > _FORMULA_SHOWN,
+    } for e in rows[offset:offset + limit]]
+    return {
+        "datasources": choices, "datasource": src["datasource"], "needs_datasource": False,
+        "total": len(src["entries"]), "matching": len(rows), "offset": offset, "limit": limit, "entries": page,
+        "unsupported": src["unsupported"][:50], "unsupported_count": len(src["unsupported"]),
+        # every matching internal name, for "select all that match" (names only, a few bytes each)
+        "names": [e["name"] for e in rows] if (qs.get("names") or [""])[0] == "1" else [],
+    }
+
+
+def _library_json(library: dict) -> str:
+    return json.dumps(library, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+
+
+def _library_filename(name: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", name or "").strip("._") or "library"
+    return stem[:80] + ".library.json"
+
+
+def _library_export(payload: dict) -> tuple[str, str]:
+    parser = _STATE["parser"]
+    select = payload.get("select")
+    if not isinstance(select, list) or not all(isinstance(x, str) for x in select) or not select:
+        raise ValueError("Tick at least one calculation or parameter to export.")
+    if len(select) > 50_000:
+        raise ValueError("Too many items selected.")
+    name = payload.get("name") or ""
+    description = payload.get("description") or ""
+    if not isinstance(name, str) or not isinstance(description, str):
+        raise ValueError("name and description must be text")
+    if len(name) > MAX_NAME:
+        raise ValueError(f"'name' is longer than {MAX_NAME} characters")
+    if len(description) > MAX_DESCRIPTION:
+        raise ValueError(f"'description' is longer than {MAX_DESCRIPTION} characters")
+    lib = _library.export_library(
+        parser, datasource=_lib_datasource(payload.get("datasource")), select=select,
+        with_dependencies=payload.get("with_dependencies", True) is not False,
+        include_parameters=True, name=name or None, description=description or None)
+    return _library_json(lib), _library_filename(lib["name"])
+
+
+def _library_upload_ok(raw: bytes, name: str) -> dict:
+    try:
+        lib = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise ValueError(f"{name} is not a library file ({e})")
+    if not isinstance(lib, dict) or lib.get("format") != _library.FORMAT:
+        raise ValueError(f"{name} is not a py-tbparse library (it has no format \"{_library.FORMAT}\")")
+    if not isinstance(lib.get("version"), int) or lib["version"] > _library.VERSION:
+        raise ValueError(f"{name}: library version {lib.get('version')!r} is newer than this py-tbparse reads ({_library.VERSION})")
+    for key in ("entries", "required"):
+        if not isinstance(lib.get(key), list):
+            raise ValueError(f"{name}: the library has no {key!r} list")
+    return lib
+
+
+def _library_summary(lib: dict, name: str) -> dict:
+    kinds = [e.get("kind") for e in lib["entries"] if isinstance(e, dict)]
+    src = lib.get("source") if isinstance(lib.get("source"), dict) else {}
+    return {
+        "file": name, "name": str(lib.get("name") or ""), "description": str(lib.get("description") or "")[:MAX_DESCRIPTION],
+        "calcs": kinds.count("calc"), "parameters": kinds.count("parameter"), "required": len(lib["required"]),
+        "source_workbook": str(src.get("workbook") or ""), "created": str(lib.get("created") or ""),
+    }
+
+
+def _library_loaded() -> dict:
+    st = _lib_state()
+    if st["library"] is None:
+        raise ValueError("Add a library file first.")
+    return st["library"]
+
+
+def _library_plan(payload: dict) -> dict:
+    parser = _STATE["parser"]
+    lib = _library_loaded()
+    ds = _lib_datasource(payload.get("datasource"))
+    policy = payload.get("on_clash", "fail")
+    if policy not in _library.CLASH_POLICIES:
+        raise ValueError(f"on_clash: use {', '.join(_library.CLASH_POLICIES)}")
+    blocked = None
+    try:
+        plan = _library.plan_import(parser, lib, datasource=ds, on_clash=policy)
+    except _library.LibraryError as e:
+        if policy != "fail":
+            raise
+        # `fail` stops at the first clash. Show every clash (as `rename` would plan them) so the report is whole.
+        plan = _library.plan_import(parser, lib, datasource=ds, on_clash="rename")
+        if not (plan["action"] == "add-renamed").any():
+            raise e
+        blocked = str(e)
+    try:
+        offset = max(0, int(payload.get("offset", 0)))
+        limit = min(LIBRARY_PAGE_MAX, max(1, int(payload.get("limit", LIBRARY_PAGE))))
+    except (TypeError, ValueError):
+        raise ValueError("offset and limit must be whole numbers")
+    clash_actions = ("add-renamed", "skip-clash")
+    clashes = plan[plan["action"].isin(clash_actions)]
+    counts = {a: int(n) for a, n in plan["action"].value_counts().items()}
+    rows = plan.iloc[offset:offset + limit].fillna("").to_dict(orient="records")
+    return {
+        "policy": policy, "blocked": blocked, "counts": counts, "total": int(len(plan)),
+        "clashes": clashes.head(LIBRARY_PAGE_MAX).fillna("").to_dict(orient="records"), "clash_count": int(len(clashes)),
+        "offset": offset, "limit": limit, "rows": rows,
+        "will_add": 0 if blocked else int(plan["action"].isin(["add", "add-renamed"]).sum()),
+    }
+
+
+def _library_add(payload: dict) -> tuple[bytes, str, dict]:
+    """The open workbook plus the library, as bytes (never written to disk here)."""
+    parser = _STATE["parser"]
+    lib = _library_loaded()
+    policy = payload.get("on_clash", "fail")
+    if policy not in _library.CLASH_POLICIES:
+        raise ValueError(f"on_clash: use {', '.join(_library.CLASH_POLICIES)}")
+    report: dict = {}
+    data = _library.build_imported_workbook(parser, lib, datasource=_lib_datasource(payload.get("datasource")),
+                                            on_clash=policy, report=report)
+    ext = os.path.splitext(str(parser.twbx_path or parser.path))[1] or ".twb"
+    return data, f"{_workbook_stem()}_library{ext}", report
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -936,6 +1136,23 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"error": f"could not audit the workbook: {e}"}, 500)
                 else:
                     self._send(500, f"could not build the file: {e}", "text/plain")
+            return
+
+        if parsed.path == "/library/entries":
+            if _STATE["parser"] is None:
+                self._send_json({"error": "No workbook loaded"}, 400)
+                return
+            try:
+                self._send_json(_library_entries_answer(qs))
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                self._send_json({"error": f"could not read the workbook's fields: {e}"}, 500)
+            return
+
+        if parsed.path == "/library/state":
+            st = _STATE["lib"]
+            self._send_json({"library": st.get("summary") if st else None})
             return
 
         if parsed.path == "/dashboards":
@@ -1144,6 +1361,68 @@ class Handler(BaseHTTPRequestHandler):
                     raise OSError("the upload ended early")
                 fh.write(chunk)
                 left -= len(chunk)
+
+    def _library_upload(self) -> None:
+        """Receive a library file as raw bytes (X-Filename) into memory, at most MAX_LIBRARY_BYTES. It is parsed
+        as JSON and kept for this session; it is never written to disk and never opened as a path."""
+        length = self._declared_length()
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/octet-stream":
+            self._refuse_post(415, "Content-Type must be application/octet-stream")
+            return
+        if not _origin_ok(self.headers.get("Origin"), self.headers.get("Host")):
+            self._refuse_post(403, "cross-origin request rejected")
+            return
+        if _STATE["parser"] is None:
+            self._refuse_post(400, "Open a workbook first; the library is added to it.")
+            return
+        name = os.path.basename(unquote(self.headers.get("X-Filename") or "").replace("\\", "/"))
+        if not name or length <= 0:
+            self._refuse_post(400, "Send the file bytes with an X-Filename header.")
+            return
+        if length > MAX_LIBRARY_BYTES:
+            self._refuse_post(413, f"That file is {length // (1024 * 1024)} MB; a library can be at most "
+                                   f"{MAX_LIBRARY_BYTES // (1024 * 1024)} MB.")
+            return
+        raw = self.rfile.read(length)
+        try:
+            lib = _library_upload_ok(raw, name)
+            summary = _library_summary(lib, name)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+            return
+        st = _lib_state()
+        st["library"] = lib
+        st["summary"] = summary
+        self._send_json({"ok": True, "library": summary})
+
+    def _library_post(self, path: str, payload: dict) -> None:
+        unknown = sorted(set(payload) - _LIBRARY_KEYS[path])
+        if unknown:
+            self._send_json({"error": f"not accepted here: {', '.join(unknown)}"}, 400)
+            return
+        if _STATE["parser"] is None:
+            self._send_json({"error": "No workbook loaded"}, 400)
+            return
+        try:
+            if path == "/library/clear":
+                _STATE["lib"] = None
+                self._send_json({"ok": True})
+            elif path == "/library/plan":
+                self._send_json(_library_plan(payload))
+            elif path == "/library/export":
+                text, filename = _library_export(payload)
+                self._send(200, text, "application/json; charset=utf-8", {"Content-Disposition": _attachment(filename)})
+            else:
+                data, filename, report = _library_add(payload)
+                self._send(200, data, "application/octet-stream", {
+                    "Content-Disposition": _attachment(filename),
+                    "X-Library-Added": str(report.get("added", 0)),
+                    "Access-Control-Expose-Headers": "X-Library-Added, Content-Disposition"})
+        except (ValueError, FileNotFoundError) as e:  # LibraryError is a ValueError
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            self._send_json({"error": f"could not complete this: {e}"}, 500)
 
     # ---- the Templates view ----
 
@@ -1496,6 +1775,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in _UPLOAD_ROUTES:
             self._upload(_UPLOAD_SLOTS[self.path])
             return
+        if self.path == "/library/upload":
+            self._library_upload()
+            return
         if self.path not in _JSON_ROUTES:
             self._refuse_post(404, "not found", as_json=False)
             return
@@ -1517,7 +1799,7 @@ class Handler(BaseHTTPRequestHandler):
             self._refuse_post(403, "cross-origin request rejected")
             return
 
-        if self.path.startswith("/template/"):
+        if self.path.startswith(("/template/", "/library/")):
             declared = self._declared_length()
             if declared < 0:
                 self._refuse_post(400, "bad Content-Length")
@@ -1545,6 +1827,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path.startswith("/template/"):
             self._template_post(self.path, payload)
+            return
+        if self.path in _LIBRARY_KEYS:
+            self._library_post(self.path, payload)
             return
 
         path = str(payload.get("path", "")).strip()
