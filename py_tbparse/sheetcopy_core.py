@@ -31,12 +31,19 @@ from lxml import etree
 
 from .library import _PARAMETERS, _bracket, _calc_class, _scan, _unbracket
 from .templates import _base_name, _connections, _non_parameter_datasources
-from .usage import _INSTANCE, _code_ref_spans, _datasource_fields
+from .usage import _BRACKETED, _INSTANCE, _code_ref_spans, _datasource_fields
 
 # Attributes that hold a bare `[name]` (no datasource prefix) inside a datasource-dependencies copy.
 _BARE_ATTRS = ("name", "column", "formula", "ordering-field", "ordering-field-name")
 _ACTION_GROUP = re.compile(r"^\[Action \(")
 _FILE_ATTRS = ("filename", "directory")
+_SUFFIXES = ("nk", "ok", "qk", "fn", "tn")
+_DERIVATIONS = ("none", "usr", "sum", "avg", "cnt", "cntd", "min", "max", "med", "attr", "var", "stdev", "yr", "qr",
+                "mn", "wk", "dy", "hr", "mt", "sc", "tyr", "tqr", "tmn", "twk", "tdy", "thr", "tmt", "tsc",
+                "pcto", "pctd", "pcti", "pctn")
+# Names Tableau makes up for a view; no datasource defines them, so they are neither copied nor missing.
+_BUILTIN = re.compile(r"^\[(?::.*|Multiple Values|.*\(generated\)|__tableau_internal_object_id__(?:\]\.\[.*)?|AdhocCluster:.*|"
+                      r"Number of Records)\]$")
 
 
 class SheetCopyError(ValueError):
@@ -140,9 +147,30 @@ def _tokens_of(el) -> Iterable[str]:
             yield node.text
 
 
+def _scan_any(text: str, literal_aware: bool) -> list[tuple]:
+    """`library._scan(text, None)`'s rows `(kind, a, b, span)`. With `literal_aware` false quotes are ordinary
+    characters: in an attribute such as a filter's `member='"[ds].[avg:Sales:qk]"'` the quotes belong to the
+    value and the reference inside is a real one, whereas in a formula a quoted `[x]` is text."""
+    if literal_aware:
+        return _scan(text, None)
+    spans = [(m.start(), m.end(), m.group(0)) for m in _BRACKETED.finditer(text)]
+    out, i = [], 0
+    while i < len(spans):
+        s, e, ref = spans[i]
+        nxt = spans[i + 1] if i + 1 < len(spans) else None
+        if nxt and nxt[0] == e + 1 and text[e] == ".":
+            out.append(("param" if ref == "[" + _PARAMETERS + "]" else "cross", ref, nxt[2],
+                        (nxt[0], nxt[1]) if ref == "[" + _PARAMETERS + "]" else (s, nxt[1])))
+            i += 2
+            continue
+        out.append(("local", ref, None, (s, e)))
+        i += 1
+    return out
+
+
 def _pairs(text: str) -> list[tuple[str, str]]:
-    """The `([a], [b])` pairs of a text, and `([a], "")` for a lone reference."""
-    return [(a, b or "") for _, a, b, _ in _scan(text, None)]
+    """The `([a], [b])` pairs of an attribute or text (quotes are not special), `([a], "")` for a lone reference."""
+    return [(a, b or "") for _, a, b, _ in _scan_any(text, False)]
 
 
 def _base_of_instance(ref: str) -> str:
@@ -151,8 +179,12 @@ def _base_of_instance(ref: str) -> str:
     if m:
         return "[" + m.group(1) + "]"
     inner = ref[1:-1]
-    if inner.count(":") == 1 and inner.rsplit(":", 1)[1] in ("nk", "ok", "qk", "fn", "tn"):
-        return "[" + inner.rsplit(":", 1)[0] + "]"
+    if inner.count(":") == 1 and not inner.startswith(":"):
+        left, right = inner.split(":")
+        if right in _SUFFIXES:
+            return "[" + left + "]"
+        if left in _DERIVATIONS:
+            return "[" + right + "]"
     return ref
 
 
@@ -167,6 +199,7 @@ class Closure:
     groups: list = _field(default_factory=list)          # groups and sets, by name
     bins: list = _field(default_factory=list)            # bins and categorical bins
     action_groups: list = _field(default_factory=list)   # hidden `[Action (...)]` groups (not copied)
+    builtin: list = _field(default_factory=list)         # names Tableau makes up (`[:Measure Names]`...), not copied
     unresolved: list = _field(default_factory=list)      # named, but the datasource does not have it
     cross_datasource: list = _field(default_factory=list)  # `[other].[X]` inside a needed calculation
 
@@ -188,9 +221,9 @@ def _sheet_names(ws, ds_name: str) -> tuple[list, list]:
             if not isinstance(col.tag, str):
                 continue
             if col.tag == "column" and col.get("name"):
-                target[col.get("name")] = None
+                target[_base_of_instance(col.get("name"))] = None
             elif col.tag == "column-instance" and col.get("column"):
-                target[col.get("column")] = None
+                target[_base_of_instance(col.get("column"))] = None
     for text in _tokens_of(ws):
         if "[" not in text:
             continue
@@ -242,6 +275,9 @@ def dependency_closure(doc, sheet: str, datasource: Optional[str] = None) -> Clo
             continue
         if _ACTION_GROUP.match(ref):
             out.action_groups.append(ref)
+            continue
+        if _BUILTIN.match(ref) and ref not in cols and ref not in fields:
+            out.builtin.append(ref)
             continue
         if ref in groups:
             out.groups.append(ref)
@@ -321,7 +357,8 @@ def compare_to_target(src_doc, closure: Closure, dst_doc, target: Optional[str] 
     or parameter with the same formula or definition), `add` (a calculation, parameter, group or bin the
     target lacks and the field it needs exist), `clash` (the name is taken with another formula), `missing`
     (a physical field, group or bin the target lacks; those cannot be added here) and `blocked` (a calculation
-    that needs something in `missing` or `clash`)."""
+    that needs something in `missing`, `clash` or `blocked`, whether the target has it or not: it would show
+    other values there)."""
     target = target or closure.datasource
     src_ds, dst_ds = _datasource(src_doc, closure.datasource), _datasource(dst_doc, target)
     dst_fields = _datasource_fields(dst_ds)
@@ -358,19 +395,18 @@ def compare_to_target(src_doc, closure: Closure, dst_doc, target: Optional[str] 
     for n in closure.calcs:
         dc, sc = dst_cols.get(n), src_cols[n]
         formula = sc.find("calculation").get("formula")
-        if dc is None:
-            uses = {a for k, a, b, _ in _scan(formula, None) if k == "local"}
-            uses |= {"[Parameters]." + b for k, a, b, _ in _scan(formula, None) if k == "param"}
-            if uses & bad:
-                res["blocked"].append(n)
-                bad.add(n)
-            else:
-                res["add"].append(n)
-        elif _calc_class(dc) == "tableau" and _normal(dc.find("calculation").get("formula")) == _normal(formula):
-            res["identical"].append(n)
-        else:
+        uses = {a for k, a, b, _ in _scan(formula, None) if k == "local"}
+        uses |= {"[Parameters]." + b for k, a, b, _ in _scan(formula, None) if k == "param"}
+        same = (dc is not None and _calc_class(dc) == "tableau"
+                and _normal(dc.find("calculation").get("formula")) == _normal(formula))
+        if dc is not None and not same:
             res["clash"].append(n)
             bad.add(n)
+        elif uses & bad:
+            res["blocked"].append(n)
+            bad.add(n)
+        else:
+            res["identical" if same else "add"].append(n)
     return res
 
 
@@ -447,7 +483,7 @@ def _map_instance(ref: str, names: dict) -> str:
         return ref
     if first == last:
         base, head, tail = inner[:first], "", inner[first:]
-        if inner[last + 1:] not in ("nk", "ok", "qk", "fn", "tn"):
+        if inner[last + 1:] not in _SUFFIXES:
             return ref
     else:
         head, base, tail = inner[:first + 1], inner[first + 1:last], inner[last:]
@@ -457,10 +493,12 @@ def _map_instance(ref: str, names: dict) -> str:
     return "[" + head + new[1:-1] + tail + "]"
 
 
-def _rewrite_code(text: str, ds_map: dict, names: dict, params: dict, bare: Optional[dict]) -> str:
+def _rewrite_code(text: str, ds_map: dict, names: dict, params: dict, bare: Optional[dict],
+                  formula: bool = False) -> str:
     """Rewrite `text`. A pair `[ds].[x]` whose ds is in `ds_map` gets the new ds and `[x]` through `names`; a
-    `[Parameters].[X]` pair gets `[X]` through `params`. A lone `[x]` is touched only when `bare` is a map."""
-    spans = _scan(text, None)
+    `[Parameters].[X]` pair gets `[X]` through `params`. A lone `[x]` is touched only when `bare` is a map. With
+    `formula` true quoted text is skipped, otherwise quotes are ordinary characters."""
+    spans = _scan_any(text, formula)
     for kind, a, b, (s, e) in reversed(spans):
         if kind == "param":
             new = _map_instance(b, params) if params else b
@@ -524,7 +562,7 @@ def rewrite_references(el, ds_map: Optional[dict] = None, names: Optional[dict] 
                     set_attr(node, "caption", captions[value])
             elif "[" in value:
                 use_bare = bare if key in _BARE_ATTRS else None
-                new = _rewrite_code(value, ds_map, names, params, use_bare)
+                new = _rewrite_code(value, ds_map, names, params, use_bare, key == "formula")
                 if new != value:
                     set_attr(node, key, new)
         if node.text and "[" in node.text:
