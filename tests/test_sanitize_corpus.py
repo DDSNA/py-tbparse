@@ -36,3 +36,21 @@ def test_every_workbook_sanitizes_reparses_and_is_idempotent(tmp_path):
                 # a user name that is also a connection class (`postgres`) stays: it is the class
                 if value and len(value) >= 5 and value.lower() not in classes and value != "localhost":
                     assert value not in text, (path.name, attr)
+
+
+def test_a_prefixed_relation_is_rewritten_like_its_plain_twin(tmp_path):
+    # Tableau writes some table relations with a feature-flag tag (`_.fcp.ObjectModelEncapsulateLegacy.true...relation`).
+    # In the corpus each one has a plain twin with the same name, table and connection, so after sanitizing the two
+    # spellings must still agree: a qualifier (database or schema name) left in the prefixed one would leak.
+    from py_tbparse._xml import ANY_RELATION
+
+    checked = 0
+    for i, path in enumerate(FILES):
+        out = tmp_path / f"{i}.twb"
+        sanitize(str(path), str(out))
+        doc = TwbParser(str(out)).xml_doc
+        plain = {(r.get("name"), r.get("table"), r.get("connection")) for r in doc.xpath("//relation[@type='table']")}
+        for r in doc.xpath(f"//{ANY_RELATION}[@type='table'][not(self::relation)]"):
+            assert (r.get("name"), r.get("table"), r.get("connection")) in plain, (path.name, r.get("table"))
+            checked += 1
+    assert checked > 100

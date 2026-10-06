@@ -629,7 +629,7 @@ def test_switching_tables_keeps_column_choices_but_resets_search_and_sort(synthe
     click_sort(page, "name", 1)
     set_search(page, "alpha")
     _open(page, "relations")
-    _wait_meta(page, "6 row(s)")
+    _wait_meta(page, "8 row(s)")
     assert page.input_value("#filter") == ""
     _open(page, "fields")
     page.wait_for_selector("#tableWrap table", timeout=10_000)
@@ -1079,7 +1079,7 @@ def walk(page, gui_server, seed):
     def do_roundtrip():
         trace.append("leave to Relations and come back")
         _open(page, "relations")
-        _wait_meta(page, "6 row(s)")
+        _wait_meta(page, "8 row(s)")
         stamp = render_stamp(page)
         _open(page, "fields")
         wait_render(page, stamp)

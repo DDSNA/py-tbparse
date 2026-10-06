@@ -231,7 +231,7 @@ def test_clicking_a_header_sorts_the_column(page, wenjie_path):
 def test_clicking_a_row_opens_its_details(page, wenjie_path):
     _load(page, wenjie_path)
     _open(page, "relations")
-    _wait_meta(page, "6 row(s)")
+    _wait_meta(page, "8 row(s)")
     row = "#tableWrap tbody tr[data-pos] >> nth=2"
     page.click(row)
     page.wait_for_selector("#drawer.show", timeout=10_000)
@@ -249,7 +249,7 @@ def test_clicking_a_row_opens_its_details(page, wenjie_path):
 def test_url_hash_picks_the_initial_table(page, wenjie_path):
     page.goto(page.url.split("#")[0] + "#relations")
     _load(page, wenjie_path)
-    _wait_meta(page, "6 row(s)")
+    _wait_meta(page, "8 row(s)")
     _open(page, "datasources")
     assert page.url.endswith("#datasources")
 
