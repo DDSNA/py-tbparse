@@ -82,3 +82,22 @@ Palettes written by `py-tbparse style` have not been opened in Tableau. A five-m
 1. `py-tbparse style export brand.twb -o Preferences_new.tps`, copy it to `My Tableau Repository/Preferences.tps`, restart Tableau Desktop. Do the palettes appear in Edit Colors (at most 20 colours show)? Do the names and order match the file?
 2. `py-tbparse style import brand.twb other.twb --write`, open `other_palettes.twb` on a machine whose `Preferences.tps` lacks the palette. Is it offered in Edit Colors? Do the marks that were already coloured keep their colours?
 3. Note any repair or "unsupported feature" message, and what happens when a workbook palette and a `.tps` palette have the same name.
+
+## Sliced workbooks (`slice`)
+
+Workbooks written by `py-tbparse slice` have not been opened in Tableau. The corpus is not in the repository (`python scripts/fetch_corpus.py` fetches it into `tests/corpus/files`). Make three files:
+
+```bash
+F=tests/corpus/files
+py-tbparse slice $F/PacktPublishing__Advanced-Analytics-with-R-and-Tableau__Chapter_4.twb -d "Dashboard 1" --write -o slice1.twb
+py-tbparse slice $F/Triangle-Modeling-and-Analytics__TRMG2__university_trip_lengths.twb -d "TLFD ON (2)" --write -o slice2.twb
+py-tbparse slice $F/b-o-r-i__BrasilianEcommerceAnalysis__Book3.twb -d "Purchases by type" --write -o slice3.twb
+```
+
+| File | Why it is in the pack |
+|---|---|
+| `slice1.twb` | Six sheets removed and five actions dropped (the report lists them); three unused calculations pruned. Check that the dashboard filters that remain still work. |
+| `slice2.twb` | Ten sheets removed, one action dropped, and two datasources removed with them. Check the data pane lists only the datasource the dashboard uses, and nothing shows a red `!`. |
+| `slice3.twb` | Six sheets removed and one datasource removed, six calculations pruned. |
+
+For each: does it open without an error or "repair" message? Does the kept dashboard draw all its sheets (a tooltip that shows another sheet included)? Is any removed sheet still listed in the sheet tabs, or a field marked with a red `!`? Do the remaining actions fire? Then save, close and reopen, and note any warning at save time. Report as for the other packs: `opens / opens with a message / does not open`, then what you saw.

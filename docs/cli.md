@@ -65,6 +65,8 @@ Notes from `--help`:
 
 `py-tbparse prune WORKBOOK [--write -o OUT] [--sheets] [--no-calculations] [--no-parameters] [--overwrite] [--format table|json]` removes the unused calculations and parameters the audit finds (worksheets on no dashboard only with `--sheets`), if nothing that stays refers to them. A dry run unless `--write -o OUT`, which writes a new file and never the input. See [prune.md](prune.md).
 
+`py-tbparse slice WORKBOOK --dashboards A,B [--write -o OUT] [--strict] [--no-prune] [--overwrite] [--format table|json]` keeps the named dashboards and the worksheets they show, drops everything else (other dashboards and worksheets, their windows, then the calculations, parameters and datasources only they used) and reports the actions it had to drop (`--strict` refuses instead). A dry run unless `--write -o OUT`. An unknown dashboard name fails and lists the valid ones. See [slice.md](slice.md).
+
 ## Libraries
 
 `py-tbparse library` has three subcommands: `export`, `show` and `import`. They move calculated fields and parameters between workbooks; [libraries.md](libraries.md) explains the clash handling and what is not covered. The output was never opened in Tableau: check a copy first.
