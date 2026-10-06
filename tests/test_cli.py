@@ -206,3 +206,74 @@ def test_library_errors_exit_1(tmp_path, capsys):
     bad.write_text('{"format": "nope"}')
     assert cli.main(["library", "show", str(bad)]) == 1
     assert "not a py-tbparse library" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- style --
+
+STYLE_DIR = Path(__file__).parent / "fixtures" / "style"
+
+
+def test_style_show(capsys):
+    rc = cli.main(["style", "show", str(STYLE_DIR / "palettes.twb"), str(STYLE_DIR / "Preferences.tps")])
+    out = capsys.readouterr().out
+    assert rc == 0 and "Acme Brand" in out and "Retail Teal" in out and "#1A3A5C" in out
+    rc = cli.main(["style", "show", str(STYLE_DIR / "bad.tps"), "--format", "json"])
+    rows = json.loads(capsys.readouterr().out)
+    assert rc == 0 and sum(r["status"] == "invalid" for r in rows) == 4
+
+
+def test_style_export_both_formats(tmp_path, capsys):
+    src = str(STYLE_DIR / "palettes.twb")
+    assert cli.main(["style", "export", src, "-o", str(tmp_path / "a.tps")]) == 0
+    assert cli.main(["style", "export", src, "-o", str(tmp_path / "a.style.json"), "--name", "Acme",
+                     "--palette", "Acme Ramp"]) == 0
+    capsys.readouterr()
+    assert json.loads((tmp_path / "a.style.json").read_text(encoding="utf-8"))["palettes"][0]["name"] == "Acme Ramp"
+    assert cli.main(["style", "check", str(tmp_path / "a.tps")]) == 0
+    assert cli.main(["style", "check", str(tmp_path / "a.style.json")]) == 0
+    # a second export to the same place is refused
+    assert cli.main(["style", "export", src, "-o", str(tmp_path / "a.tps")]) == 1
+    assert "refusing to overwrite" in capsys.readouterr().err
+
+
+def test_style_import_plan_then_write(tmp_path, capsys):
+    lib, target = str(STYLE_DIR / "palettes.twb"), tmp_path / "Preferences.tps"
+    target.write_bytes((STYLE_DIR / "Preferences.tps").read_bytes())
+    before = target.read_bytes()
+    # default policy is fail: the plan shows the clash and exits 1, nothing is written
+    assert cli.main(["style", "import", lib, str(target)]) == 1
+    cap = capsys.readouterr()
+    assert "fail" in cap.out and "clash" in cap.err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["Preferences.tps"]
+    assert cli.main(["style", "import", lib, str(target), "--on-clash", "skip"]) == 0
+    assert "plan only, nothing written" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["Preferences.tps"]
+    assert cli.main(["style", "import", lib, str(target), "--on-clash", "skip", "--write"]) == 0
+    err = capsys.readouterr().err
+    assert "existing marks keep their colours" in err and "restart Tableau" in err and "not opened in Tableau" in err
+    assert (tmp_path / "Preferences_palettes.tps").exists() and target.read_bytes() == before
+    # writing again needs a new output; the real file is never an output
+    assert cli.main(["style", "import", lib, str(target), "--on-clash", "skip", "--write"]) == 1
+    assert cli.main(["style", "import", lib, str(target), "--on-clash", "skip", "--write", "-o", str(target),
+                     "--overwrite"]) == 1
+    assert target.read_bytes() == before
+    assert cli.main(["style", "import", lib, str(target), "--write", "--on-clash", "replace",
+                     "-o", str(tmp_path / "r.tps")]) == 0
+
+
+def test_style_import_exit_code_2_when_a_palette_is_invalid(tmp_path, capsys):
+    target = str(STYLE_DIR / "Preferences.tps")
+    out = tmp_path / "o.tps"
+    rc = cli.main(["style", "import", str(STYLE_DIR / "bad.tps"), target, "--write", "-o", str(out)])
+    err = capsys.readouterr().err
+    assert rc == 2 and "invalid" in err and out.exists()
+    rc = cli.main(["style", "export", str(STYLE_DIR / "bad.tps"), "-o", str(tmp_path / "b.tps")])
+    assert rc == 2
+
+
+def test_style_check_exit_codes(tmp_path, capsys):
+    assert cli.main(["style", "check", str(STYLE_DIR / "bad.tps")]) == 1
+    assert "problem" in capsys.readouterr().err
+    assert cli.main(["style", "check", str(tmp_path / "nope.tps")]) == 1
+    assert cli.main(["style", "show", str(tmp_path / "nope.tps")]) == 1
+    assert cli.main(["style", "export", str(STYLE_DIR / "palettes.twb"), "-o", str(tmp_path / "x.json")]) == 1

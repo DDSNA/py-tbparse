@@ -3,7 +3,8 @@
 Three reserved subcommands, dispatched on the first argument before the
 normal single-workbook parser runs: `py-tbparse diff A.twb B.twb [TABLE]`,
 `py-tbparse batch DIR [TABLE]` and `py-tbparse rename WORKBOOK [-r OLD.twb]`, plus the two-level
-`py-tbparse template ...` and `py-tbparse library ...` (calculated fields and parameters).
+`py-tbparse template ...`, `py-tbparse library ...` (calculated fields and parameters) and
+`py-tbparse style ...` (colour palettes).
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from .library import (
     save_library,
 )
 from .parser import TwbParser
+from . import style as _style
 from .templates import (
     apply_template,
     broken_sheets,
@@ -851,6 +853,105 @@ def _run_library(argv: list[str]) -> int:
         return 1
 
 
+def build_style_arg_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        prog="py-tbparse style",
+        description="Colour palettes: list the named custom palettes of workbooks, Preferences.tps files and "
+                    "*.style.json files, export them, and add them to a new Preferences.tps or a copy of a "
+                    "workbook. Palettes become selectable in the colour picker; nothing is recoloured. The "
+                    "output was never opened in Tableau.",
+    )
+    sub = ap.add_subparsers(dest="action", required=True)
+    clash = dict(choices=_style.CLASH_POLICIES, default="fail",
+                 help="a palette name already used with other colours: fail (default), skip, rename or replace")
+
+    sh = sub.add_parser("show", help="list the palettes in each SRC")
+    sh.add_argument("source", nargs="+", metavar="SRC", help=".twb, .twbx, .tps or .style.json")
+    sh.add_argument("--format", choices=("table", "csv", "json"), default="table", help="output format (default: table)")
+
+    ex = sub.add_parser("export", help="save the palettes of the SRC files as a Preferences.tps or a style file")
+    ex.add_argument("source", nargs="+", metavar="SRC")
+    ex.add_argument("--output", "-o", required=True, help="OUT.tps or OUT.style.json (a new file)")
+    ex.add_argument("--palette", action="append", default=[], metavar="NAME", help="only this palette (repeatable)")
+    ex.add_argument("--on-clash", **clash)
+    ex.add_argument("--name", help="name stored in a style file")
+    ex.add_argument("--overwrite", action="store_true", help="replace the output if it exists (never an input or a Preferences.tps)")
+
+    im = sub.add_parser(
+        "import", help="add the palettes of LIB to TARGET: print the plan; with --write, write a new file",
+        description="Without --write nothing is written. With --write a new file is written next to TARGET "
+                    "(or at --output): never over the input and never over an existing Preferences.tps. "
+                    "Exit codes: 1 error or a name clash under --on-clash fail, 2 when a palette was invalid "
+                    "but the rest were written.",
+    )
+    im.add_argument("library", metavar="LIB", help=".twb, .twbx, .tps or .style.json to take palettes from")
+    im.add_argument("target", metavar="TARGET", help=".tps, .twb or .twbx to add them to (it is not modified)")
+    im.add_argument("--palette", action="append", default=[], metavar="NAME", help="only this palette (repeatable)")
+    im.add_argument("--on-clash", **clash)
+    im.add_argument("--output", "-o", help="new file (default: <name>_palettes.<ext> beside TARGET)")
+    im.add_argument("--overwrite", action="store_true", help="replace an earlier output (never the input or a Preferences.tps)")
+    im.add_argument("--write", action="store_true", help="write the file")
+    im.add_argument("--format", choices=("table", "csv", "json"), default="table", help="plan format (default: table)")
+
+    ck = sub.add_parser("check", help="look for problems in a .tps or .style.json file (exit 1 if any)")
+    ck.add_argument("file")
+    return ap
+
+
+def _run_style(argv: list[str]) -> int:
+    ap = build_style_arg_parser()
+    args = ap.parse_args(argv)
+    try:
+        if args.action == "show":
+            print(_df_text(_style.palettes_table(args.source), args.format))
+            return 0
+        if args.action == "check":
+            problems = _style.check_style_file(args.file)
+            for line in problems:
+                print(line)
+            hard = [p for p in problems if not p.startswith("warning:")]
+            print(f"{args.file}: {len(hard)} problem(s)" if hard else f"{args.file}: no problems found", file=sys.stderr)
+            return 1 if hard else 0
+        report: dict = {}
+        if args.action == "export":
+            out = _style.export_palettes(args.source, args.output, select=args.palette or None,
+                                         on_clash=args.on_clash, name=args.name, overwrite=args.overwrite, report=report)
+            print(f"wrote {out}", file=sys.stderr)
+        else:
+            plan = _style.plan_palette_import(args.target, args.library, on_clash=args.on_clash,
+                                              select=args.palette or None)
+            if not args.write:
+                print(_df_text(plan, args.format))
+                clashes = int((plan["action"] == "fail").sum())
+                if clashes:
+                    print(f"{clashes} palette name(s) clash with other colours; --on-clash replace, rename or skip "
+                          "decides what happens (the default, fail, writes nothing)", file=sys.stderr)
+                    return 1
+                print("plan only, nothing written; add --write to write a new file", file=sys.stderr)
+                return 0
+            out = _style.import_palettes(args.target, args.library, output_path=args.output, on_clash=args.on_clash,
+                                         select=args.palette or None, overwrite=args.overwrite, report=report)
+            print(f"wrote {out}", file=sys.stderr)
+            print("palettes are now in the colour picker; existing marks keep their colours", file=sys.stderr)
+            if out.lower().endswith(".tps"):
+                print("copy it over My Tableau Repository/Preferences.tps (keep a backup) and restart Tableau "
+                      "Desktop; py-tbparse never writes that file itself", file=sys.stderr)
+        c = report["counts"]
+        print(f"added {c['added']}, already there {c['skipped_identical']}, renamed {c['renamed']}, "
+              f"replaced {c['replaced']}, skipped {c['skipped']}, invalid {c['invalid']}", file=sys.stderr)
+        print("not opened in Tableau: check a copy first", file=sys.stderr)
+        for w in report["warnings"]:
+            print(f"warning: {w}", file=sys.stderr)
+        if report["invalid"]:
+            print(f"not written (invalid): {', '.join(report['invalid'])}", file=sys.stderr)
+            return 2
+        return 0
+    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile, etree.XMLSyntaxError,
+            json.JSONDecodeError) as e:   # StyleError is a ValueError
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
 def _is_reserved_subcommand(argv: list[str], name: str) -> bool:
     """True if `argv` invokes the `name` subcommand -- but don't let that
     shadow an actual workbook that happens to be named exactly "diff" or
@@ -870,6 +971,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_template(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "library"):
         return _run_library(raw_argv[1:])
+    if _is_reserved_subcommand(raw_argv, "style"):
+        return _run_style(raw_argv[1:])
 
     args = build_arg_parser().parse_args(argv)
 
