@@ -47,6 +47,17 @@ The open workbook and every other file are never changed: the new workbook is bu
 
 The endpoints behind it (`GET /library/entries`, `POST /library/export`, `/library/upload`, `/library/plan`, `/library/add`, `/library/clear`, `GET /library/state`) take no path, so they also work in a shared server, and each browser has its own library.
 
+## Styles
+
+**Styles** in the sidebar (Workbook group; the address `#styles` opens it) is the GUI for [colour palettes](styles.md). Read the warnings at the top of that page first: palettes only appear in the colour picker and recolour nothing, and nothing here was opened in Tableau. It has two cards.
+
+- **Palettes in this workbook.** The custom palettes stored in the workbook's preferences, 100 rows at a time with **Previous 100** and **Next 100**, and a search over names. Each row shows the name, the type (regular, ordered sequential or ordered diverging), the colours as small chips and the count. A chip is not colour alone: its accessible name and tooltip are its hex code (for example `#1A3A5C`), and **Hex codes** under each row lists them as text. A palette with more than 20 colours shows 20 chips and "+N" (Edit Colors in Tableau shows at most 20). Above the list the **check** results (the same lines as `py-tbparse style check`) name palettes that cannot be used; those rows cannot be ticked. Tick palettes (the selection stays while you page and filter; **Select all N** takes every usable match) and **Export style file** saves a `*.style.json`, or **Export as Preferences.tps** saves a `Preferences_palettes.tps` for your Tableau Repository.
+- **Add palettes from a file.** **Choose a palette file** uploads a `*.style.json` or a `Preferences.tps` (up to 2 MB; kept in memory for this session, never written to disk). Then pick the policy for a palette whose name is already used with other colours: **Stop** (the default, as in the command line), **Skip**, **Rename** or **Replace**. The plan is shown before anything is made: a line of counts, the list of clashes with what each would do, and every palette in the file with its chips, action and reason, 100 rows at a time. With **Stop** and a clash the plan says it stopped and the download button stays off. **Download new workbook** saves a copy of the open workbook with the palettes added, named `<workbook>_palettes.twb` (or `.twbx`).
+
+The GUI never writes a file on the machine that runs it: the open workbook is not changed, and neither is any `Preferences.tps`. The Preferences.tps export is a download with a different name, as in the command line: back up your own file, copy the new one into My Tableau Repository yourself and restart Tableau Desktop. Opening another workbook forgets the added file and the selection.
+
+The endpoints behind it (`GET /style/palettes`, `/style/state`, `POST /style/export`, `/style/upload`, `/style/plan`, `/style/add`, `/style/clear`) take no path, so they also work in a shared server, and each browser has its own file.
+
 ## Templates
 
 The **Templates** button in the top bar opens a view for filling a template with new data. It works with no workbook open, and **Back to workbook** (or **Back to start**) takes you out again. The address `#templates` opens it directly. The view has three steps, one card each:

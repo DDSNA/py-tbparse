@@ -36,13 +36,17 @@ py-tbparse style check Preferences_palettes.tps                      # problems 
 - Exit codes: 0 fine; 1 an error, a name clash under `--on-clash fail` (also when you only print the plan), or `check` found problems; 2 some palette was invalid but the rest was written.
 - Everything else in the target is kept: other `<preference>` elements, unknown elements in a `.tps`, all sheets and formats. A workbook is written again as a whole by the XML library, so quoting and spacing of the whole file can change, as with `rename`.
 
+## In the GUI
+
+The **Styles** view of `py-tbparse-gui` does the same on the open workbook: list its palettes with colour chips and the `check` results, export the ticked ones as a style file or a `Preferences_palettes.tps` (downloads only), and add the palettes of an uploaded `*.style.json` or `.tps` with the clash policy chosen on the page (default `fail`, plan and clash list shown first). It writes nothing on the server, so it never changes the open workbook or your `Preferences.tps`; the result is a download. See [the GUI page](gui.md#styles).
+
 ## The style file
 
 `*.style.json` is UTF-8 JSON with sorted keys: `format` (`py-tbparse-style`), `version` (1), `name`, `description`, `created`, `py_tbparse_version`, `sources` and `palettes` (a list of `name`, `type`, `colors` and `attrs`, in source order; `attrs` holds the other attributes of the palette, such as `custom`, as strings). A file with another format, a newer version or an unknown key is refused.
 
 ## From Python
 
-`read_palettes`, `palettes_table`, `export_palettes`, `import_palettes`, `plan_palette_import`, `build_with_palettes`, `tps_bytes`, `make_style`, `save_style`, `load_style` and `check_style_file`, all in `py_tbparse` (module `py_tbparse.style`; errors are `StyleError`, a `ValueError`).
+`read_palettes`, `palettes_table`, `export_palettes`, `import_palettes`, `plan_palette_import`, `build_with_palettes`, `tps_bytes`, `make_style`, `save_style`, `load_style`, `check_style_file`, and for bytes instead of files `build_export`, `palettes_from_bytes`, `palette_records` and `palette_problems`, all in `py_tbparse` (module `py_tbparse.style`; errors are `StyleError`, a `ValueError`).
 
 ## Not covered
 
