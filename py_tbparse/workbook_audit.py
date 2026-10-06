@@ -410,7 +410,7 @@ def unused_parameter(s: Subject):
             continue
         names = sorted({c.caption or c.name.strip("[]") for c in refs} | {lab for _, lab in more})
         yield finding(f"Parameters: {_label_of(row)}",
-                      f"no worksheet uses it; only {_names(names)} refer to it, and no worksheet uses those"
+                      f"no worksheet uses it; it is only used by {_names(names)}, and no worksheet uses those"
                       if names else "no worksheet, dashboard, action or calculation uses it")
 
 
