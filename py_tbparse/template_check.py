@@ -2,7 +2,7 @@
 
 Not part of the R package. The rules (T001...) are functions registered with the findings engine
 (`findings.py`) in the scope `"template"`. Ids are stable and never reused; a rule that is retired
-keeps its number. To add a rule, write one more function with `@rule("T0xx", "template", ...)`
+keeps its number. To add a rule, write one more function with `@rule("T0xx", "template", ..., title="...")`
 below, add a test with a passing and a failing case, and add the id to the list in
 `tests/test_template_check.py`.
 
@@ -100,7 +100,9 @@ def _hard_coded(conn: dict) -> list[str]:
     return found
 
 
-@rule("T001", SCOPE, severity="warning",
+@rule("T001", SCOPE,
+      severity="warning",
+      title="Connection still names a server, database or local file",
       fix="Applying a template replaces the connection, so this only matters if the template is shared as it is; "
           "remove the connection details from the workbook you make the template from, or ignore this")
 def hard_coded_connection(s: Subject):
@@ -120,7 +122,9 @@ def hard_coded_connection(s: Subject):
                       + ", ".join(f"{k}={shown[k]}" if k in shown else f"{k} (a local folder, not shown)" for k in places))
 
 
-@rule("T002", SCOPE, severity="info",
+@rule("T002", SCOPE,
+      severity="info",
+      title="Template cannot be matched by template update",
       fix="Make the template again with `template make` (from the same workbook) to get a version 2 manifest with an id")
 def not_updatable(s: Subject):
     """A version 1 manifest, or one with no id: `template update` cannot match it."""
@@ -139,7 +143,9 @@ def _same(a, b) -> bool:
         return False
 
 
-@rule("T003", SCOPE, severity="error",
+@rule("T003", SCOPE,
+      severity="error",
+      title="Parameter has no value or a value not in its list",
       fix="Set the parameter to a value, and one from its list of allowed values, in the workbook and make the template again")
 def parameter_values(s: Subject):
     """A parameter has no value, or one that is not in its allowed list."""
@@ -152,7 +158,9 @@ def parameter_values(s: Subject):
             yield finding(name, f"the value {value} is not one of the {len(p['allowed'])} allowed values")
 
 
-@rule("T004", SCOPE, severity="info",
+@rule("T004", SCOPE,
+      severity="info",
+      title="Data source takes its fields from several tables",
       fix="A CSV or one Excel sheet feeds one table; use a workbook or .tds as the data so its joins come along")
 def several_tables(s: Subject):
     """A datasource takes its fields from several tables."""
@@ -164,7 +172,9 @@ def several_tables(s: Subject):
                           f"{', ...' if len(tables) > 6 else ''})")
 
 
-@rule("T005", SCOPE, severity="warning",
+@rule("T005", SCOPE,
+      severity="warning",
+      title="Data or an extract is still packaged in the template",
       fix="Make the template without --keep-data, or delete the file from the .twbx, unless sample data is wanted")
 def packaged_data(s: Subject):
     """Data or an extract is still packaged in the template."""
@@ -179,7 +189,9 @@ def packaged_data(s: Subject):
             yield finding(ds.get("caption") or ds.get("name"), "the workbook still holds an extract definition")
 
 
-@rule("T006", SCOPE, severity="info",
+@rule("T006", SCOPE,
+      severity="info",
+      title="Fields that no sheet uses",
       fix="Optional fields cost nothing, but dropping them from the source workbook keeps the template small")
 def unused_fields(s: Subject):
     """A required field no sheet uses, or optional fields nothing uses."""
@@ -203,7 +215,9 @@ def unused_fields(s: Subject):
                           fix="These are candidates to drop from the template; they are never required")
 
 
-@rule("T007", SCOPE, severity="error",
+@rule("T007", SCOPE,
+      severity="error",
+      title="Reference to a missing sheet or field (some only warn)",
       fix="Fix the reference in the workbook, make the template again, and compare with `validate_workbook`")
 def dangling_references(s: Subject):
     """A sheet, dashboard, calculation or window names something that does not exist (some checks only warn)."""
@@ -245,7 +259,9 @@ def _suspicious_literals(formula: str) -> list[str]:
     return [lit for _, lit in _scan_literals(formula)]
 
 
-@rule("T008", SCOPE, severity="info",
+@rule("T008", SCOPE,
+      severity="info",
+      title="Customer or environment name inside a calculation",
       fix="Move the value into a parameter so each customer or environment can set its own")
 def literals_in_calculations(s: Subject):
     """A calculation holds a string that looks like a customer or environment (a heuristic)."""
@@ -261,7 +277,9 @@ def literals_in_calculations(s: Subject):
                               f"(heuristic, value hidden): {shown}{more}")
 
 
-@rule("T009", SCOPE, severity="info",
+@rule("T009", SCOPE,
+      severity="info",
+      title="Template token with no default or broken syntax",
       fix="Give the token a default with `template make --token NAME=VALUE`, or pass --token NAME=VALUE on every apply")
 def tokens_rule(s: Subject):
     """A template token has no default, sits in a formula, or is written with broken `{{` syntax."""
@@ -282,7 +300,9 @@ def tokens_rule(s: Subject):
                           "`{{{{` or `}}}}`")
 
 
-@rule("T010", SCOPE, severity="info",
+@rule("T010", SCOPE,
+      severity="info",
+      title="Template has no description or only the file's name",
       fix="Give the template a name and a description with `template make --name ... --description ...`")
 def documented(s: Subject):
     """No description, or the name is just the source file's name."""
