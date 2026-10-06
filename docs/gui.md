@@ -24,6 +24,18 @@ The screenshots are of a made-up demo workbook (`docs/demo/coffee-shop.twb`, bui
 
 It has no login, so run it on your own machine only. To share it, see [Running as a server](deployment.md) and the Limits section of the [README](https://github.com/DDSNA/py-tbparse/blob/main/README.md#limits).
 
+## Audit
+
+**Audit** in the sidebar (Workbook group; the address `#audit` opens it) runs the same rules as `py-tbparse audit` (A001 to A011, see [Audit and data dictionary](audit.md)) on the open workbook. Nothing is written to the workbook and nothing is opened in Tableau.
+
+- **Summary.** A line with the counts (for example "1 error, 2 warnings, 8 info") and, under it, what the command would exit with: 0 when there is no error finding, 1 when there is at least one (the default, `--fail-on error`), 3 when a rule crashed.
+- **Findings.** A table of rule id, severity (written as a word as well as an icon), message (with the rule's suggested fix under it) and object. The server sends 100 findings at a time and the page draws only those: **Next 100** and **Previous 100** page through them, and a note says how many more there are. The downloads have all of them.
+- **Filters.** Severity, rule and a search box narrow the table. They do not change the counts in the summary, which cover every rule that ran.
+- **Skip rules.** A list of all eleven rules with a checkbox each; a ticked rule is not run, so its findings are gone from the counts, the exit code and the downloads, like `--skip`. A008 (a datasource that points at a file on one machine) is marked noisy: it fires in most workbooks that were made on a desktop. Nothing is skipped to start with, and the choice is forgotten when you open another workbook.
+- **Downloads.** **Download CSV** and **Download JSON** save every finding that matches the skipped rules and filters (not only the page), the same text `py-tbparse audit --format csv` and `--format json` write. **Data dictionary (Markdown)** saves the page `py-tbparse docs` writes for the whole workbook. The dictionary is a download only, not a table in the page, because it is long.
+
+The endpoints behind it (`GET /audit`, `/audit/export` and `/dictionary`) take no path, so they also work in a shared server.
+
 ## Templates
 
 The **Templates** button in the top bar opens a view for filling a template with new data. It works with no workbook open, and **Back to workbook** (or **Back to start**) takes you out again. The address `#templates` opens it directly. The view has three steps, one card each:

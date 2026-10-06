@@ -4,7 +4,7 @@ const statusEl = $('status');
 // Sidebar grouping. Tables missing here (new ones added to _tables.py)
 // still show up, under "Other", so the registry stays the source of truth.
 const GROUPS = [
-  ['Workbook', ['overview', 'published-refs']],
+  ['Workbook', ['overview', 'audit', 'published-refs']],
   ['Data', ['datasources', 'parameters', 'fields', 'raw-fields', 'calculated-fields', 'field-usage', 'missing-references', 'field-renames']],
   ['Data model', ['relationships', 'joins', 'relations', 'inferred-relationships', 'graph']],
   ['Dashboards', ['dashboards', 'dashboard-sheets']],
@@ -30,6 +30,7 @@ const INFO = {
   'custom-sql': ['Custom SQL', 'Relations defined by custom SQL.'],
   'initial-sql': ['Initial SQL', 'SQL run when a connection opens.'],
   'published-refs': ['Published sources', 'References to published datasources.'],
+  'audit': ['Audit', 'What the workbook\u2019s author probably did not mean: unused or broken calculations, unused parameters, custom SQL, local file paths.'],
   'graph': ['Relationship graph', 'Joins and relationships as Graphviz DOT.'],
 };
 
@@ -106,7 +107,7 @@ async function fetchJSON(url, opts) {
 
 function titleOf(name) { return (INFO[name] || [name])[0]; }
 
-function allTables() { return (window.TABLE_NAMES || []).concat(['graph']); }
+function allTables() { return (window.TABLE_NAMES || []).concat(['audit', 'graph']); }
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -145,7 +146,7 @@ function populateTables() {
       item.dataset.table = name;
       item.appendChild(el('span', '', titleOf(name)));
       // The overview is always one row and the graph is not a table.
-      if (name !== 'overview' && name !== 'graph') {
+      if (name !== 'overview' && name !== 'graph' && name !== 'audit') {
         const count = el('span', 'count');
         count.dataset.countFor = name;
         item.appendChild(count);
@@ -262,6 +263,7 @@ async function openWorkbook(label, request) {
     setCounts(data.counts);
     state.dsLabels = data.datasource_labels || {};
     Object.keys(views).forEach((name) => { delete views[name]; });
+    AuditView.reset();
     const dsSel = $('renameDs');
     dsSel.innerHTML = '<option value="">(all datasources)</option>';
     (data.datasources || []).forEach((name) => {
@@ -333,6 +335,8 @@ async function showTable() {
   const name = state.table;
   const isGraph = name === 'graph';
   const isOverview = name === 'overview';
+  const isAudit = name === 'audit';
+  $('exportLink').hidden = isAudit;
   $('viewTitle').textContent = titleOf(name);
   $('viewDesc').textContent = (INFO[name] || ['', ''])[1];
   $('dashboardWrap').hidden = name !== 'dashboard-sheets';
@@ -340,12 +344,12 @@ async function showTable() {
   $('inferredWrap').hidden = !isGraph;
   $('copyBtn').hidden = !isGraph;
   $('renameTools').hidden = name !== 'field-renames';
-  $('filter').hidden = isGraph || isOverview;
-  $('hint').hidden = isGraph || isOverview;
+  $('filter').hidden = isGraph || isOverview || isAudit;
+  $('hint').hidden = isGraph || isOverview || isAudit;
   $('exportBtn').textContent = isGraph ? 'Export DOT' : 'Export CSV';
-  $('colsBtn').hidden = isGraph || isOverview;
-  $('densityBtn').hidden = isGraph || isOverview;
-  if (isGraph || isOverview) $('chips').hidden = true;
+  $('colsBtn').hidden = isGraph || isOverview || isAudit;
+  $('densityBtn').hidden = isGraph || isOverview || isAudit;
+  if (isGraph || isOverview || isAudit) $('chips').hidden = true;
   const req = ++state.req;
   const fresh = state.fresh;
   state.fresh = false;
@@ -356,6 +360,15 @@ async function showTable() {
     if ($('tableWrap').querySelector('.skeleton')) $('tableWrap').innerHTML = '';
     fail(e);
   };
+
+  if (isAudit) {
+    $('meta').textContent = 'Auditing ...';
+    await AuditView.render();
+    clearTimeout(loadingTimer);
+    if (req !== state.req) return;
+    finishView(fresh, $('tableWrap'), 'Showing the audit');
+    return;
+  }
 
   if (isGraph) {
     const params = new URLSearchParams();
@@ -1341,7 +1354,7 @@ function renderChips() {
   const v = viewFor(state.table);
   box.replaceChildren();
   const live = liveFilters(v);
-  if (!live.length || state.table === 'overview' || state.table === 'graph') { box.hidden = true; return; }
+  if (!live.length || state.table === 'overview' || state.table === 'graph' || state.table === 'audit') { box.hidden = true; return; }
   live.forEach((f) => {
     const chip = el('button', 'chip');
     chip.type = 'button';
@@ -1532,6 +1545,7 @@ try { savedDensity = localStorage.getItem('py-tbparse.density'); } catch (e) { /
 applyDensity(savedDensity === 'compact' ? 'compact' : 'comfortable', false);
 
 populateTables();
+AuditView.init({$: $, el: el, fetchJSON: fetchJSON, fail: fail, plural: plural});
 TemplatesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural});
 if (location.hash === '#templates') setTemplatesMode(true);
 if (window.SERVER_MODE) {
