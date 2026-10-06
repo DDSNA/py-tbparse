@@ -1536,6 +1536,30 @@ def resolve_apply(
                      kept_params=kept, saved_tokens={k: str(v) for k, v in saved_tokens.items()})
 
 
+def _replace_connection(ds_el, conn, extras) -> None:
+    """Put `conn` (and the object-model `extras` that `_csv_connection` and the like return) in place of the
+    connection, extract, object graph and table column of the `<datasource>` `ds_el`."""
+    old = ds_el.find("connection")
+    for el in list(ds_el):
+        if el is not old and (_endswith_tag(el, "extract") or _endswith_tag(el, "object-graph")
+                              or (isinstance(el.tag, str) and el.tag.endswith("column")
+                                  and el.get("datatype") == "table")):
+            ds_el.remove(el)
+    if old is not None:
+        old.addprevious(conn)
+        ds_el.remove(old)
+    else:
+        ds_el.insert(0, conn)
+    for el in extras:
+        if _endswith_tag(el, "object-graph"):
+            ds_el.append(el)  # Tableau writes it last
+            continue
+        cols = [c for c in ds_el if isinstance(c.tag, str) and (c.tag == "column" or c.tag.endswith("...column"))]
+        # Tableau puts a table column after <aliases> (all 191 object-model datasources of the corpus)
+        aliases = ds_el.find("aliases")
+        (cols[-1].addnext(el) if cols else (conn if aliases is None else aliases).addnext(el))
+
+
 def apply_template(
     template: Union[Template, str],
     data: Union[DataSource, str, None] = None,
@@ -1644,25 +1668,7 @@ def apply_template(
         conn, extras = build(typed, local_of, model=_object_model(doc), object_id=old_ids[0] if old_ids else None)
     else:
         conn, extras = _tableau_connection(data, local_of)
-    old = ds_el.find("connection")
-    for el in list(ds_el):
-        if el is not old and (_endswith_tag(el, "extract") or _endswith_tag(el, "object-graph")
-                              or (isinstance(el.tag, str) and el.tag.endswith("column")
-                                  and el.get("datatype") == "table")):
-            ds_el.remove(el)
-    if old is not None:
-        old.addprevious(conn)
-        ds_el.remove(old)
-    else:
-        ds_el.insert(0, conn)
-    for el in extras:
-        if _endswith_tag(el, "object-graph"):
-            ds_el.append(el)  # Tableau writes it last
-            continue
-        cols = [c for c in ds_el if isinstance(c.tag, str) and (c.tag == "column" or c.tag.endswith("...column"))]
-        # Tableau puts a table column after <aliases> (all 191 object-model datasources of the corpus)
-        aliases = ds_el.find("aliases")
-        (cols[-1].addnext(el) if cols else (conn if aliases is None else aliases).addnext(el))
+    _replace_connection(ds_el, conn, extras)
     # a field now fed by a column of another type takes that type, unless the
     # author set the field's type by hand (Tableau then converts the column)
     for fld, col in chosen.items():
