@@ -4,7 +4,7 @@ Not part of the R package. `template check` (`template_check.py`) is the first u
 workbook audit (WP10) reuses it with another scope, and a rule for template tokens (WP19) is one
 more function in `template_check.py`, nothing here changes.
 
-A rule is a function registered with `@rule(id, scope, severity=..., fix=...)`. It receives a
+A rule is a function registered with `@rule(id, scope, severity=..., fix=..., title=...)`. It receives a
 `Subject` (what is being looked at: a parser, a template, or both) and yields `finding(...)`
 rows. `run_rules` runs every rule of a scope and returns one deterministic frame
 (`FINDING_COLUMNS`). Rule ids are stable: people put them in CI configs and suppression lists,
@@ -52,6 +52,7 @@ class _Rule:
     fix: str
     func: Callable
     title: str
+    explicit_title: bool = False
 
 
 _RULES: dict[str, _Rule] = {}
@@ -63,9 +64,11 @@ def _check_severity(severity: str) -> str:
     return severity
 
 
-def rule(rule_id: str, scope: str, severity: str = "info", fix: str = "") -> Callable:
-    """Register a rule function. `severity` and `fix` are the defaults of its findings; the
-    first line of the docstring is the rule's one-line title."""
+def rule(rule_id: str, scope: str, severity: str = "info", fix: str = "", title: str = "") -> Callable:
+    """Register a rule function. `severity` and `fix` are the defaults of its findings. `title` is the
+    short name shown in rule lists, the GUI, JUnit and SARIF: a complete phrase of at most 60 characters.
+    It is separate from the docstring, which says what the rule means; with no `title` the docstring's
+    first line is used (the tests require an explicit one for every rule)."""
     _check_severity(severity)
 
     def register(func: Callable) -> Callable:
@@ -73,8 +76,8 @@ def rule(rule_id: str, scope: str, severity: str = "info", fix: str = "") -> Cal
         if old is not None and (old.func.__module__, old.func.__qualname__) != (func.__module__, func.__qualname__):
             raise ValueError(f"rule {rule_id} is already registered ({old.func.__name__})")
         # the same function registered again (`importlib.reload` of its module) replaces itself
-        title = (func.__doc__ or "").strip().splitlines()[0] if func.__doc__ else ""
-        _RULES[rule_id] = _Rule(rule_id, scope, severity, fix, func, title)
+        name = title or ((func.__doc__ or "").strip().splitlines()[0] if func.__doc__ else "")
+        _RULES[rule_id] = _Rule(rule_id, scope, severity, fix, func, name, bool(title))
         return func
 
     return register

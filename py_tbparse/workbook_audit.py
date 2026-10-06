@@ -278,7 +278,9 @@ def normalise_formula(formula: str) -> str:
 
 # ------------------------------------------------------------------ the rules --
 
-@rule("A001", SCOPE, severity="info",
+@rule("A001", SCOPE,
+      severity="info",
+      title="Calculated field that no worksheet uses",
       fix="If nothing needs it, delete the calculation or hide it; check first that no other workbook or "
           "published datasource uses it, py-tbparse only sees this workbook")
 def unused_calculation(s: Subject):
@@ -296,7 +298,9 @@ def unused_calculation(s: Subject):
                       if by else "no worksheet, dashboard or other calculation uses it")
 
 
-@rule("A002", SCOPE, severity="warning",
+@rule("A002", SCOPE,
+      severity="warning",
+      title="Two calculations with the same formula",
       fix="Keep one of the calculations and point the worksheets at it, or give the copies different formulas "
           "if they were meant to differ")
 def duplicate_calculation(s: Subject):
@@ -315,7 +319,9 @@ def duplicate_calculation(s: Subject):
             yield finding(c.label, f"same formula as {_names(names[:i] + names[i + 1:])}")
 
 
-@rule("A003", SCOPE, severity="error",
+@rule("A003", SCOPE,
+      severity="error",
+      title="Calculation refers to a field that does not exist",
       fix="Point the formula at a field that exists, or restore the field; Tableau shows the calculation as "
           "invalid until then")
 def missing_reference(s: Subject):
@@ -375,7 +381,9 @@ def _cycles(graph: dict) -> list[list[tuple]]:
     return sorted(found)
 
 
-@rule("A004", SCOPE, severity="error",
+@rule("A004", SCOPE,
+      severity="error",
+      title="Calculations that refer to each other in a circle",
       fix="Break the loop: one of the calculations must stop referring to the next; Tableau refuses a circular "
           "calculation")
 def circular_calculation(s: Subject):
@@ -388,7 +396,9 @@ def circular_calculation(s: Subject):
                           "refers to itself" if len(comp) == 1 else f"part of a circular dependency: {_names(names)}")
 
 
-@rule("A005", SCOPE, severity="info",
+@rule("A005", SCOPE,
+      severity="info",
+      title="Parameter that nothing uses",
       fix="If nothing needs the parameter, delete it; check first that no title, action or other workbook does "
           "(this rule follows a parameter through calculations, which `field_usage` itself does not yet)")
 def unused_parameter(s: Subject):
@@ -426,7 +436,9 @@ def _tooltip_sheets(doc) -> set:
     return {m for t in doc.xpath("//customized-tooltip//run") for m in _TOOLTIP_SHEET.findall("".join(t.itertext()))}
 
 
-@rule("A006", SCOPE, severity="info",
+@rule("A006", SCOPE,
+      severity="info",
+      title="Worksheet that is on no dashboard or story",
       fix="Add the worksheet to a dashboard or story, hide it if it only feeds another sheet, or delete it")
 def sheet_in_no_dashboard(s: Subject):
     """A worksheet that is on no dashboard, story or tooltip and not hidden, in a workbook that has a
@@ -452,7 +464,9 @@ def _sql_snippet(text: str) -> str:
     return flat if len(flat) <= SQL_SHOWN else flat[:SQL_SHOWN] + "..."
 
 
-@rule("A007", SCOPE, severity="info",
+@rule("A007", SCOPE,
+      severity="info",
+      title="Custom SQL is present",
       fix="Custom SQL runs as written on every refresh and Tableau cannot optimise around it; a view or a table in "
           "the database is often easier to maintain. Check it for credentials and for hard-coded dates")
 def custom_sql(s: Subject):
@@ -486,7 +500,9 @@ def _abs_extract_path(ds) -> Optional[str]:
     return None
 
 
-@rule("A008", SCOPE, severity="info",
+@rule("A008", SCOPE,
+      severity="info",
+      title="Data source tied to a file or extract on one machine",
       fix="Point file connections at a folder next to the workbook or at a shared location, and refresh and "
           "republish (or remove) an extract that lives on one machine; `template make` strips extracts for you")
 def absolute_path_leftover(s: Subject):
@@ -515,7 +531,9 @@ def absolute_path_leftover(s: Subject):
             yield finding(label, "; ".join(parts))
 
 
-@rule("A009", SCOPE, severity="info",
+@rule("A009", SCOPE,
+      severity="info",
+      title="Calculation still has Tableau's default name",
       fix="Give the calculation a name that says what it does; the formulas and worksheets keep working (the "
           "caption is display text)")
 def default_name(s: Subject):
@@ -546,7 +564,9 @@ def calculation_depths(f: _Facts) -> dict[tuple, int]:
     return depth
 
 
-@rule("A010", SCOPE, severity="info",
+@rule("A010", SCOPE,
+      severity="info",
+      title="Calculation on a chain of more than 5 calculations",
       fix="Fold the inner calculations together or compute the intermediate result once in the data; long chains "
           "are hard to read and slow to change")
 def deep_calculation(s: Subject):
@@ -557,7 +577,9 @@ def deep_calculation(s: Subject):
             yield finding(f.by_key[key].label, f"depends on a chain of {d} calculations (more than {DEEP_CALCULATION})")
 
 
-@rule("A011", SCOPE, severity="info",
+@rule("A011", SCOPE,
+      severity="info",
+      title="Formula longer than 1000 characters",
       fix="Split the formula into smaller calculations with names, or move the logic into the data")
 def long_formula(s: Subject):
     """A formula is longer than 1000 characters."""
