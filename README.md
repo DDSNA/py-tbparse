@@ -21,6 +21,7 @@ It began as a port of PrigasG's R package [twbparser](https://github.com/PrigasG
 - Fills `{{token}}` placeholders in titles, text and captions, so one template gives each customer its own dashboard.
 - Makes one workbook per file in a folder (`template apply-folder`), brings a workbook up to a newer template revision (`template update`) and lints a template (`template check`).
 - Audits a workbook (`audit`: unused or duplicate calculations, missing references, custom SQL, absolute-path leftovers) and writes a Markdown data dictionary of it (`docs`). Read-only; never opened in Tableau.
+- Writes a share-safe copy of a workbook (`sanitize IN OUT --report`): user names, servers, databases, paths, custom SQL, extracts, comments and thumbnails out, a report of what was removed and what it could not judge, optional placeholders and synthetic data. A clean-up, not a guarantee.
 - Writes the findings of `validate`, `audit` and `template check` as JUnit, SARIF or GitHub annotations for CI (`--format junit|sarif|github`), with a pre-commit hook and a sample workflow.
 - Takes calculated fields and parameters out of one workbook into a library file and adds them to another (`library export`, `library import`). The output follows what Tableau writes but has not been opened in Tableau.
 - Saves the layout of a dashboard (containers, text, styles, one slot per sheet) as a scaffold and makes a new dashboard from it with your own sheets (`scaffold make`, `show`, `apply`). First slice: a single tiled root only; filters, legends, controls, images and device layouts are dropped and listed. It has not been opened in Tableau.
@@ -85,6 +86,7 @@ scan_folder("./workbooks", table="datasources")   # one table, every workbook in
 - [Running as a server](https://github.com/DDSNA/py-tbparse/blob/main/docs/deployment.md): the Docker image, a reverse proxy that ends TLS, sessions, limits.
 - [Renaming](https://github.com/DDSNA/py-tbparse/blob/main/docs/renaming.md): clean names after a datasource switch, editing the suggestions, what will stay broken.
 - [Templates](https://github.com/DDSNA/py-tbparse/blob/main/docs/templates.md): make a template from a workbook and apply it to new data.
+- [Sanitize](https://github.com/DDSNA/py-tbparse/blob/main/docs/sanitize.md): the share-safe copy, its categories, the report and the optional synthetic data.
 - [CI output and pre-commit](https://github.com/DDSNA/py-tbparse/blob/main/docs/ci.md): `--format junit|sarif|github`, exit codes, rule ids, sample workflow.
 - [Audit and data dictionary](https://github.com/DDSNA/py-tbparse/blob/main/docs/audit.md): the audit rules A001 to A011, what "used" means, the Markdown data dictionary.
 - [Libraries](https://github.com/DDSNA/py-tbparse/blob/main/docs/libraries.md): export calculated fields and parameters, add them to another workbook, what is not covered.

@@ -55,6 +55,7 @@ from .rename import (
     suggest_field_renames,
     suggest_renames,
 )
+from .sanitize import SanitizeError, sanitize
 from .sql import extract_custom_sql, extract_initial_sql
 from .templates import (
     Template,
@@ -140,6 +141,8 @@ __all__ = [
     "template_markdown",
     "workbook_markdown",
     "audit",
+    "sanitize",
+    "SanitizeError",
     "run_rules",
     "format_findings",
     "resolve_apply",
