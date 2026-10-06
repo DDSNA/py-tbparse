@@ -1,0 +1,33 @@
+# Hooks for https://pre-commit.com. Use them from another repository:
+#
+#   repos:
+#     - repo: https://github.com/DDSNA/py-tbparse
+#       rev: v0.5.2            # a release tag
+#       hooks:
+#         - id: py-tbparse-audit
+#           args: [--fail-on, warning]
+#
+# Each hook runs the command on every matching file and fails with the worst exit code (1 a finding
+# at --fail-on, 2 unreadable file or bad option, 3 a rule crashed). Nothing is written or opened in
+# Tableau. Override `files:` to choose which workbooks are checked.
+- id: py-tbparse-audit
+  name: py-tbparse audit (Tableau workbook findings)
+  description: List unused or duplicate calculations, missing references, custom SQL and path leftovers in a workbook.
+  entry: python -m py_tbparse.precommit audit
+  language: python
+  files: \.(twb|twbx)$
+  types: [file]
+- id: py-tbparse-validate
+  name: py-tbparse validate (Tableau relationships)
+  description: Check that the relationships of a workbook refer to tables and fields it has.
+  entry: python -m py_tbparse.precommit validate
+  language: python
+  files: \.(twb|twbx)$
+  types: [file]
+- id: py-tbparse-template-check
+  name: py-tbparse template check (Tableau template lint)
+  description: Lint a py-tbparse workbook template (leftover connections, empty parameters, dangling references).
+  entry: python -m py_tbparse.precommit template-check
+  language: python
+  files: \.template\.twbx$
+  types: [file]

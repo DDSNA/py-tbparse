@@ -5,8 +5,9 @@ normal single-workbook parser runs: `py-tbparse diff A.twb B.twb [TABLE]`,
 `py-tbparse batch DIR [TABLE]` and `py-tbparse rename WORKBOOK [-r OLD.twb]`, plus the two-level
 `py-tbparse template ...`, `py-tbparse library ...` (calculated fields and parameters),
 `py-tbparse style ...` (colour palettes), and the workbook `py-tbparse audit WORKBOOK` (findings) and
-`py-tbparse docs WORKBOOK` (a Markdown data dictionary; `dictionary` is the same command) and
-`py-tbparse sanitize IN OUT` (a share-safe copy).
+`py-tbparse docs WORKBOOK` (a Markdown data dictionary; `dictionary` is the same command),
+`py-tbparse sanitize IN OUT` (a share-safe copy) and
+`py-tbparse diff-xml A B` (a normalised line diff of the two workbooks' XML).
 """
 
 from __future__ import annotations
@@ -52,9 +53,12 @@ from .template_update import template_update_report, update_from_answers
 from .sanitize import CATEGORIES as SANITIZE_CATEGORIES, SanitizeError, format_report as sanitize_report, sanitize
 from .workbook_audit import audit, rules_help as audit_rules_help
 from .docgen import template_markdown, workbook_markdown
+from .ci_formats import CI_FORMATS
 from .findings import exceeds, format_findings, summary as findings_summary
+from .validators import validation_findings
 from .template_check import check_template, rules_help
 from .templates import TemplateError, _token_values
+from .xmldiff import normalised_diff
 from .rename import (
     STYLES,
     apply_field_renames,
@@ -103,8 +107,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "of joins/relationships",
     )
     ap.add_argument(
-        "--format", "-f", choices=["table", "csv", "json"], default="table",
-        help="output format (default: table)",
+        "--format", "-f", choices=["table", "csv", "json", *CI_FORMATS], default="table",
+        help="output format (default: table); junit, sarif and github (CI annotations) are for 'validate' only",
     )
     ap.add_argument("--output", "-o", help="write to this file instead of stdout")
     ap.add_argument(
@@ -331,7 +335,8 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
         epilog="rules:\n" + rules_help(),
     )
     ck.add_argument("template")
-    ck.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    ck.add_argument("--format", "-f", choices=["table", "csv", "json", *CI_FORMATS], default="table",
+                    help="table, csv, json, or a CI format: junit (XML), sarif (2.1.0) or github (workflow commands)")
     ck.add_argument("--fail-on", choices=["error", "warning", "info", "never"], default="error",
                     help="exit 1 when a finding has this severity or worse (default: error)")
     ck.add_argument("--only", help="comma-separated rule ids to run, e.g. T001,T003")
@@ -616,7 +621,7 @@ def _run_template_check(args) -> int:
     except (FileNotFoundError, ValueError, OSError, zipfile.BadZipFile, json.JSONDecodeError, etree.XMLSyntaxError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
-    _write(format_findings(found, args.format), None)
+    _write(format_findings(found, args.format, path=args.template), None)
     print(findings_summary(found), file=sys.stderr)
     crashed = found.attrs.get("crashed") or []
     if crashed:
@@ -980,7 +985,8 @@ def _run_audit(argv: list[str]) -> int:
         epilog="rules:\n" + audit_rules_help(),
     )
     ap.add_argument("workbook")
-    ap.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    ap.add_argument("--format", "-f", choices=["table", "csv", "json", *CI_FORMATS], default="table",
+                    help="table, csv, json, or a CI format: junit (XML), sarif (2.1.0) or github (workflow commands)")
     ap.add_argument("--fail-on", choices=["error", "warning", "info", "never"], default="error",
                     help="exit 1 when a finding has this severity or worse (default: error)")
     ap.add_argument("--only", help="comma-separated rule ids to run, e.g. A001,A003")
@@ -992,7 +998,7 @@ def _run_audit(argv: list[str]) -> int:
     except _WORKBOOK_ERRORS as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
-    _write(format_findings(found, args.format), args.output)
+    _write(format_findings(found, args.format, path=args.workbook), args.output)
     print(findings_summary(found), file=sys.stderr)
     crashed = found.attrs.get("crashed") or []
     if crashed:
@@ -1071,10 +1077,42 @@ def _run_docs(argv: list[str], prog: str = "py-tbparse docs") -> int:
     return 0
 
 
+def _run_diff_xml(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(
+        prog="py-tbparse diff-xml",
+        description="Unified diff of two workbooks' XML after normalising attribute order, quotes, empty-element "
+                    "style and indentation, so only real changes show. Takes .twb or .twbx (the workbook member "
+                    "is compared, other archive members are not). Exit code 0: no differences, 1: differences, "
+                    "2: a file cannot be read. Nothing is written or opened in Tableau.",
+    )
+    ap.add_argument("workbook_a", help="the 'before' .twb/.twbx file")
+    ap.add_argument("workbook_b", help="the 'after' .twb/.twbx file")
+    ap.add_argument("--context", "-U", type=int, default=3, metavar="N", help="lines of context (default 3)")
+    ap.add_argument("--output", "-o", help="write the diff to this file instead of printing it")
+    args = ap.parse_args(argv)
+    if args.context < 0:
+        ap.error("--context must be 0 or more")
+    try:
+        text = normalised_diff(args.workbook_a, args.workbook_b, context=args.context)
+    except _WORKBOOK_ERRORS as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    if args.output:
+        if any(Path(args.output).resolve() == Path(w).resolve() for w in (args.workbook_a, args.workbook_b)):
+            print("error: --output is one of the workbooks; refusing to overwrite it", file=sys.stderr)
+            return 2
+        Path(args.output).write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
+    return 1 if text else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_argv = sys.argv[1:] if argv is None else list(argv)
     if _is_reserved_subcommand(raw_argv, "diff"):
         return _run_diff(raw_argv[1:])
+    if _is_reserved_subcommand(raw_argv, "diff-xml"):
+        return _run_diff_xml(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "batch"):
         return _run_batch(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "rename"):
@@ -1094,7 +1132,10 @@ def main(argv: list[str] | None = None) -> int:
     if _is_reserved_subcommand(raw_argv, "style"):
         return _run_style(raw_argv[1:])
 
-    args = build_arg_parser().parse_args(argv)
+    ap = build_arg_parser()
+    args = ap.parse_args(argv)
+    if args.format in CI_FORMATS and args.table != "validate":
+        ap.error(f"--format {args.format} is for 'validate' (and `audit` / `template check`), not for {args.table!r}")
 
     if args.table == "tables":
         for name in TABLE_NAMES:
@@ -1114,7 +1155,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.table == "validate":
         result = parser.validate()
-        if args.format == "json":
+        if args.format in CI_FORMATS:
+            # the exit code stays the one of the plain formats: 0, or 2 when a relationship is broken
+            _write(format_findings(validation_findings(result, args.workbook), args.format, path=args.workbook),
+                   args.output)
+        elif args.format == "json":
             payload = {
                 "ok": result["ok"],
                 "issues": {

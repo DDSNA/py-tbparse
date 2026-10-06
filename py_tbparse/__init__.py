@@ -9,6 +9,7 @@ from .calculated_fields import extract_calculated_fields, extract_raw_fields
 from .dashboards import dashboard_sheets, list_dashboards
 from .datasources import extract_datasource_details, extract_named_connections, extract_parameters
 from .diff import diff_tables, diff_workbooks
+from .xmldiff import normalised_diff
 from .fields import extract_columns_with_table_source, infer_implicit_relationships
 from .graph import graph_data, to_dot
 from .joins import extract_joins
@@ -101,6 +102,7 @@ __all__ = [
     "twbx_list",
     "diff_tables",
     "diff_workbooks",
+    "normalised_diff",
     "scan_folder",
     "apply_field_renames",
     "compare_field_schemas",
