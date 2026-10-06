@@ -2,7 +2,8 @@
 
 Three reserved subcommands, dispatched on the first argument before the
 normal single-workbook parser runs: `py-tbparse diff A.twb B.twb [TABLE]`,
-`py-tbparse batch DIR [TABLE]` and `py-tbparse rename WORKBOOK [-r OLD.twb]`.
+`py-tbparse batch DIR [TABLE]` and `py-tbparse rename WORKBOOK [-r OLD.twb]`, plus the two-level
+`py-tbparse template ...` and `py-tbparse library ...` (calculated fields and parameters).
 """
 
 from __future__ import annotations
@@ -21,6 +22,15 @@ from lxml import etree
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
+from .library import (
+    CLASH_POLICIES,
+    export_library,
+    import_library,
+    library_table,
+    load_library,
+    plan_import,
+    save_library,
+)
 from .parser import TwbParser
 from .templates import (
     apply_template,
@@ -722,6 +732,125 @@ def _run_template(argv: list[str]) -> int:
         return 1
 
 
+def build_library_arg_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        prog="py-tbparse library",
+        description="Take calculated fields and parameters out of one workbook (a *.library.json file) and add "
+                    "them to another. The output follows what Tableau writes but was never opened in Tableau.",
+    )
+    sub = ap.add_subparsers(dest="action", required=True)
+
+    ex = sub.add_parser("export", help="save the calculated fields and parameters of WORKBOOK as a library")
+    ex.add_argument("workbook")
+    ex.add_argument("--output", "-o", required=True, help="library file, e.g. sales.library.json")
+    ex.add_argument("--overwrite", action="store_true", help="replace the library file if it exists")
+    ex.add_argument("--datasource", help="internal name or caption (needed when several have a connection)")
+    ex.add_argument("--folder", help="only the calculations and parameters in this folder")
+    ex.add_argument("--field", action="append", default=[], metavar="NAME",
+                    help="only this calculation or parameter, by name or caption (repeatable)")
+    ex.add_argument("--no-dependencies", action="store_true",
+                    help="do not add the calculations and parameters a chosen one uses (they become required)")
+    ex.add_argument("--no-parameters", action="store_true", help="leave out parameters nobody picked")
+    ex.add_argument("--name", help="library name (default: the workbook's)")
+    ex.add_argument("--description", help="what the library is for")
+
+    sh = sub.add_parser("show", help="list what a library holds and needs")
+    sh.add_argument("library")
+    sh.add_argument("--markdown", action="store_true", help="print a Markdown page")
+
+    im = sub.add_parser(
+        "import", help="add a library to WORKBOOK: print the plan; with --write, make the workbook",
+        description="Without --write nothing is written: the plan says what would be added, skipped or "
+                    "renamed. With --write a copy of the workbook is written (never over the original). "
+                    "Exit codes: 1 error, 2 when an entry could not be imported.",
+    )
+    im.add_argument("workbook")
+    im.add_argument("library")
+    im.add_argument("--datasource", help="target datasource (internal name or caption)")
+    im.add_argument("--mapping", help="CSV with `field` and `mapped_to` (a column name) to say which field a required one is")
+    im.add_argument("--on-clash", choices=CLASH_POLICIES, default="rename",
+                    help="a name already in use: rename the new caption (default), skip it, or fail")
+    im.add_argument("--output", "-o", help="output workbook (default: <name>_library.<ext> beside the workbook)")
+    im.add_argument("--overwrite", action="store_true", help="replace the output file if it exists (never the input)")
+    im.add_argument("--write", action="store_true", help="write the workbook")
+    im.add_argument("--format", choices=("table", "csv", "json"), default="table", help="plan format (default: table)")
+    return ap
+
+
+def _library_markdown(lib: dict) -> str:
+    lines = [f"# {lib['name']}", ""]
+    if lib.get("description"):
+        lines += [lib["description"], ""]
+    src = lib.get("source", {})
+    lines += [f"From {src.get('workbook')}, datasource {src.get('datasource_caption') or src.get('datasource')}.", ""]
+    lines += ["## Calculations and parameters", ""]
+    for e in lib["entries"]:
+        lines += [f"### {e.get('caption') or e['name']} ({e['kind']}, {e.get('datatype')})", "",
+                  "```", e.get("formula_display") or e.get("formula") or "", "```", ""]
+    lines += ["## Needs", "", "| kind | name | used by |", "| --- | --- | --- |"]
+    by_uid = {e["uid"]: e for e in lib["entries"]}
+    for r in lib["required"]:
+        users = ", ".join((by_uid[u].get("caption") or by_uid[u]["name"]) for u in r.get("used_by", []) if u in by_uid)
+        lines.append(f"| {r['kind']} | {r.get('caption') or r['name']} | {users} |")
+    return "\n".join(lines) + "\n"
+
+
+def _run_library(argv: list[str]) -> int:
+    ap = build_library_arg_parser()
+    args = ap.parse_args(argv)
+    try:
+        if args.action == "export":
+            report: dict = {}
+            lib = export_library(TwbParser(args.workbook), datasource=args.datasource, select=args.field or None,
+                                 folder=args.folder, with_dependencies=not args.no_dependencies,
+                                 include_parameters=not args.no_parameters, name=args.name,
+                                 description=args.description, report=report)
+            out = save_library(lib, args.output, overwrite=args.overwrite)
+            print(f"wrote {out} ({report['exported']} entries, {report['required']} required)", file=sys.stderr)
+            if report["unsupported"]:
+                print(f"not exported (they refer to another datasource): {', '.join(report['unsupported_names'])}",
+                      file=sys.stderr)
+            return 0
+        if args.action == "show":
+            lib = load_library(args.library)
+            if args.markdown:
+                sys.stdout.write(_library_markdown(lib))
+                return 0
+            if lib.get("description"):
+                print(lib["description"], file=sys.stderr)
+            print(_df_text(library_table(lib), "table"))
+            for e in lib["entries"]:
+                print(f"\n{e.get('caption') or e['name']} ({e['kind']}):\n{e.get('formula_display') or e.get('formula')}")
+            return 0
+        parser = TwbParser(args.workbook)
+        library = load_library(args.library)
+        plan = plan_import(parser, library, datasource=args.datasource, mapping=args.mapping or None,
+                           on_clash=args.on_clash)
+        print(_df_text(plan, args.format))
+        if not args.write:
+            rows = plan[plan["uid"] != ""]
+            bad = rows["action"].str.startswith("fail").sum()
+            print(f"plan only, nothing written; add --write to make the workbook"
+                  + (f" ({bad} entries cannot be imported; edit a mapping, see --mapping)" if bad else ""), file=sys.stderr)
+            return 0
+        report = {}
+        out = import_library(parser, library, datasource=args.datasource, mapping=args.mapping or None,
+                             on_clash=args.on_clash, output_path=args.output, overwrite=args.overwrite, report=report)
+        print(f"wrote {out}", file=sys.stderr)
+        print(f"added {report['added']}, already there {report['skipped_identical']}, renamed {report['renamed']}, "
+              f"skipped {report['skipped']}, failed {report['failed']}, skipped as dependents {report['skipped_dependents']}",
+              file=sys.stderr)
+        if report["failed"] or report["skipped_dependents"]:
+            names = report["failed_names"] + report["skipped_dependents_names"]
+            print(f"not imported: {', '.join(names)}", file=sys.stderr)
+            return 2
+        return 0
+    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile, etree.XMLSyntaxError,
+            json.JSONDecodeError, pd.errors.ParserError) as e:   # LibraryError is a ValueError
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
 def _is_reserved_subcommand(argv: list[str], name: str) -> bool:
     """True if `argv` invokes the `name` subcommand -- but don't let that
     shadow an actual workbook that happens to be named exactly "diff" or
@@ -739,6 +868,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_rename(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "template"):
         return _run_template(raw_argv[1:])
+    if _is_reserved_subcommand(raw_argv, "library"):
+        return _run_library(raw_argv[1:])
 
     args = build_arg_parser().parse_args(argv)
 

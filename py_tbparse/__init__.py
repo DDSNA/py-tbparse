@@ -12,6 +12,16 @@ from .diff import diff_tables, diff_workbooks
 from .fields import extract_columns_with_table_source, infer_implicit_relationships
 from .graph import graph_data, to_dot
 from .joins import extract_joins
+from .library import (
+    LibraryError,
+    build_imported_workbook,
+    export_library,
+    import_library,
+    library_table,
+    load_library,
+    plan_import,
+    save_library,
+)
 from .parser import TwbParser
 from .published import extract_published_refs
 from .relationships import extract_relations, extract_relationships
@@ -104,6 +114,14 @@ __all__ = [
     "broken_sheets",
     "check_data",
     "explain",
+    "LibraryError",
+    "export_library",
+    "save_library",
+    "load_library",
+    "library_table",
+    "plan_import",
+    "build_imported_workbook",
+    "import_library",
 ]
 
 try:

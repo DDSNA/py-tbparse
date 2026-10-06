@@ -1,0 +1,111 @@
+<?xml version='1.0' encoding='utf-8' ?>
+
+<workbook original-version='18.1' source-build='2024.1.2 (20241.24.0425.1340)' source-platform='win' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources>
+    <datasource hasconnection='false' inline='true' name='Parameters' version='18.1'>
+      <aliases enabled='yes' />
+      <column caption='Top N' datatype='integer' name='[Parameter 1]' param-domain-type='range' role='measure' type='quantitative' value='10'>
+        <calculation class='tableau' formula='10' />
+        <range granularity='5' max='20' min='5' />
+      </column>
+      <column caption='Metric' datatype='string' name='[Parameter 2]' param-domain-type='list' role='measure' type='nominal' value='&quot;Sales&quot;'>
+        <calculation class='tableau' formula='&quot;Sales&quot;' />
+        <aliases>
+          <alias key='&quot;Profit&quot;' value='Profit amount' />
+        </aliases>
+        <members>
+          <member value='&quot;Sales&quot;' />
+          <member alias='Profit amount' value='&quot;Profit&quot;' />
+        </members>
+      </column>
+      <column caption='Free text' datatype='string' name='[Parameter 3]' param-domain-type='any' role='measure' type='nominal' value='&quot;hello&quot;'>
+        <calculation class='tableau' formula='&quot;hello&quot;' />
+      </column>
+    </datasource>
+    <datasource caption='Orders' inline='true' name='federated.src1' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='orders' name='textscan.1'>
+            <connection class='textscan' directory='C:/data' filename='orders.csv' server='' />
+          </named-connection>
+        </named-connections>
+        <relation connection='textscan.1' name='orders.csv' table='[orders#csv]' type='table' />
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>Sales</remote-name>
+            <remote-type>5</remote-type>
+            <local-name>[Sales]</local-name>
+            <parent-name>[orders.csv]</parent-name>
+            <local-type>real</local-type>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>Profit</remote-name>
+            <remote-type>5</remote-type>
+            <local-name>[Profit]</local-name>
+            <parent-name>[orders.csv]</parent-name>
+            <local-type>real</local-type>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>Category</remote-name>
+            <remote-type>129</remote-type>
+            <local-name>[Category]</local-name>
+            <parent-name>[orders.csv]</parent-name>
+            <local-type>string</local-type>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>Order Date</remote-name>
+            <remote-type>7</remote-type>
+            <local-name>[Order Date]</local-name>
+            <parent-name>[orders.csv]</parent-name>
+            <local-type>date</local-type>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <column caption='Revenue' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+      <column datatype='integer' name='[Number of Records]' role='measure' type='quantitative' user:auto-column='numrec'>
+        <calculation class='tableau' formula='1' />
+      </column>
+      <column caption='Profit Ratio' datatype='real' default-format='p0.0%' name='[Calculation_1001]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([Profit])/SUM([Sales])' />
+      </column>
+      <column caption='Sales by Category' datatype='real' name='[Calculation_1002]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{ FIXED [Category]:SUM([Sales])}' />
+      </column>
+      <column caption='Running Sales' datatype='real' name='[Calculation_1003]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='RUNNING_SUM(SUM([Sales]))'>
+          <table-calc ordering-type='Rows' />
+        </calculation>
+      </column>
+      <column caption='Margin Gap' datatype='real' name='[Calculation_1004]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='[Calculation_1001] - 0.1' />
+      </column>
+      <column caption='Top Metric' datatype='string' name='[Calculation_1005]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IF SUM([Sales]) &gt;= [Parameters].[Parameter 1] THEN [Parameters].[Parameter 2] END' />
+      </column>
+      <column caption='In Big Orders' datatype='integer' name='[Calculation_1006]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='IF [Big Orders] THEN 1 ELSE 0 END' />
+      </column>
+      <column caption='Gain or Loss' datatype='string' name='[Calculation_1007]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IF SUM([Profit]) &gt; 0&#13;&#10;THEN &quot;gain&quot;&#13;&#10;ELSE &quot;loss&quot;&#13;&#10;END' scope-isolation='false' />
+      </column>
+      <column caption='Label' datatype='string' name='[Calculation_1008]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='&quot;[Sales] is &quot; + STR(SUM([Sales]))' />
+      </column>
+      <column caption='Sales Rank' datatype='integer' name='[Calculation_1009]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='RANK(SUM([Sales]))'>
+          <table-calc ordering-field='[federated.src1].[tdy:Order Date:qk]' ordering-type='Field' />
+        </calculation>
+      </column>
+      <group caption='Big Orders' name='[Big Orders]' name-style='unqualified' user:ui-builder='filter-group'>
+        <groupfilter count='5' function='order' direction='DESC' expression='SUM([Sales])' user:ui-marker='top'>
+          <groupfilter function='level-members' level='[Category]' />
+        </groupfilter>
+      </group>
+      <folder name='KPIs'>
+        <folder-item name='[Calculation_1001]' type='field' />
+        <folder-item name='[Calculation_1004]' type='field' />
+      </folder>
+    </datasource>
+  </datasources>
+  <worksheets />
+</workbook>

@@ -719,13 +719,17 @@ def read_data(path: str, datasource: Optional[str] = None, sheet: Union[str, int
         names = [d.get("caption") or d.get("name") for d in candidates]
         raise TemplateError(f"{p.name}: expected one datasource with a connection, found {len(candidates)}"
                             + (f" ({', '.join(names)}); pick one" if names else ""))
-    ds = candidates[0]
+    return _tableau_datasource(candidates[0], str(p.resolve()), require_fields=True)
+
+
+def _tableau_datasource(ds, path: str, require_fields: bool = False) -> DataSource:
+    """Describe a Tableau `<datasource>` element as data: its physical columns, with the local name and role."""
     roles = {c.get("name"): c.get("role") for c in ds.xpath("./column[@name][@role]")}
     fields = [{"name": f["remote"], "datatype": f["datatype"], "local": f["name"], "role": roles.get(f["name"])}
               for f in _physical_fields(ds)]
-    if not fields:
-        raise TemplateError(f"{p.name}: the datasource lists no columns (open it in Tableau once and save)")
-    return DataSource(path=str(p.resolve()), kind="tableau", fields=fields, element=ds)
+    if not fields and require_fields:
+        raise TemplateError(f"{Path(path).name}: the datasource lists no columns (open it in Tableau once and save)")
+    return DataSource(path=path, kind="tableau", fields=fields, element=ds)
 
 
 # --------------------------------------------------------------- mapping --
@@ -770,6 +774,13 @@ def suggest_mapping(
     if not 0 <= fuzzy_cutoff <= 1:
         raise ValueError(f"fuzzy_cutoff must be between 0 and 1, got {fuzzy_cutoff}")
     entry = template.datasource(datasource)
+    return _match_fields(entry["fields"], data, entry["name"], fuzzy_cutoff)
+
+
+def _match_fields(fields: list[dict], data: DataSource, ds_name: str, fuzzy_cutoff: float = 0.85) -> pd.DataFrame:
+    """The matcher behind `suggest_mapping`: pair each of `fields` (dicts with `name`, `datatype`, `required`,
+    and optionally `caption`, `remote`, `alias`, `used_by`, `physical_type`, `customized`, `role`) with a
+    column of `data`. Returns the `MAPPING_COLUMNS` table, with `ds_name` in its `datasource` column."""
     by_key: dict[str, str] = {}
     for n in data.names():
         by_key.setdefault(_match_key(n), n)
@@ -778,7 +789,7 @@ def suggest_mapping(
     taken: set = set()
     taken_by: dict = {}
     rows = []
-    fields = sorted(entry["fields"], key=lambda f: not f["required"])
+    fields = sorted(fields, key=lambda f: not f["required"])
     for f in fields:
         names = [f.get("caption"), f["name"].strip("[]"), f.get("remote"), f.get("alias")]
         names = list(dict.fromkeys(n for n in names if n))
@@ -829,7 +840,7 @@ def suggest_mapping(
                     status = f"column {col!r} already used by {taken_by[col]}"
                     break
         rows.append({
-            "datasource": entry["name"], "field": f["name"], "caption": f.get("caption"),
+            "datasource": ds_name, "field": f["name"], "caption": f.get("caption"),
             "datatype": f["datatype"], "required": bool(f["required"]),
             "used_by": "; ".join(f.get("used_by") or []),
             "mapped_to": pick or "", "data_type": data.datatype(pick) if pick else "",

@@ -1067,3 +1067,11 @@ def test_columns_button_does_not_keep_the_old_tables_hidden_count_while_the_next
     held[0].continue_()
     page.wait_for_function("() => document.querySelector('#tableWrap table') !== null")
     assert page.js_errors == []
+
+
+def test_relations_view_explains_collections(page, wenjie_path):
+    # Not run in the session that wrote it (no Chromium allowed there); mirrors test_switching_table_updates_the_view.
+    _load(page, wenjie_path)
+    _open(page, "relations")
+    assert "collections" in page.text_content("#viewDesc")
+    assert page.js_errors == []

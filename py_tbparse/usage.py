@@ -179,11 +179,11 @@ def field_usage(parser_or_doc) -> pd.DataFrame:
 MISSING_COLUMNS = ["datasource", "calculation", "caption", "missing"]
 
 
-def _code_refs(formula: Optional[str]) -> list[str]:
-    """`[Name]` references in a formula, in order, skipping string literals ("..." or '...'), so the Python
-    inside a SCRIPT_REAL("...['x']...") call is not mistaken for a field. A quote inside a bracketed
-    name belongs to the name, not to a string."""
-    refs: list[str] = []
+def _code_ref_spans(formula: Optional[str]) -> list[tuple[int, int, str]]:
+    """`(start, end, "[Name]")` for each reference in a formula, in order, skipping string literals ("..." or
+    '...'), so the Python inside a SCRIPT_REAL("...['x']...") call is not mistaken for a field. A quote
+    inside a bracketed name belongs to the name, not to a string. `formula[start:end]` is the reference."""
+    refs: list[tuple[int, int, str]] = []
     i, text = 0, formula or ""
     while i < len(text):
         c = text[i]
@@ -209,11 +209,16 @@ def _code_refs(formula: Optional[str]) -> list[str]:
                         continue
                     break
                 j += 1
-            refs.append(text[i:j + 1])
+            refs.append((i, j + 1, text[i:j + 1]))
             i = j + 1
         else:
             i += 1
     return refs
+
+
+def _code_refs(formula: Optional[str]) -> list[str]:
+    """`[Name]` references in a formula, in order, skipping string literals (see `_code_ref_spans`)."""
+    return [r for _, _, r in _code_ref_spans(formula)]
 
 
 def missing_references(parser_or_doc) -> pd.DataFrame:
