@@ -44,37 +44,40 @@ def _base_field(ref: str) -> str:
 
 
 def _datasource_fields(ds) -> dict[str, dict]:
-    """Every field-like thing a datasource defines, by local name."""
+    """Every field-like thing a datasource defines, by local name. `deps` is the list of the bracketed names
+    a calculation, bin or group refers to, in the order they are written and with repeats: `[Parameters].[N]`
+    is the two entries `[Parameters]`, `[N]`, and `field_usage` reads them as a pair, so the order must stay."""
     fields: dict[str, dict] = {}
     for rec in ds.xpath("./connection//metadata-record[@class='column']"):
         local = rec.findtext("local-name")
         if local:
             fields[local] = {"kind": "physical", "caption": None,
-                             "datatype": rec.findtext("local-type"), "deps": set()}
+                             "datatype": rec.findtext("local-type"), "deps": []}
     for key in ds.xpath("./connection//cols/map/@key"):
         # older workbooks (version 8.x, `csv.NNN` datasources) name their columns only here
-        fields.setdefault(key, {"kind": "physical", "caption": None, "datatype": None, "deps": set()})
+        fields.setdefault(key, {"kind": "physical", "caption": None, "datatype": None, "deps": []})
     for col in ds.xpath("./column[@name]"):
         name = col.get("name")
         calc = col.find("calculation")
         entry = fields.setdefault(name, {"kind": "physical", "caption": None,
-                                         "datatype": col.get("datatype"), "deps": set()})
+                                         "datatype": col.get("datatype"), "deps": []})
         entry["caption"] = col.get("caption")
         entry["datatype"] = col.get("datatype") or entry["datatype"]
         if calc is not None:
             entry["kind"] = "parameter" if col.get("param-domain-type") else "calculated"
-            entry["deps"] |= set(_refs(calc.get("formula")))
-            entry["deps"] |= set(_refs(calc.get("column")))  # bins: <calculation class='bin' column='[Sales]'>
+            entry["deps"] += _refs(calc.get("formula"))
+            entry["deps"] += _refs(calc.get("column"))  # bins: <calculation class='bin' column='[Sales]'>
+            entry["deps"] += _refs(calc.get("size-parameter"))  # bins: size-parameter='[Parameters].[Bin size]'
     for grp in ds.xpath("./group[@name]"):
         entry = fields.setdefault(grp.get("name"), {"kind": "group", "caption": grp.get("caption"),
-                                                    "datatype": None, "deps": set()})
+                                                    "datatype": None, "deps": []})
         entry["kind"] = "group"
         for gf in grp.iter("groupfilter"):
-            for attr in ("level", "member", "expression"):
-                entry["deps"] |= {_base_field(r) for r in _refs(gf.get(attr))}
+            for attr in ("level", "member", "expression", "count"):   # `count`: a top-N group's `[Parameters].[N]`
+                entry["deps"] += [_base_field(r) for r in _refs(gf.get(attr))]
     for path in ds.xpath("./drill-paths/drill-path"):
         for f in path.iter("field"):
-            fields.setdefault(f.text or "", {"kind": "physical", "caption": None, "datatype": None, "deps": set()})
+            fields.setdefault(f.text or "", {"kind": "physical", "caption": None, "datatype": None, "deps": []})
     fields.pop("", None)
     return fields
 
@@ -240,7 +243,7 @@ def missing_references(parser_or_doc) -> pd.DataFrame:
         known = by_ds.get(dep.get("datasource"))
         if known is not None:
             for name in dep.xpath("./column/@name"):
-                known.setdefault(name, {"kind": "physical", "caption": None, "datatype": None, "deps": set()})
+                known.setdefault(name, {"kind": "physical", "caption": None, "datatype": None, "deps": []})
     rows = []
     for ds in doc.xpath("/workbook/datasources/datasource[@name]"):
         ds_name = ds.get("name")

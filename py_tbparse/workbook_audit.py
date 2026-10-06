@@ -27,6 +27,7 @@ from lxml import etree
 
 from .findings import Subject, finding, rule, rule_ids, rules, run_rules
 from .parser import TwbParser
+from .sql import custom_sql_relations
 from .templates import _FILE_CLASSES, _KEYED_SECRET, _USERINFO, _base_name
 from .usage import _code_refs, _dashboards_of, field_usage, missing_references
 
@@ -165,39 +166,6 @@ class _Facts:
 
     def _calc_deps(self, calc: _Calc) -> list[tuple]:
         return sorted(d for d in self._targets(calc) if d in self.by_key)
-
-    @property
-    def parameter_users(self) -> dict[str, list[_Calc]]:
-        """`[Parameter 1]` -> the calculations whose formula refers to it. `field_usage` does not follow a
-        parameter through a formula (it reads the references from a set, so `[Parameters]` and the name after it
-        lose their order), so the parameter rule asks here."""
-        users: dict[str, list[_Calc]] = {}
-        for c in self.calcs:
-            for ds, name in self._targets(c):
-                if ds == "Parameters":
-                    users.setdefault(name, []).append(c)
-        return users
-
-
-_PARAM_REF = re.compile(r"\[Parameters\]\.(\[[^\]]+\])")
-
-
-def _field_users_of_parameters(f: "_Facts") -> dict[str, list[tuple]]:
-    """`[Parameter 1]` -> (key, label) of the bins (`size-parameter`) and the sets or groups (a top-N count, a
-    formula) of a datasource that name it. Calculations are in `parameter_users`."""
-    out: dict[str, list[tuple]] = {}
-    for ds in f.doc.xpath("/workbook/datasources/datasource[@name]"):
-        label = _ds_label(ds)
-        for col in ds.xpath("./column[@name][calculation[@size-parameter]]"):
-            for name in _PARAM_REF.findall(col.find("calculation").get("size-parameter")):
-                out.setdefault(name, []).append(((ds.get("name"), col.get("name")),
-                                                 col.get("caption") or col.get("name").strip("[]")))
-        for grp in ds.xpath("./group[@name]"):
-            names = {m for el in grp.iter() for v in el.attrib.values() for m in _PARAM_REF.findall(v)}
-            for name in sorted(names):
-                out.setdefault(name, []).append(((ds.get("name"), grp.get("name")),
-                                                 grp.get("caption") or grp.get("name").strip("[]")))
-    return out
 
 
 def _facts(s: Subject) -> _Facts:
@@ -403,8 +371,7 @@ def circular_calculation(s: Subject):
 @rule("A005", SCOPE,
       severity="info",
       title="Parameter that nothing uses",
-      fix="If nothing needs the parameter, delete it; check first that no title, action or other workbook does "
-          "(this rule follows a parameter through calculations, which `field_usage` itself does not yet)")
+      fix="If nothing needs the parameter, delete it; check first that no title, action or other workbook does")
 def unused_parameter(s: Subject):
     """A parameter that no worksheet, calculation or text uses."""
     for row, detail in unused_parameters(_facts(s)):
@@ -412,22 +379,23 @@ def unused_parameter(s: Subject):
 
 
 def unused_parameters(f: _Facts) -> Iterator[tuple]:
-    """`(usage row, detail)` for each parameter A005 reports; `prune` removes from this same list."""
+    """`(usage row, detail)` for each parameter A005 reports; `prune` removes from this same list.
+
+    `field_usage` already follows a parameter through calculations, bins and groups, so a parameter that a used
+    calculation depends on is `used` and never gets here. What it does not see is a name that only a dashboard,
+    an action or a worksheet's text mentions, or a parameter control a worksheet shows: those count as use."""
     if not f.has_worksheets:
         return
-    users = f.parameter_users
-    used_fields = {(r["datasource"], r["field"]) for _, r in f.usage.iterrows()
-                   if r["kind"] in ("calculated", "group") and (r["used"] or r["field"].strip("[]") in f.mentioned)}
-    others = _field_users_of_parameters(f)
+    usage = f.usage
+    mentioned_calcs = {r["caption"] or r["field"].strip("[]") for _, r in usage.iterrows()
+                       if r["kind"] in ("calculated", "group") and r["field"].strip("[]") in f.mentioned}
     shown = f.shown_parameters
-    for _, row in f.usage[(f.usage["kind"] == "parameter") & ~f.usage["used"]].iterrows():
+    for _, row in usage[(usage["kind"] == "parameter") & ~usage["used"]].iterrows():
         if row["field"].strip("[]") in f.mentioned or row["field"] in shown:
             continue
-        refs = users.get(row["field"], [])
-        more = others.get(row["field"], [])
-        if any(c.key in used_fields for c in refs) or any(k in used_fields for k, _ in more):
+        names = list(row["calculations"])
+        if mentioned_calcs.intersection(names):
             continue
-        names = sorted({c.caption or c.name.strip("[]") for c in refs} | {lab for _, lab in more})
         yield row, (f"no worksheet uses it; it is only used by {_names(names)}, and no worksheet uses those"
                     if names else "no worksheet, dashboard, action or calculation uses it")
 
@@ -486,10 +454,9 @@ def custom_sql(s: Subject):
     """Custom SQL is present (the first 80 characters are shown)."""
     doc = _facts(s).doc
     seen = set()
-    for rel in doc.xpath("//relation[@type='text' or @formula]"):
-        text = rel.get("formula") if rel.get("formula") is not None else "".join(rel.itertext())
-        text = (text or "").strip()
-        if not text or (rel.get("type") != "text" and not re.match(r"(?i)^\s*(select|with)\b", text)):
+    for rel, text, is_custom in custom_sql_relations(doc):
+        text = text.strip()
+        if not text or not (is_custom or rel.get("type") == "text"):   # a text relation is custom SQL whatever it says
             continue
         ds = next(iter(rel.xpath("ancestor::datasource[1]")), None)
         label = _ds_label(ds) if ds is not None else ""
