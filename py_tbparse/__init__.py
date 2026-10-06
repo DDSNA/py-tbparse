@@ -59,7 +59,7 @@ from .rename import (
     suggest_field_renames,
     suggest_renames,
 )
-from .prune import PruneError, prune
+from .prune import PruneError, prune, prune_doc
 from .sanitize import SanitizeError, sanitize
 from .sql import extract_custom_sql, extract_initial_sql
 from .templates import (
@@ -151,6 +151,7 @@ __all__ = [
     "workbook_markdown",
     "audit",
     "prune",
+    "prune_doc",
     "PruneError",
     "sanitize",
     "SanitizeError",
