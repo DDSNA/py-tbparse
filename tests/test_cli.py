@@ -168,16 +168,20 @@ def test_library_import_plan_then_write(tmp_path, capsys):
     capsys.readouterr()
     target = tmp_path / "t.twb"
     target.write_bytes((LIB_FIX / "target.twb").read_bytes())
-    assert cli.main(["library", "import", str(target), str(lib)]) == 0
+    # the default policy is fail: the target already has some of these captions
+    assert cli.main(["library", "import", str(target), str(lib)]) == 1
+    cap = capsys.readouterr()
+    assert "already in the target" in cap.err
+    assert cli.main(["library", "import", str(target), str(lib), "--on-clash", "rename"]) == 0
     cap = capsys.readouterr()
     assert "add-renamed" in cap.out and "nothing written" in cap.err
     assert not (tmp_path / "t_library.twb").exists()
-    assert cli.main(["library", "import", str(target), str(lib), "--write"]) == 0
+    assert cli.main(["library", "import", str(target), str(lib), "--on-clash", "rename", "--write"]) == 0
     err = capsys.readouterr().err
     assert "wrote" in err and "added 12" in err
     assert (tmp_path / "t_library.twb").exists()
     # the output exists now, and --on-clash fail stops before writing
-    assert cli.main(["library", "import", str(target), str(lib), "--write"]) == 1
+    assert cli.main(["library", "import", str(target), str(lib), "--on-clash", "rename", "--write"]) == 1
     assert "refusing" in capsys.readouterr().err
     assert cli.main(["library", "import", str(target), str(lib), "--on-clash", "fail", "-o", str(tmp_path / "x.twb"),
                      "--write"]) == 1
@@ -194,7 +198,7 @@ def test_library_import_exit_code_2_when_an_entry_fails(tmp_path, capsys):
     target = tmp_path / "t.twb"
     doc.write(str(target), encoding="utf-8", xml_declaration=True)
     capsys.readouterr()
-    assert cli.main(["library", "import", str(target), str(lib), "--write"]) == 2
+    assert cli.main(["library", "import", str(target), str(lib), "--on-clash", "rename", "--write"]) == 2
     err = capsys.readouterr().err
     assert "failed 2" in err and "not imported: " in err and "Margin Gap" in err
     assert (tmp_path / "t_library.twb").exists()          # the entries that could be added were

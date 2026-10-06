@@ -854,14 +854,15 @@ def build_library_arg_parser() -> argparse.ArgumentParser:
         "import", help="add a library to WORKBOOK: print the plan; with --write, make the workbook",
         description="Without --write nothing is written: the plan says what would be added, skipped or "
                     "renamed. With --write a copy of the workbook is written (never over the original). "
+                    "The default clash policy is fail (it used to be rename). "
                     "Exit codes: 1 error, 2 when an entry could not be imported.",
     )
     im.add_argument("workbook")
     im.add_argument("library")
     im.add_argument("--datasource", help="target datasource (internal name or caption)")
     im.add_argument("--mapping", help="CSV with `field` and `mapped_to` (a column name) to say which field a required one is")
-    im.add_argument("--on-clash", choices=CLASH_POLICIES, default="rename",
-                    help="a name already in use: rename the new caption (default), skip it, or fail")
+    im.add_argument("--on-clash", choices=CLASH_POLICIES, default="fail",
+                    help="a name already in use: fail (default, nothing is written), rename the new caption, or skip it")
     im.add_argument("--output", "-o", help="output workbook (default: <name>_library.<ext> beside the workbook)")
     im.add_argument("--overwrite", action="store_true", help="replace the output file if it exists (never the input)")
     im.add_argument("--write", action="store_true", help="write the workbook")

@@ -77,7 +77,7 @@ py-tbparse library import other.twb kpis.library.json --mapping map.csv --on-cla
 ```
 
 - `import` writes nothing without `--write`. The output defaults to `<name>_library.<ext>` beside the workbook, keeps the workbook's extension, and never replaces the input (`--overwrite` replaces an existing output only).
-- `--on-clash` is `rename` (default), `skip` or `fail`. `--mapping` is a CSV with `field` and `mapped_to`.
+- `--on-clash` is `fail` (default), `rename` or `skip`. The default was `rename` before; it is `fail` now so the command line and the Libraries view agree, so an old script that relied on renaming needs `--on-clash rename`. `--mapping` is a CSV with `field` and `mapped_to`.
 - Exit codes of `import`: 0, 1 (an error, including `--on-clash fail` meeting a clash), 2 (some entry could not be imported; the others are written).
 
 ## Colour palettes
