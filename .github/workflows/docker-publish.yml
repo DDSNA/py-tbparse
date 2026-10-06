@@ -18,7 +18,7 @@ env:
 jobs:
   smoke:
     # Builds the image and checks it starts in server mode and answers /healthz. Nothing is pushed here.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -67,7 +67,7 @@ jobs:
 
   publish:
     needs: smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: release  # same environment name as the PyPI publish; no required-reviewer gate is configured, so this job runs without approval
     timeout-minutes: 20
     permissions:

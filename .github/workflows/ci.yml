@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       # A PR gets the ends of the range on the two systems most people use; main gets all 20 combinations.
-      matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"os":"ubuntu-latest","python-version":"3.9"},{"os":"ubuntu-latest","python-version":"3.13"},{"os":"windows-latest","python-version":"3.13"}]}' || '{"os":["ubuntu-latest","macos-latest","windows-latest","ubuntu-24.04-arm"],"python-version":["3.9","3.10","3.11","3.12","3.13"]}') }}
+      matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"os":"ubuntu-24.04","python-version":"3.9"},{"os":"ubuntu-24.04","python-version":"3.13"},{"os":"windows-latest","python-version":"3.13"}]}' || '{"os":["ubuntu-24.04","macos-latest","windows-latest","ubuntu-24.04-arm"],"python-version":["3.9","3.10","3.11","3.12","3.13"]}') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +40,7 @@ jobs:
     # Drives the browser GUI in a real headless Chromium. The endpoint-level
     # tests can't see the page's JavaScript, so this is the only job that
     # would catch a broken <script>.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -61,7 +61,7 @@ jobs:
 
   docker:
     # Builds the server image and drives it the way a TLS proxy would: forwarded Host, https Origin, cookie.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -98,7 +98,7 @@ jobs:
         run: docker logs tbparse
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test, gui]
     steps:
       - uses: actions/checkout@v4
