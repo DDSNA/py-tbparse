@@ -162,11 +162,11 @@ def test_preload_path_cannot_break_out_of_script_tag(server, wenjie_path, tmp_pa
         page = r.read().decode()
 
     # The page has exactly one inline <script> (the config block) plus the external ones,
-    # table.js, graph.js, templates.js, rename.js, audit.js, libraries.js, styles.js and app.js: if the path's embedded "</script>" broke out of the inline block, the
+    # table.js, graph.js, templates.js, rename.js, audit.js, libraries.js, styles.js, copy.js and app.js: if the path's embedded "</script>" broke out of the inline block, the
     # HTML parser would see (and this would count) another one.
     assert page.count("<script>") == 1
-    assert page.count("<script") == 9
-    assert page.count("</script>") == 9
+    assert page.count("<script") == 10
+    assert page.count("</script>") == 10
     assert '<script src="/static/table.js"></script>' in page
     assert '<script src="/static/graph.js"></script>' in page
     assert '<script src="/static/templates.js"></script>' in page
@@ -174,6 +174,7 @@ def test_preload_path_cannot_break_out_of_script_tag(server, wenjie_path, tmp_pa
     assert '<script src="/static/audit.js"></script>' in page
     assert '<script src="/static/libraries.js"></script>' in page
     assert '<script src="/static/styles.js"></script>' in page
+    assert '<script src="/static/copy.js"></script>' in page
     assert '<script src="/static/app.js"></script>' in page
     # But the path itself (escaped) must still be present and round-trip
     # correctly -- \/ is a legal JSON escape, so json.loads decodes it
@@ -204,7 +205,7 @@ def test_dashboards_endpoint_empty_before_load(server):
     assert data["dashboards"] == []
 
 
-@pytest.mark.parametrize("script", ["app.js", "table.js", "graph.js", "templates.js", "rename.js", "audit.js", "libraries.js", "styles.js"])
+@pytest.mark.parametrize("script", ["app.js", "table.js", "graph.js", "templates.js", "rename.js", "audit.js", "libraries.js", "styles.js", "copy.js"])
 def test_page_js_has_no_string_literal_split_across_lines(server, script):
     # Regression (from when the page was a Python string): writing '\n' inside
     # the embedded JS made *Python* emit a real newline, splitting a JS
@@ -228,7 +229,7 @@ def test_page_js_escapes_newline_for_javascript(server):
     assert r"'\n'" in _page_script(server)   # and never a quote broken across a real newline
 
 
-@pytest.mark.parametrize("script", ["app.js", "table.js", "graph.js", "templates.js", "rename.js", "audit.js", "libraries.js", "styles.js"])
+@pytest.mark.parametrize("script", ["app.js", "table.js", "graph.js", "templates.js", "rename.js", "audit.js", "libraries.js", "styles.js", "copy.js"])
 def test_page_js_brackets_are_balanced(server, script):
     js = _page_script(server, script)
     # Strip string literals first so braces/parens inside them don't count.
@@ -517,7 +518,7 @@ def test_everything_in_the_report_via_the_endpoints(server, tmp_path):
 
 def test_static_assets_are_served_with_the_right_types(server):
     expected = {"tokens.css": "text/css", "app.css": "text/css", "app.js": "text/javascript",
-                "table.js": "text/javascript", "templates.js": "text/javascript", "rename.js": "text/javascript", "audit.js": "text/javascript", "libraries.js": "text/javascript", "styles.js": "text/javascript"}
+                "table.js": "text/javascript", "templates.js": "text/javascript", "rename.js": "text/javascript", "audit.js": "text/javascript", "libraries.js": "text/javascript", "styles.js": "text/javascript", "copy.js": "text/javascript"}
     for name, ctype in expected.items():
         with urllib.request.urlopen(server + f"/static/{name}") as r:
             assert r.status == 200
