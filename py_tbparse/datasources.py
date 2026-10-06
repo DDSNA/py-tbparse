@@ -207,13 +207,35 @@ def _owner(rel, real, by_table):
     return real[0] if len(real) == 1 else None
 
 
+def _table_field_count(ds, name):
+    """Fields of one logical table: the datasource's `metadata-record` columns whose
+    `parent-name` is `[name]` (issue #79). Object-model workbooks list each table twice, as
+    `[Orders]` and `[Orders_<32 hex>]`; the plain name wins, else the copy is counted once.
+    None when the workbook says nothing about this table (the caller keeps the whole count)."""
+    if ds is None or not name:
+        return None
+    plain, copies = set(), set()
+    for rec in ds.iterfind(".//metadata-record[@class='column']"):
+        parent = rec.findtext("parent-name")
+        if not parent:
+            continue
+        local = rec.findtext("local-name") or rec.findtext("remote-name") or ""
+        base = strip_brackets(parent.strip())
+        if base == name:
+            plain.add(local)
+        elif _TRAILING_HEX32.sub("", base) == name:
+            copies.add(local)
+    found = plain or copies
+    return len(found) if found else None
+
+
 def extract_datasource_details(xml_doc) -> dict:
     """Port of `extract_datasource_details()` (reworked for issue #65).
 
     One row per logical table of the object graph (per datasource when there is no graph),
     never one for the internal `Parameters` datasource. A row's connection comes from its
-    relation's named connection; its datasource name and field count from the datasource it
-    sits in; whatever the workbook does not store reads "not stored in the workbook".
+    relation's named connection; its datasource name from the datasource it sits in; its field
+    count from the metadata of its own table (the datasource's whole count when the workbook lists none); whatever the workbook does not store reads "not stored in the workbook".
 
     Returns a dict with `data_sources`, `parameters`, `all_sources`.
     """
@@ -255,6 +277,12 @@ def extract_datasource_details(xml_doc) -> dict:
             entries.append((ds, ds.get("caption") or ds.get("name"), None,
                             nc.get("name") if nc is not None else None))
 
+    def _field_count(ds, name):
+        if ds is None:
+            return 0
+        own = _table_field_count(ds, name)
+        return len(ds.findall(".//column")) if own is None else own
+
     rows = []
     for ds, name, table, conn_id in entries:
         own = _own_connection(ds) if ds is not None else {}
@@ -276,7 +304,7 @@ def extract_datasource_details(xml_doc) -> dict:
                 ) or _NOT_STORED,
                 "datasource_name": (ds.get("name") if ds is not None else None)
                 or _first_text(c.get("connection_caption")) or _NOT_STORED,
-                "field_count": len(ds.findall(".//column")) if ds is not None else 0,
+                "field_count": _field_count(ds, name),
                 "connection_type": cls or _NOT_STORED,
                 "location": _first_text(c.get("location_named"), own.get("location")) or _NOT_STORED,
             }
