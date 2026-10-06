@@ -33,6 +33,8 @@ import pandas as pd
 
 from . import __version__, template_gui
 from ._tables import TABLE_NAMES, TABLE_SPECS
+from .docgen import workbook_markdown
+from .findings import SEVERITY, exceeds, rules as _audit_rules, format_findings, summary as findings_summary
 from .parser import TwbParser
 from .rename import (
     KINDS,
@@ -43,11 +45,12 @@ from .rename import (
     suggest_field_renames,
     suggest_renames,
 )
+from .workbook_audit import audit as run_audit, SCOPE as _AUDIT_SCOPE
 from .templates import TemplateError, load_template, make_template, read_data
 
 # "tpl" is the Templates view's state (see `_tpl_new`); it stays None until the view is used. Defaults are copied
 # shallowly into each session, so every default must be immutable: a fresh dict is assigned on first use.
-_STATE_DEFAULTS = {"parser": None, "path": None, "uploaded": False, "report": None, "tpl": None}
+_STATE_DEFAULTS = {"parser": None, "path": None, "uploaded": False, "report": None, "audit": None, "tpl": None}
 
 # Server mode (`--server-mode`): the page is shared by several people behind a proxy, so each browser gets its
 # own workbook state, keyed by a random cookie. `_STATE` and `_UPLOAD` below look like plain dicts but read and
@@ -592,6 +595,7 @@ _ASSETS = {
     "graph.js": "text/javascript; charset=utf-8",
     "templates.js": "text/javascript; charset=utf-8",
     "rename.js": "text/javascript; charset=utf-8",
+    "audit.js": "text/javascript; charset=utf-8",
 }
 
 
@@ -645,6 +649,7 @@ def _open_response(parser: TwbParser, path: str, uploaded: bool = False, name: s
     _STATE["path"] = path
     _STATE["uploaded"] = uploaded
     _STATE["report"] = None
+    _STATE["audit"] = None
     dashboards_df = parser.get_dashboards()
     return {
         "ok": True,
@@ -656,6 +661,87 @@ def _open_response(parser: TwbParser, path: str, uploaded: bool = False, name: s
         "datasource_labels": _datasource_labels(parser),
         "dashboards": dashboards_df["name"].tolist() if "name" in dashboards_df.columns else [],
     }
+
+
+# ---- the Audit view (/audit, /audit/export, /dictionary) ----
+# The audit of the open workbook (`workbook_audit.audit`), run on request and kept for the last set of skipped
+# rules, so paging and filtering do not run the rules again. The page only ever gets one page of rows
+# (AUDIT_PAGE, at most AUDIT_PAGE_MAX); the download has them all. Nothing here takes a path.
+AUDIT_PAGE = 100
+AUDIT_PAGE_MAX = 500
+
+
+def _audit_ids(qs: dict, key: str) -> list[str]:
+    known = {r.id for r in _audit_rules(_AUDIT_SCOPE)}
+    ids = [i.strip().upper() for part in (qs.get(key) or []) for i in part.split(",") if i.strip()]
+    unknown = sorted(set(ids) - known)
+    if unknown:
+        raise ValueError(f"{key}: unknown rule {', '.join(unknown)}; known: {', '.join(sorted(known))}")
+    return ids
+
+
+def _audit_frame(qs: dict):
+    """(all findings with the skipped rules left out, skipped ids); runs the rules unless the last run had the
+    same skip set. Raises ValueError for an unknown rule or when everything is skipped."""
+    skip = tuple(sorted(set(_audit_ids(qs, "skip"))))
+    cached = _STATE["audit"]
+    if cached is not None and cached[0] == skip:
+        return cached[1], skip
+    found = run_audit(_STATE["parser"], skip=skip)
+    _STATE["audit"] = (skip, found)
+    return found, skip
+
+
+def _audit_filtered(found: pd.DataFrame, qs: dict) -> pd.DataFrame:
+    severities = [v.strip().lower() for part in (qs.get("severity") or []) for v in part.split(",") if v.strip()]
+    bad = sorted(set(severities) - set(SEVERITY))
+    if bad:
+        raise ValueError(f"severity: unknown {', '.join(bad)}; use {', '.join(SEVERITY)}")
+    rules_ = _audit_ids(qs, "rule")
+    if severities:
+        found = found[found["severity"].isin(severities)]
+    if rules_:
+        found = found[found["rule"].isin(rules_)]
+    text = (qs.get("q") or [""])[0].strip().lower()
+    if text:
+        hay = found[["rule", "severity", "object", "detail"]].astype(str).agg(" ".join, axis=1).str.lower()
+        found = found[hay.str.contains(text, regex=False)]
+    return found
+
+
+def _audit_answer(qs: dict) -> dict:
+    found, skip = _audit_frame(qs)
+    counts = {sev: int((found["severity"] == sev).sum()) for sev in SEVERITY}
+    crashed = list(found.attrs.get("crashed") or [])
+    by_rule = {r: int(n) for r, n in found["rule"].value_counts().items()}
+    shown = _audit_filtered(found, qs)
+    try:
+        offset = max(0, int((qs.get("offset") or ["0"])[0]))
+        limit = min(AUDIT_PAGE_MAX, max(1, int((qs.get("limit") or [str(AUDIT_PAGE)])[0])))
+    except ValueError:
+        raise ValueError("offset and limit must be whole numbers")
+    page = shown.iloc[offset:offset + limit]
+    exit_code = 3 if crashed else (1 if exceeds(found, "error") else 0)
+    return {
+        "rules": [{"id": r.id, "severity": r.severity, "title": r.title, "count": by_rule.get(r.id, 0),
+                   "skipped": r.id in skip} for r in _audit_rules(_AUDIT_SCOPE)],
+        "skipped": list(skip),
+        "total": int(len(found)),
+        "counts": counts,
+        "summary": findings_summary(found),
+        "crashed": crashed,
+        "exit_code": exit_code,
+        "matching": int(len(shown)),
+        "offset": offset,
+        "limit": limit,
+        "findings": page.to_dict(orient="records"),
+    }
+
+
+def _workbook_stem() -> str:
+    name = os.path.basename(str(_STATE["path"] or "workbook"))
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.splitext(name)[0]).strip("._") or "workbook"
+    return stem[:80]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -815,6 +901,41 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"error": f"could not build the report: {e}"}, 500)
                     return
             self._send_json(_STATE["report"])
+            return
+
+        if parsed.path in ("/audit", "/audit/export", "/dictionary"):
+            if _STATE["parser"] is None:
+                if parsed.path == "/audit":
+                    self._send_json({"error": "No workbook loaded"}, 400)
+                else:
+                    self._send(400, "No workbook loaded", "text/plain")
+                return
+            try:
+                if parsed.path == "/audit":
+                    self._send_json(_audit_answer(qs))
+                elif parsed.path == "/audit/export":
+                    fmt = (qs.get("format") or ["csv"])[0]
+                    if fmt not in ("csv", "json"):
+                        raise ValueError("format: use csv or json")
+                    found, _skip = _audit_frame(qs)
+                    body = format_findings(_audit_filtered(found, qs), fmt)
+                    ctype = "text/csv; charset=utf-8" if fmt == "csv" else "application/json; charset=utf-8"
+                    self._send(200, body, ctype, {
+                        "Content-Disposition": f'attachment; filename="{_workbook_stem()}-audit.{fmt}"'})
+                else:
+                    page = workbook_markdown(_STATE["parser"])
+                    self._send(200, page, "text/markdown; charset=utf-8", {
+                        "Content-Disposition": f'attachment; filename="{_workbook_stem()}-dictionary.md"'})
+            except ValueError as e:
+                if parsed.path == "/audit":
+                    self._send_json({"error": str(e)}, 400)
+                else:
+                    self._send(400, str(e), "text/plain")
+            except Exception as e:  # a rule or the page builder failed: say so, do not drop the connection
+                if parsed.path == "/audit":
+                    self._send_json({"error": f"could not audit the workbook: {e}"}, 500)
+                else:
+                    self._send(500, f"could not build the file: {e}", "text/plain")
             return
 
         if parsed.path == "/dashboards":

@@ -206,7 +206,7 @@ beyond the R package's scope:
 |---|---|
 | `_tables.py` | Name → `TwbParser`-accessor registry shared by `cli.py`, `webgui.py`, `diff.py`, and `batch.py`. Adding a new extractor to `TwbParser`? Add it here too so it's automatically available everywhere else. |
 | `cli.py` | `py-tbparse` command-line entry point, plus the `diff`/`batch`/`rename`/`template`/`library`/`style`/`audit`/`docs` (`dictionary`)/`diff-xml` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
-| `webgui.py` + `webui/` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. The server is `webgui.py`; the page is `webui/` (`index.html`, `tokens.css`, `themes.css`, `app.css`, `table.js`, `graph.js`, `rename.js`, `app.js`). Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
+| `webgui.py` + `webui/` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. The server is `webgui.py`; the page is `webui/` (`index.html`, `tokens.css`, `themes.css`, `app.css`, `table.js`, `graph.js`, `rename.js`, `audit.js`, `app.js`). Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
 | `graph.py` | `to_dot()`: Graphviz DOT export of joins/relationships (+ optional inferred, as dashed edges); `graph_data()` is the same edges as plain data, which the GUI lays out and draws itself (`webui/graph.js`: layered layout, SVG, pan/zoom, keyboard). Replaces the R package's igraph/ggraph-based `plot_dependency_graph`/`plot_relationship_graph` with a dependency-free text format any Graphviz-compatible tool can render. |
 | `diff.py` | `diff_tables()`/`diff_workbooks()`: row-level added/removed diff between two workbooks' same-named table, via `_tables.TABLE_SPECS`. No "changed" classification without a natural key — a changed row shows as one removed + one added row. |
 | `xmldiff.py` | `normalised_diff()` / `canonical_lines()` / `diff_line_count()` (WP8 minimum; CLI `diff-xml A B`, exit 0 same, 1 different, 2 unreadable; doc `docs/diff-xml.md`): both XML trees written one node per line with sorted attributes, double quotes, Canonical-XML escapes, open+close empty elements, inter-element whitespace dropped (leaf text kept exactly), comments kept (also before the root), then `difflib.unified_diff`. Not lxml's c14n output (one line, undiffable). `.twbx` compares the workbook member only. Parser has entities off. `scripts/measure_roundtrip_diff.py` measures a no-edit save over the corpus (0 normalised lines on all 200). The stretch (text-level patching of the original) is not built. |
@@ -320,15 +320,23 @@ one runs); column `MIN_WIDTH` is 80; per-table view settings are keyed by column
 `aria-disabled` so they stay focusable.
 
 The page is real files, not a Python string: `py_tbparse/webui/index.html`, `tokens.css` (the design
-tokens), `themes.css` (the colour themes), `app.css`, `table.js`, `graph.js`, `templates.js` (the Templates view: `window.TemplatesView = {init, show, hide, acceptDrop, dropHint, getState}`), `rename.js` (rename review in Field renames: `window.RenameReview = {init, load, check, body}`; the checkbox column itself is the `check` option of `VTable` in `table.js`) and `app.js`. They are served by `webgui.py` from a fixed whitelist under
+tokens), `themes.css` (the colour themes), `app.css`, `table.js`, `graph.js`, `templates.js` (the Templates view: `window.TemplatesView = {init, show, hide, acceptDrop, dropHint, getState}`), `rename.js` (rename review in Field renames: `window.RenameReview = {init, load, check, body}`; the checkbox column itself is the `check` option of `VTable` in `table.js`), `audit.js` (the Audit view: `window.AuditView = {init, render, reset, pageSize}`) and `app.js`. They are served by `webgui.py` from a fixed whitelist under
 `/static/` (`_ASSETS`), so a request can never reach any other file; add a new asset to
 `_ASSETS` and to the `webui/*` package-data (pyproject and MANIFEST.in) or it will not ship.
 `index.html` is the only thing that gets server values: `_render_index()` replaces
 `<!--APP_CONFIG-->` (now in `<head>`, so the saved theme is on `<html>` before the first paint) with the single
-inline `<script>`. Keep it that way (one inline script plus the five external ones, `table.js`, `graph.js`, `templates.js`, `rename.js`, then
+inline `<script>`. Keep it that way (one inline script plus the six external ones, `table.js`, `graph.js`, `templates.js`, `rename.js`, `audit.js`, then
 `app.js`); a test counts them. `populateTables();` must appear exactly once
 in `app.js`, and the structural tests (unterminated string literals, bracket balance) read both served scripts.
 Keep apostrophes out of JS strings and comments (the test counts quotes per line).
+
+The Audit view (`#audit`, "Audit" in the sidebar's Workbook group, a pseudo-table like `graph`: `app.js` adds it to `allTables()`
+and `showTable()` hands the work page to `AuditView.render()`) is `audit.js` plus three endpoints in `webgui.py`:
+`GET /audit` (one page of findings, at most `AUDIT_PAGE_MAX` rows, with counts, the rule list, the exit code and the
+`skip`, `severity`, `rule`, `q`, `offset` and `limit` options), `GET /audit/export?format=csv|json` (every finding that matches,
+through `findings.format_findings`, so the file equals the CLI's) and `GET /dictionary` (`workbook_markdown`). None takes a
+path, so all three are allowed in server mode. The last audit is kept in `_STATE["audit"]` per skip set and dropped when
+another workbook opens. The page never holds more than 100 findings. Tests: `tests/test_webgui_audit.py`, `tests/test_gui_audit.py`.
 
 The Templates view (`#templates`, the Templates button in the top bar) keeps all of its code in `templates.js`, inside one
 function so its names cannot clash with `app.js`; `app.js` only has `setTemplatesMode()`, the drop routing (while the
