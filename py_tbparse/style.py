@@ -129,6 +129,11 @@ def _collect(source) -> list[dict]:
             raw = [_from_element(e) for e in _parse_tps(source).xpath("/workbook/preferences/color-palette")]
         else:
             raise StyleError(f"{label}: expected a .twb, .twbx, .tps or .style.json file")
+    return _classify(raw, label)
+
+
+def _classify(raw: list[dict], label: str) -> list[dict]:
+    """Give each raw palette a status (ok, warning, duplicate, invalid) and a reason."""
     out, seen = [], {}
     for p in raw:
         reason, warnings = _problem(p)
@@ -147,6 +152,37 @@ def _collect(source) -> list[dict]:
                 status = "warning"
         out.append({**p, "source": label, "status": status, "reason": reason or "; ".join(warnings)})
     return out
+
+
+def palette_records(source) -> list[dict]:
+    """Every palette of a source (path or `TwbParser`), valid or not, as records with `status` (ok, warning,
+    duplicate, invalid) and `reason`; `palette_problems` turns them into `check` lines."""
+    return _collect(source)
+
+
+def palettes_from_bytes(data: bytes, filename: str) -> list[dict]:
+    """Palette records read from the bytes of an uploaded `*.style.json` or `.tps` (decided by `filename`), without
+    touching disk. Same records as `import_palettes` reads from a path (`name`, `type`, `colors`, `attrs`, plus
+    `source`, `status`, `reason`); pass them as `palettes` to `plan_palette_import` or `build_with_palettes`."""
+    label = Path(filename).name
+    lower = label.lower()
+    if lower.endswith(".style.json"):
+        try:
+            style = json.loads(data.decode("utf-8-sig"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise StyleError(f"{label} is not JSON: {e}") from e
+        raw = _check_style(style)["palettes"]
+    elif lower.endswith(".tps"):
+        try:
+            root = etree.fromstring(data, etree.XMLParser(resolve_entities=False, no_network=True))
+        except etree.XMLSyntaxError as e:
+            raise StyleError(f"{label} is not XML: {e}") from e
+        if root.tag != "workbook":
+            raise StyleError(f"{label} is not a Preferences.tps (the root is <{root.tag}>, not <workbook>)")
+        raw = [_from_element(e) for e in root.xpath("/workbook/preferences/color-palette")]
+    else:
+        raise StyleError(f"{label}: expected a .style.json or .tps file")
+    return [r for r in _classify(raw, label) if not r.get("_skip")]
 
 
 def read_palettes(source: Union[str, os.PathLike, TwbParser], report: Optional[dict] = None) -> list[dict]:
@@ -376,7 +412,9 @@ def _incoming(palettes) -> list[dict]:
         palettes = [palettes]
     out = []
     for item in palettes:
-        if isinstance(item, dict):
+        if isinstance(item, dict) and "status" in item and "reason" in item:      # a record from `palettes_from_bytes`
+            out.append(item)
+        elif isinstance(item, dict):
             reason, warnings = _problem(item)
             out.append({**item, "attrs": dict(item.get("attrs") or {}) if isinstance(item.get("attrs"), dict) else {},
                         "source": "", "status": "invalid" if reason else ("warning" if warnings else "ok"),
@@ -543,6 +581,33 @@ def import_palettes(target, palettes, output_path=None, on_clash: str = "fail", 
     return str(out)
 
 
+def build_export(sources: list, fmt: str, select=None, on_clash: str = "fail", name: Optional[str] = None,
+                 report: Optional[dict] = None) -> bytes:
+    """The bytes of a `Preferences.tps` (`fmt="tps"`) or a style file (`fmt="json"`) holding the palettes of
+    `sources` (paths, parsers, dicts or records; merged in order, `on_clash` also applies between sources).
+    Nothing is written."""
+    if fmt not in ("tps", "json"):
+        raise StyleError("fmt must be 'tps' or 'json'")
+    if isinstance(sources, (str, os.PathLike, TwbParser)):
+        sources = [sources]
+    incoming = []
+    for s in sources:
+        incoming += _incoming(s)
+    rows, entries = _plan([], incoming, on_clash, select)
+    if any(r["action"] == "fail" for r in rows):
+        raise _clash_error(rows)
+    _fill_report(report, rows, entries)
+    final = [e["palette"] for e in entries]
+    if not final:
+        raise StyleError("no usable palettes found in " + ", ".join(_label(s) for s in sources if not isinstance(s, (dict, list))))
+    if fmt == "tps":
+        return tps_bytes(final)
+    labels = [_label(s) for s in sources if isinstance(s, (str, os.PathLike, TwbParser))]
+    style = make_style(final, name=name, sources=labels)
+    _check_style(style)
+    return (json.dumps(style, indent=2, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+
+
 def export_palettes(sources: list, output_path, select=None, on_clash: str = "fail", name: Optional[str] = None,
                     overwrite: bool = False, report: Optional[dict] = None) -> str:
     """Merge the palettes of `sources` (in argument order; `on_clash` also applies between sources) and write a
@@ -557,21 +622,8 @@ def export_palettes(sources: list, output_path, select=None, on_clash: str = "fa
     for s in sources:
         if not isinstance(s, (dict, list)) and out.exists() and not isinstance(s, TwbParser) and out.resolve() == Path(s).resolve():
             raise FileExistsError(f"refusing to overwrite the input: {out}")
-    incoming = []
-    for s in sources:
-        incoming += _incoming(s)
-    rows, entries = _plan([], incoming, on_clash, select)
-    if any(r["action"] == "fail" for r in rows):
-        raise _clash_error(rows)
-    _fill_report(report, rows, entries)
-    final = [e["palette"] for e in entries]
-    if not final:
-        raise StyleError("no usable palettes found in " + ", ".join(_label(s) for s in sources if not isinstance(s, (dict, list))))
-    if kind == "tps":
-        _open_new(out, tps_bytes(final), overwrite)
-    else:
-        labels = [_label(s) for s in sources if isinstance(s, (str, os.PathLike, TwbParser))]
-        save_style(make_style(final, name=name, sources=labels), out, overwrite=overwrite)
+    data = build_export(sources, kind, select=select, on_clash=on_clash, name=name, report=report)
+    _open_new(out, data, overwrite)
     return str(out)
 
 
@@ -595,6 +647,12 @@ def check_style_file(path: Union[str, os.PathLike]) -> list[str]:
         records = _collect(path)
     except StyleError as e:
         return [str(e)]
+    return palette_problems(records)
+
+
+def palette_problems(records: list[dict]) -> list[str]:
+    """The `check` lines for palette records (as `_collect` or `palettes_from_bytes` make them), in the words of
+    `check_style_file`; no palette at all is a problem."""
     problems = []
     if not records:
         problems.append("no <color-palette> found under <workbook><preferences>")

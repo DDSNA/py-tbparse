@@ -33,12 +33,16 @@ from .scaffold import (
 )
 from .style import (
     StyleError,
+    build_export,
     build_with_palettes,
     check_style_file,
     export_palettes,
     import_palettes,
     load_style,
     make_style,
+    palette_problems,
+    palette_records,
+    palettes_from_bytes,
     palettes_table,
     plan_palette_import,
     read_palettes,
@@ -174,6 +178,10 @@ __all__ = [
     "build_with_palettes",
     "import_palettes",
     "export_palettes",
+    "build_export",
+    "palette_records",
+    "palette_problems",
+    "palettes_from_bytes",
 ]
 
 try:
