@@ -1,115 +1,39 @@
-# py-tbparse: where things stand and what to do next
+# py-tbparse: where things stand (history of WP0 to WP5)
 
-> **Read `docs/template-next-plan.md` first** (2026-10-04): the decided, ordered and detailed plan for what to build
-> next (connection targets, tokens, template check, sanitize, basic audit and docs), the owner's decisions, versioning,
-> and the questions still open. This file keeps the history of WP0 to WP4 and the known gaps; its section 3 ("Next work
-> packages") is superseded by that plan.
+> **This file is history.** The plan is `docs/template-roadmap-plan.md` (research, every work package, order). For
+> what is current, do not trust any page in `docs/`: run `git log --oneline -20`, `gh pr list` and `gh issue list`,
+> and read `pyproject.toml` for the version. Rules for the work and the release: `AGENTS.md` ("Versioning",
+> "Release rules"). `docs/template-next-plan.md` keeps the detailed designs of packages A to F, all built now.
 
-Written 2026-10-02 for the next agent; state refreshed 2026-10-05 (main at `adce403`, after #42). Verify against the
-repo before relying on anything: `git log`, `gh pr list -R DDSNA/py-tbparse`, `gh issue list -R DDSNA/py-tbparse`,
-`git ls-remote --heads origin`; the state below is a dated snapshot and `main` moves. How to work with the owner and
-in this sandbox: the workspace's `CLAUDE.md` (local to the author's machine, not in this repo; if you do not have
-it, the rules are: commit as DDSNA with no Claude attribution, never push to `main` / force-push / merge / release
-unasked, work in a fresh worktree off `origin/main`, one PR per package, no version bump inside a PR). Versions:
-see "Versioning" in `AGENTS.md`. Architecture and testing conventions: `AGENTS.md`. The long plan with research
-and all work packages (WP0 to WP19): `docs/template-roadmap-plan.md` (brought over from the branch
-`docs/template-roadmap`, with a status note on top).
+Last refreshed 2026-10-06 (main at `4469dfa`, version 0.5.3 released as `v0.5.3`). Sections 1 (from "What was built")
+to 6 below were written on 2026-10-02 to 2026-10-05 and are kept for what was built, the decisions and the known
+gaps; whatever they say is open or unreleased is out of date unless the table here agrees.
 
-## 1. State
+## Current state (2026-10-06)
 
-| What | Where | State |
-|---|---|---|
-| `main` | origin | `adce403` (2026-10-05), `pyproject.toml` says **0.4.6**. Released: **v0.4.6** (tag on `5cf3c7b`, PyPI) with #17 (Docker server mode), #19 (WP0, WP1) and #18 (WP2, WP3, WP4 core, the Custom SQL validator fix). **Merged after the release, unreleased**: #20 (WP19 tokens), #21 (WP4b part 1, database targets), #22 (Docker publish workflow), #23 (WP5 `template check`, `show --markdown`), #35 (drain the request body before an early POST refusal), #38 (release workflow checks the tag against `pyproject.toml`; docker-publish comments), #40 (token review findings #24 to #27) and #42 (check and markdown findings #28 to #30 and #36, which built T009). |
-| Docker publish | `.github/workflows/docker-publish.yml` | on `main` (#22), **never run** (no release since); pushes to GHCR when a GitHub Release is published, using the `release` environment, without manual approval. After the first push the owner sets the package public. |
-| Open PR | #43 (draft) | tests only: the corpus target test on case-variant columns (`Town`/`TOWN`); see issue #41. |
-| Open issues | issues | #37 (WP10 audit, WP11 data dictionary), #39 (WP4b leftovers from #31 to #33: MySQL backslash escape, unverified remote types), #41 (corpus test fails on `TOWN`). #24 to #33 and #36 are closed. |
-| The long plan | `docs/template-roadmap-plan.md` | brought over from the branch `docs/template-roadmap` (that branch can go once this lands). |
-| Merged and deleted | `worktree-docker-server`, `worktree-wp0-verification`, `wp1-answers-matcher`, `wp19-tokens`, `docker-publish`, `wp5-check`, `wp4b-targets` | not on origin on 2026-10-05. |
-| Merged, branch still on origin | `wp3-template-update`, `fix-tokens-24-27`, `fix-check-engine` | merged through #18, #40 and #42; deleting them is the owner's call (`git ls-remote --heads origin` on 2026-10-05; `docs/template-roadmap` and `fix-corpus-town` are also there). |
+| Package | State on `main` |
+|---|---|
+| WP0 verification harness | done (`verify.py`, XSD differential; the owner opened the CSV and workbook outputs in Tableau) |
+| WP1 answers, ids, matcher, explain | done |
+| WP2 Excel input, WP3 `template update` (stages A, B), WP4 `apply-folder` | done; WP3 stage C (three-way merge) not started, not wanted yet |
+| WP4b part 1 database targets (MySQL, PostgreSQL, SQL Server, Snowflake) | done; leftovers in issue #39; part 2 (Oracle, Spark, Mongo, published data sources) has no samples and stays refused without `--experimental` |
+| WP5 `template check`, `show --markdown`; WP19 tokens | done |
+| WP6 libraries of calculated fields and parameters | first slice done; GUI Libraries view done |
+| WP7 colour palettes | slice 1 done (`style show/export/import/check`); GUI Styles view done; fonts and formatting not started |
+| WP8 writer fidelity | minimum done (`diff-xml`, `template apply --xml-diff`) |
+| WP9 GUI Templates view | done |
+| WP10 audit (A001-A011), WP10b `prune`, WP11 data dictionary | done at the basic level; GUI Audit view done |
+| WP12 `sanitize` | done (fake data from an SQL-type schema is not) |
+| WP16 dashboard scaffolds | first slice done (16a, 16b: zone resolver, `scaffold make/show/apply`) |
+| WP17 17b, 17c many files as one source, `template drift` | done |
+| WP18 JUnit, SARIF and GitHub output | done |
+| WP13, WP14, WP15, rest of WP16 | not started |
 
-History of the state before 2026-10-05 (what was open on 2026-10-04: #21 as a draft with conflicts, review findings
-#24 to #33, the Windows POST race) is in `git log` and `gh pr list --state all`; it is no longer repeated here.
+Open at this date: issue #39 (WP4b leftovers), #76 to #84 (bugs and follow-ups), #82 (nothing generated has been
+opened in Tableau beyond the WP0 pack). Nothing written for Excel, databases, tokens, scaffolds or styles has been
+opened in Tableau.
 
-```mermaid
-flowchart LR
-  subgraph g046["Release 0.4.6 (released)"]
-    direction TB
-    WP0["WP0 verify what is written<br/>"]:::rel
-    WP1["WP1 answers, ids, matcher, explain<br/>"]:::rel
-    WP2["WP2 Excel input<br/>"]:::rel
-    WP3["WP3 template update<br/>"]:::rel
-    WP4["WP4 apply-folder + sidecar<br/>"]:::rel
-    DKS["Docker server mode<br/>"]:::rel
-    R046["Release v0.4.6 [PyPI]<br/>"]:::rel
-  end
-  subgraph g047["Merged, unreleased (2026-10-05) and planned"]
-    direction TB
-    WP19["WP19 template tokens [#20, fixes #40]<br/>"]:::mer
-    WP5["WP5 template check, show --markdown [#23, fixes #42]<br/>"]:::mer
-    DPUB["Docker publish workflow [GHCR, #22, never run]<br/>"]:::mer
-    P4B["WP4b part 1 DB targets [MySQL, PG, SQL Server, Snowflake, #21]<br/>"]:::mer
-    T009["T009 token rule in check [#42]<br/>"]:::mer
-    I39["Issue #39 WP4b leftovers<br/>"]:::pl
-    P43["PR #43 corpus test fix [draft, tests only]<br/>"]:::pr
-    W10["WP10 basic audit [#37]<br/>"]:::pl
-    W11["WP11 data dictionary [#37]<br/>"]:::pl
-    W12["WP12 sanitize + fake data from SQL schema<br/>"]:::pl
-    TG["Token gaps: worksheet/dashboard names, parameter captions, default filter values<br/>"]:::pl
-    GH["Set GHCR package public<br/>"]:::pl
-    BP["Branch protection on main [require CI?]<br/>"]:::pl
-    P4BB["WP4b part 2: Oracle, Spark, MongoDB, published data sources<br/>"]:::bl
-    LATER["WP18, WP13, WP14, WP16, WP17 [later, owner picks]<br/>"]:::pl
-  end
-  subgraph g050["0.5.0 and later (owner's word)"]
-    direction TB
-    R050["Release 0.5.0, first templating release [full corpus run and browser suites first]<br/>"]:::pl
-    R05X["Later templating releases 0.5.x<br/>"]:::pl
-    W3C["WP3 stage C three-way merge<br/>"]:::pl
-  end
-  WP0 --> WP1
-  WP1 --> WP2
-  WP1 --> WP3
-  WP1 --> WP4
-  WP2 --> R046
-  WP3 --> R046
-  WP4 --> R046
-  DKS --> R046
-  WP0 --> R046
-  WP1 --> R046
-  WP1 --> WP19
-  WP4 --> P4B
-  WP19 --> T009
-  WP5 --> T009
-  WP5 --> W10
-  W10 --> W11
-  W10 --> LATER
-  P4B --> I39
-  P4B --> W12
-  P4B --> P4BB
-  WP19 --> TG
-  T009 --> R050
-  DPUB --> R050
-  WP19 --> R050
-  WP5 --> R050
-  P4B --> R050
-  R050 --> GH
-  DPUB --> GH
-  R050 --> R05X
-  R050 --> W3C
-  classDef rel fill:#2e7d32,stroke:#1b5e20,color:#fff
-  classDef mer fill:#1565c0,stroke:#0d47a1,color:#fff
-  classDef pr fill:#ef6c00,stroke:#bf360c,color:#fff
-  classDef pl fill:#546e7a,stroke:#37474f,color:#fff
-  classDef bl fill:#c62828,stroke:#7f0000,color:#fff
-```
-
-Green released, blue merged and unreleased, orange open PR, grey planned, red blocked. Arrows go from a
-prerequisite to what depends on it. WP12, WP4b part 2, the later packages and the 0.5.0 nodes are from the plans, not
-from the repo; whether #39 and #43 come before 0.5.0 is not decided, so they have no arrow to it. Part 2 of WP4b is "blocked" because no sample workbooks will come: a class without corpus evidence is
-refused without `--experimental`, or the package is skipped.
-
-Tests on the WP1 branch (before it merged): 449 non-browser tests pass (about 3.5 minutes, corpus included). **The browser (GUI)
-suites were not run on those branches** (no page code changed, but `main` has since changed `webgui.py` and the page).
+## 1. What was built (written 2026-10-05, WP0 to WP5)
 
 What was built, in one paragraph each:
 
@@ -126,7 +50,7 @@ What was built, in one paragraph each:
   `explain()`, and `broken_sheets()` naming dashboards, calculations and filters. CLI: `--answers`, `--profile`,
   `--explain`, `--check`, `--deep`. Documented in `docs/templates.md`.
 
-### Done since (merged: WP2 to WP4 through #18, released in 0.4.6; WP19, WP4b part 1 and WP5 through #20, #21 and #23, unreleased)
+### Done since (merged: WP2 to WP4 through #18, released in 0.4.6; WP19, WP4b part 1 and WP5 through #20, #21 and #23, released in 0.5.0)
 
 - **WP3 stages A and B** (`py_tbparse/template_update.py`, `tests/test_template_update.py`, CLI `template update`,
   `make_template(revision_of=)`): the report (`template_update_report`, `diff_template_revisions`) and the re-apply
@@ -164,29 +88,14 @@ What was built, in one paragraph each:
   after WP4; 668 passed with WP4b part 1) are from before later merges. The browser suites were not run on the
   merges since 0.4.6; #35 changed `webgui.py`.
 
-## 2. Do first
+## 2. Do first (out of date)
 
-1. **Open items**: issue #39 (WP4b leftovers: MySQL backslash escape, unverified remote types), issue #41 and the
-   draft PR #43 (the corpus target test on `Town`/`TOWN`; #43 is tests only). Before each PR run the whole non-browser
-   suite; run the browser suites (`./scripts/setup-browser-libs.sh` once; `pytest -q tests/test_gui_*.py`, one
-   Chromium at a time) when page code or `webgui.py` changed. Squash-merge is what the owner uses.
-2. **Then the next packages**: WP10 basic audit and WP11 data dictionary (package F of `docs/template-next-plan.md`,
-   issue #37). WP4b part 2 gets no sample workbooks: a class without corpus evidence stays refused without
-   `--experimental`, or is skipped.
-3. **Version.** See "Versioning" in `AGENTS.md`: 0.5.0 is the first templating release, cut only on the owner's
-   explicit word; no version bump inside a PR. The pre-release and wheel smoke-test checklist is in `AGENTS.md`
-   (the 0.4.5 release notes and plan the older text pointed to are local files, not in the repo). The first release
-   after #22 is also the first run of the Docker publish workflow.
-4. **More Tableau checks (the owner does them; you prepare the files).** Re-run
-   `python scripts/make_verification_pack.py <new folder>` on the merged code, and extend it for what is still
-   unchecked: a workbook that writes the object model in the plain form (corpus example
-   `AlexAlkhatib__alex-the-analyst__Classeur.twb`), a template over several tables, and file 1 (renamed) with its
-   data reachable so the new captions can be seen. Record results in the Status section of
-   `docs/verify-in-tableau.md`. The first run found a real bug the tests missed: expect that to happen again.
-5. **Backlog hygiene** (only if asked): the JSON and GitHub Project 6 did not list WP0, WP1, WP5 or the
-   "connection targets" stretch when this was first written (not re-checked). See the local `CLAUDE.md`.
+Replaced on 2026-10-06. Take the next package from `docs/template-roadmap-plan.md` and the open issues, and use the
+checklist in section 6. Two items from the old list still stand: more Tableau checks are the owner's (you prepare the
+files with `python scripts/make_verification_pack.py <new folder>` and record results in the Status section of
+`docs/verify-in-tableau.md`), and the version rules are in `AGENTS.md`.
 
-## 3. Next work packages
+## 3. Next work packages (history)
 
 History: WP3 (stages A and B) and WP2 below were built and merged through #18 (released in 0.4.6); the current plan
 is `docs/template-next-plan.md`. The text below is the original design, kept as written on 2026-10-02; its

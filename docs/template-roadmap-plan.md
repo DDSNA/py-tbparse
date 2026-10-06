@@ -1,15 +1,35 @@
 # py-tbparse: template roadmap (plan for an implementing agent)
 
-> **Status (first written 2026-10-04, refreshed 2026-10-05; read this first).** This is the research and the full
-> catalogue of packages as written on 2026-10-02 at 0.4.0, kept for its research and package descriptions; it was on
-> the branch `docs/template-roadmap`. The decided, ordered plan is `docs/template-next-plan.md`, and the state is in
-> `docs/next-steps.md`; for anything current use `git log` and `gh pr list`.
-> - Built: WP0 to WP4 core, released in **0.4.6**; WP19 tokens (#20), WP4b part 1 (database targets, #21) and WP5
->   `template check` / `show --markdown` (#23) merged after it, unreleased. The review findings #24 to #33 are fixed.
-> - Out of date here: section 0 (the commit identity is **DDSNA**, not Dan; `py-tbparse-HANDOFF.md`, the 26-test
->   baseline and the 855-line `templates.py` are history), section 4 item 7 (versions: superseded by "Versioning" in
->   `AGENTS.md`), and section 5 (the first message for WP1). The files under `/home/claude-user/ai-sandbox/` that this
->   page names are the author's local files, not in the repo.
+> **Status (refreshed 2026-10-06; read this first).** This is the research and the full catalogue of packages as
+> written on 2026-10-02 at 0.4.0, and it is the plan to work from; it was on the branch `docs/template-roadmap`. For
+> what is current use `git log`, `gh pr list` and `pyproject.toml` (0.5.3 is released). `docs/template-next-plan.md`
+> keeps the detailed designs of packages A to F (all built) and `docs/next-steps.md` the history of WP0 to WP5.
+>
+> Done on `main`:
+>
+> | Package | State on `main` |
+> |---|---|
+> | WP0 verification harness | done (`verify.py`, XSD differential; the owner opened the CSV and workbook outputs in Tableau) |
+> | WP1 answers, ids, matcher, explain | done |
+> | WP2 Excel input, WP3 `template update` (stages A, B), WP4 `apply-folder` | done; WP3 stage C (three-way merge) not started, not wanted yet |
+> | WP4b part 1 database targets (MySQL, PostgreSQL, SQL Server, Snowflake) | done; leftovers in issue #39; part 2 (Oracle, Spark, Mongo, published data sources) has no samples and stays refused without `--experimental` |
+> | WP5 `template check`, `show --markdown`; WP19 tokens | done |
+> | WP6 libraries of calculated fields and parameters | first slice done; GUI Libraries view done |
+> | WP7 colour palettes | slice 1 done (`style show/export/import/check`); GUI Styles view done; fonts and formatting not started |
+> | WP8 writer fidelity | minimum done (`diff-xml`, `template apply --xml-diff`) |
+> | WP9 GUI Templates view | done |
+> | WP10 audit (A001-A011), WP10b `prune`, WP11 data dictionary | done at the basic level; GUI Audit view done |
+> | WP12 `sanitize` | done (fake data from an SQL-type schema is not) |
+> | WP16 dashboard scaffolds | first slice done (16a, 16b: zone resolver, `scaffold make/show/apply`) |
+> | WP17 17b, 17c many files as one source, `template drift` | done |
+> | WP18 JUnit, SARIF and GitHub output | done |
+> | WP13, WP14, WP15, rest of WP16 | not started |
+>
+> Out of date in the text below: section 0 (the commit identity is **DDSNA**, not Dan; `py-tbparse-HANDOFF.md`, the
+> 26-test baseline and the 855-line `templates.py` are history; the files under `/home/claude-user/ai-sandbox/` that
+> this page names are the author's local files, not in the repo), section 4 item 7 (versions: see "Versioning" in
+> `AGENTS.md`), and section 5 (the first message for WP1). Tests run as `scripts/ci-like-tests.sh`, not
+> `python -m pytest` (see `docs/development.md`).
 > - WP19 as built covers titles, text objects, field and datasource captions and string parameter values; sheet names,
 >   parameter captions and default filter values (listed in 4b.2) are not token places yet.
 

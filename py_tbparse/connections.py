@@ -239,6 +239,7 @@ def check_target(raw, p: Path, experimental: bool = False) -> dict:
                                 "pass experimental=True (--experimental) to write it anyway")
         if not isinstance(auth, str) or not _PLAIN_NAME.fullmatch(auth):
             raise TemplateError(f"{p.name}: authentication must be a plain name (letters, digits, '_', '.', '-')")
+    ignored_auth = auth if auth is not None and not conn.authentication else None
     if ("columns" in raw) == ("schema_file" in raw):
         raise TemplateError(f"{p.name}: give the table's columns either as \"columns\" or as \"schema_file\", not both or neither")
     if "schema_file" in raw and (not isinstance(raw["schema_file"], str) or not raw["schema_file"].strip()):
@@ -249,6 +250,9 @@ def check_target(raw, p: Path, experimental: bool = False) -> dict:
         schema_path = Path(raw["schema_file"])
         schema = read_schema(str(schema_path if schema_path.is_absolute() else p.parent / schema_path))
     warned: list[str] = []
+    if ignored_auth is not None:
+        warned.append(f"authentication {ignored_auth!r} is not written: Tableau's {cls} connection has no authentication "
+                      "attribute (none of the corpus's MySQL connections has one), so Tableau asks for the login")
     columns = []
     for col in schema.columns:
         tableau = sql_to_tableau_type(col["type"], warn=warned.append, column=col["name"])

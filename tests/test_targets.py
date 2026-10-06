@@ -735,3 +735,16 @@ def test_target_make_overwrite_keeps_old_file_when_validation_fails(tmp_path, ca
     assert [p.name for p in tmp_path.iterdir()] == ["a.target.json"]                 # no temp file left behind
     assert main(base[:-2] + ["-c", "b:text", "-o", str(out), "--overwrite"]) == 0
     assert "b" in out.read_text(encoding="utf-8") and [p.name for p in tmp_path.iterdir()] == ["a.target.json"]
+
+
+def test_mysql_authentication_is_never_written_and_says_so(tmp_path):
+    """Tableau's MySQL connection has no `authentication` attribute (7 of 7 in the corpus); with --experimental the
+    value used to vanish without a word. It is still not written, but the reader warns."""
+    path = target_of(tmp_path, "mysql", authentication="sspi", columns=[{"name": "a", "type": "int"}])
+    with pytest.warns(UserWarning, match="authentication .sspi. is not written.*mysql"):
+        data = read_data(path, experimental=True)
+    assert "authentication" not in connection_attributes(data.target)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        read_data(target_of(tmp_path, "mysql", name="plain.target.json",
+                            columns=[{"name": "a", "type": "int"}]))   # no value, no warning about it

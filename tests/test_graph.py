@@ -95,3 +95,25 @@ def test_graph_data_agrees_with_the_dot_text(wenjie_path):
         for n in g["nodes"]:
             assert f'"{n["id"]}"' in dot
         assert dot.count(" -> ") == len(g["edges"])
+
+
+def test_dot_matches_graph_data_on_real_workbooks():
+    # to_dot and graph_data share one edge list; over the real corpus, the DOT text has exactly one node line per
+    # node and one edge line per edge (skipped when the corpus is not fetched)
+    from pathlib import Path
+
+    import pytest
+
+    files = sorted((Path(__file__).parent / "corpus" / "files").glob("*.twb"))
+    if not files:
+        pytest.skip("corpus not fetched: python scripts/fetch_corpus.py")
+    with_edges = 0
+    for path in files:
+        p = TwbParser(str(path))
+        data = p.get_relationship_graph_data(include_inferred=True)
+        dot = p.get_relationship_graph_dot(include_inferred=True)
+        lines = dot.splitlines()
+        assert len([ln for ln in lines if " -> " in ln]) == len(data["edges"]), path.name
+        assert len([ln for ln in lines if ln.endswith('";') and " -> " not in ln]) == len(data["nodes"]), path.name
+        with_edges += bool(data["edges"])
+    assert with_edges > 20

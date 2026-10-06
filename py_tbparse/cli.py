@@ -1240,6 +1240,9 @@ def _run_prune(argv: list[str]) -> int:
     ap.add_argument("--output", "-o", help="the .twb or .twbx to write, same format as the input (needs --write)")
     ap.add_argument("--sheets", action="store_true",
                     help="also remove worksheets that are on no dashboard, story or tooltip (A006; off by default)")
+    ap.add_argument("--datasources", action="store_true",
+                    help="also remove datasources nothing names any more (off by default; the Parameters "
+                         "datasource only when it is empty and unnamed; the last datasource is never removed)")
     ap.add_argument("--no-calculations", action="store_true", help="leave calculations alone")
     ap.add_argument("--no-parameters", action="store_true", help="leave parameters alone")
     ap.add_argument("--overwrite", action="store_true", help="replace an existing OUT (never the input)")
@@ -1254,7 +1257,7 @@ def _run_prune(argv: list[str]) -> int:
     try:
         report = prune(args.workbook, args.output if args.write else None, sheets=args.sheets,
                        calculations=not args.no_calculations, parameters=not args.no_parameters,
-                       overwrite=args.overwrite)
+                       overwrite=args.overwrite, datasources=args.datasources)
     except (PruneError, FileExistsError, *_WORKBOOK_ERRORS) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2

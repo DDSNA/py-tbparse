@@ -40,10 +40,10 @@ from .rename import _serialize_workbook
 from .templates import _write_new
 from .workbook_audit import _Facts, sheets_in_no_dashboard, unused_calculations, unused_parameters
 
-CATEGORIES = ("calculations", "parameters", "sheets")
+CATEGORIES = ("calculations", "parameters", "sheets", "datasources")
 
 TRACE_KINDS = ("columns", "column_instances", "metadata_records", "folder_items", "hierarchy_fields",
-               "style_entries", "dependency_entries", "sheets", "windows", "thumbnails")
+               "style_entries", "dependency_entries", "sheets", "windows", "thumbnails", "datasources")
 
 
 class PruneError(ValueError):
@@ -185,9 +185,10 @@ def _sheet_traces(doc, cand: _Candidate) -> None:
     cand.names = {name}
 
 
-def _referrers(doc, cands: list[_Candidate], sheets: bool) -> dict:
+def _referrers(doc, cands: list[_Candidate], sheets) -> dict:
     """name -> the first element outside the candidates' own traces that mentions it (only for the names
-    the candidates have). `sheets` reads exact values and tooltip text, otherwise bracketed names."""
+    the candidates have). `sheets=True` reads exact values and tooltip text, `False` bracketed names, and
+    `"both"` (datasources) reads both."""
     own = {id(el) for c in cands for el in c.roots}
     wanted = set().union(*(c.names for c in cands)) if cands else set()
     seen: dict = {}
@@ -196,13 +197,14 @@ def _referrers(doc, cands: list[_Candidate], sheets: bool) -> dict:
         el = stack.pop()
         if id(el) in own or not isinstance(el.tag, str):
             continue
-        for n in (_el_values(el) if sheets else _el_names(el)) & wanted:
+        found = (_el_values(el) | _el_names(el)) if sheets == "both" else (_el_values(el) if sheets else _el_names(el))
+        for n in found & wanted:
             seen.setdefault(n, el)
         stack.extend(reversed(list(el)))
     return seen
 
 
-def _settle(doc, cands: list[_Candidate], sheets: bool) -> tuple[list[_Candidate], list[tuple]]:
+def _settle(doc, cands: list[_Candidate], sheets) -> tuple[list[_Candidate], list[tuple]]:
     """Fixpoint: drop every candidate that something staying still names, until nothing changes.
     Returns (removable, [(candidate, referrer element)])."""
     current = list(cands)
@@ -262,45 +264,56 @@ def _candidates(doc, calculations: bool, parameters: bool) -> list[_Candidate]:
     return [c for c in out if any(k == "columns" for k, _ in c.traces)]
 
 
-def prune(
-    workbook: Union[TwbParser, str],
-    output_path: Optional[str] = None,
+def _datasource_candidates(doc) -> tuple[list[_Candidate], list[dict]]:
+    """Every datasource as a candidate; the datasource element is its only trace and its internal name the
+    name to look for. `Parameters` is a candidate only when it holds no column at all. If every real
+    datasource would be candidates, none is (a workbook is not left without data). Returns (candidates,
+    kept rows for what was never a candidate)."""
+    out: list[_Candidate] = []
+    kept: list[dict] = []
+    real = [d for d in doc.xpath("/workbook/datasources/datasource") if d.get("name") != "Parameters"]
+    for ds in doc.xpath("/workbook/datasources/datasource"):
+        name = ds.get("name")
+        if not name:
+            continue
+        label = ds.get("caption") or name
+        if name == "Parameters" and ds.find("column") is not None:
+            kept.append({"category": "datasources", "object": label,
+                         "reason": "the Parameters datasource still holds parameters", "referrer": ""})
+            continue
+        c = _Candidate("datasources", ("", name), label,
+                       "no worksheet, dashboard, action or other element names this datasource")
+        c.traces.append(("datasources", ds))
+        c.names = {name}
+        out.append(c)
+    return out, kept
+
+
+def prune_doc(
+    doc,
     sheets: bool = False,
     calculations: bool = True,
     parameters: bool = True,
-    overwrite: bool = False,
+    datasources: bool = False,
 ) -> dict:
-    """Prune a workbook (a path or a `TwbParser`). Without `output_path` nothing is written (a dry run);
-    with it a NEW file is written, in the input's format, and the input is never touched; an existing
-    output is refused unless `overwrite=True`.
+    """Prune a parsed workbook document IN PLACE (an lxml `ElementTree` or the `<workbook>` element, e.g.
+    `TwbParser.xml_doc`; pass a copy to keep the original). Nothing is read or written on disk. The rules
+    are those of `prune`; the extra switch is `datasources=True`, which runs last and also removes every
+    `<datasource>` that nothing outside it names (by internal name, in any attribute or text: worksheet and
+    dashboard datasource lists, dependency lists, actions, filters...). `Parameters` goes only when it holds
+    no column and nothing names it; the last real datasource is never removed (all would-be removals are
+    kept instead). Names are matched over the whole workbook, so doubt keeps the datasource.
 
-    Removes the calculations (A001) and parameters (A005) the audit finds unused and, with `sheets=True`
-    only, the worksheets of A006, each only if nothing that stays refers to it (see the module text).
-    With `sheets=True` the sheets go first, and a field only they used is then pruned as well.
-
-    Returns a dict: `removed` (rows `category, object, name, detail, traces`; `name` is the internal name), `kept` (rows `category, object,
-    reason, referrer`: a finding that was not removed, and what still names it), `counts` (per category),
-    `traces` (elements removed, per kind), `dry_run` and `output`."""
-    if not isinstance(workbook, TwbParser):
-        workbook = TwbParser(str(workbook))
-    out = None
-    if output_path is not None:
-        out = Path(output_path)
-        source = Path(workbook.twbx_path or workbook.path)
-        if out.suffix.lower() != source.suffix.lower():
-            raise PruneError(f"the output must end in {source.suffix}, got {out.suffix or 'no extension'}")
-        if out.exists() and source.exists() and (out.resolve() == source.resolve() or out.samefile(source)):
-            raise FileExistsError(f"refusing to overwrite the input workbook: {out}")
-        if out.exists() and not overwrite:
-            raise FileExistsError(f"refusing to overwrite existing file: {out} (use --overwrite)")
-
-    doc = copy.deepcopy(workbook.xml_doc)
+    Returns the report of `prune` without the file keys: `removed`, `kept`, `counts` (a `datasources`
+    entry only when `datasources=True`) and `traces`."""
+    if not hasattr(doc, "getroot"):
+        doc = doc.getroottree()
     counts = {k: 0 for k in TRACE_KINDS}
     removed: list[dict] = []
     kept: list[dict] = []
 
-    def run(cands: list[_Candidate], sheet_mode: bool) -> None:
-        removable, blocked = _settle(doc, cands, sheet_mode)
+    def run(cands: list[_Candidate], mode) -> None:
+        removable, blocked = _settle(doc, cands, mode)
         for c, el in blocked:
             kept.append({"category": c.category, "object": c.label,
                          "reason": "still named by " + _where(el), "referrer": _where(el)})
@@ -326,11 +339,72 @@ def prune(
             run(cands, True)
     if calculations or parameters:
         run(_candidates(doc, calculations, parameters), False)
+    if datasources:
+        cands, not_cands = _datasource_candidates(doc)
+        kept.extend(not_cands)
+        removable, blocked = _settle(doc, cands, "both")
+        real_all = {d.get("name") for d in doc.xpath("/workbook/datasources/datasource") if d.get("name") != "Parameters"}
+        gone_real = {c.key[1] for c in removable} & real_all
+        if real_all and gone_real == real_all:
+            for c in removable:
+                if c.key[1] in real_all:
+                    kept.append({"category": "datasources", "object": c.label,
+                                 "reason": "it is the last datasource of the workbook; none is removed",
+                                 "referrer": ""})
+            removable = [c for c in removable if c.key[1] not in real_all]
+        for c, el in blocked:
+            kept.append({"category": c.category, "object": c.label,
+                         "reason": "still named by " + _where(el), "referrer": _where(el)})
+        for c in removable:
+            removed.append({"category": c.category, "object": c.label, "name": c.key[1], "detail": c.detail,
+                            "traces": ["datasources"]})
+        _apply(doc, removable, counts)
 
     cat_counts = {c: sum(1 for r in removed if r["category"] == c) for c in CATEGORIES}
-    report = {"removed": removed, "kept": kept, "counts": cat_counts,
-              "traces": {k: v for k, v in counts.items() if v},
-              "dry_run": out is None, "output": None, "input": str(workbook.twbx_path or workbook.path)}
+    if not datasources:
+        del cat_counts["datasources"]
+    return {"removed": removed, "kept": kept, "counts": cat_counts,
+            "traces": {k: v for k, v in counts.items() if v}}
+
+
+def prune(
+    workbook: Union[TwbParser, str],
+    output_path: Optional[str] = None,
+    sheets: bool = False,
+    calculations: bool = True,
+    parameters: bool = True,
+    overwrite: bool = False,
+    datasources: bool = False,
+) -> dict:
+    """Prune a workbook (a path or a `TwbParser`). Without `output_path` nothing is written (a dry run);
+    with it a NEW file is written, in the input's format, and the input is never touched; an existing
+    output is refused unless `overwrite=True`.
+
+    Removes the calculations (A001) and parameters (A005) the audit finds unused and, with `sheets=True`
+    only, the worksheets of A006, each only if nothing that stays refers to it (see the module text).
+    With `sheets=True` the sheets go first, and a field only they used is then pruned as well.
+    `datasources=True` (off by default) then also removes datasources nothing names any more (`prune_doc`).
+
+    Returns a dict: `removed` (rows `category, object, name, detail, traces`; `name` is the internal name), `kept` (rows `category, object,
+    reason, referrer`: a finding that was not removed, and what still names it), `counts` (per category),
+    `traces` (elements removed, per kind), `dry_run` and `output`."""
+    if not isinstance(workbook, TwbParser):
+        workbook = TwbParser(str(workbook))
+    out = None
+    if output_path is not None:
+        out = Path(output_path)
+        source = Path(workbook.twbx_path or workbook.path)
+        if out.suffix.lower() != source.suffix.lower():
+            raise PruneError(f"the output must end in {source.suffix}, got {out.suffix or 'no extension'}")
+        if out.exists() and source.exists() and (out.resolve() == source.resolve() or out.samefile(source)):
+            raise FileExistsError(f"refusing to overwrite the input workbook: {out}")
+        if out.exists() and not overwrite:
+            raise FileExistsError(f"refusing to overwrite existing file: {out} (use --overwrite)")
+
+    doc = copy.deepcopy(workbook.xml_doc)
+    report = prune_doc(doc, sheets=sheets, calculations=calculations, parameters=parameters,
+                       datasources=datasources)
+    report.update({"dry_run": out is None, "output": None, "input": str(workbook.twbx_path or workbook.path)})
     if out is not None:
         data = _serialize_workbook(workbook, doc)
         _write_new(out, data, overwrite)
@@ -351,8 +425,9 @@ def format_report(report: dict) -> str:
     if lines:
         lines.append("")
     c = report["counts"]
+    ds = f", {c['datasources']} datasource(s)" if "datasources" in c else ""
     lines.append(f"{verb}: {c['calculations']} calculation(s), {c['parameters']} parameter(s), {c['sheets']} sheet(s)"
-                 f"; kept {len(report['kept'])} finding(s) that something still uses")
+                 f"{ds}; kept {len(report['kept'])} finding(s) that something still uses")
     if report["dry_run"]:
         lines.append("dry run: nothing was written (use --write -o OUT)")
     else:

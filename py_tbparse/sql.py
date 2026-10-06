@@ -6,6 +6,7 @@ Port of R/sql.R (`twb_custom_sql`, `twb_initial_sql`).
 from __future__ import annotations
 
 import re
+from typing import Iterator
 
 import pandas as pd
 
@@ -15,32 +16,44 @@ _CUSTOM_SQL_COLUMNS = ["relation_name", "relation_type", "custom_sql", "is_custo
 _INITIAL_SQL_COLUMNS = ["connection_id", "initial_sql"]
 
 
+def custom_sql_relations(xml_doc) -> Iterator[tuple]:
+    """`(relation element, SQL text, is_custom_sql)` for every relation that carries a query, in document order.
+
+    Two shapes: `<relation formula="...">` (the R package's only one; custom SQL when the text starts with SELECT
+    or WITH, whatever the type) and `<relation type="text">query</relation>`, where Tableau keeps the query of a "New Custom SQL"
+    table (custom SQL by its type; one with no text is skipped). Nothing is merged here: Tableau repeats a
+    relation (in the object model, for instance), and a caller merges by whatever it names the query by."""
+    for r in xml_doc.xpath("//relation[@formula or @type='text']"):
+        formula = r.get("formula")
+        if formula is not None:
+            yield r, formula, bool(_SELECT_OR_WITH_RE.match(formula))
+        else:
+            text = "".join(r.itertext()).strip()
+            if text:
+                yield r, text, True
+
+
 def extract_custom_sql(xml_doc) -> pd.DataFrame:
-    """Port of `twb_custom_sql()`.
+    """Port of `twb_custom_sql()`, plus the shape Tableau writes for custom SQL (see `custom_sql_relations`).
 
-    Finds every `<relation formula="...">` node that looks like a SQL
-    statement.
-    """
-    rels = xml_doc.xpath("//relation[@formula]")
-    if not rels:
-        return pd.DataFrame(columns=_CUSTOM_SQL_COLUMNS)
-
+    One row per relation that carries a query; a `type="text"` relation that the workbook repeats with the same
+    name and query is listed once."""
     rows = []
-    for r in rels:
-        custom_sql = r.get("formula")
-        if custom_sql is None:
-            continue
+    seen = set()
+    for r, sql, is_custom in custom_sql_relations(xml_doc):
+        if r.get("formula") is None:
+            key = (r.get("name"), sql)
+            if key in seen:
+                continue
+            seen.add(key)
         rows.append(
             {
                 "relation_name": r.get("name"),
                 "relation_type": r.get("type"),
-                "custom_sql": custom_sql,
-                "is_custom_sql": bool(_SELECT_OR_WITH_RE.match(custom_sql)),
+                "custom_sql": sql,
+                "is_custom_sql": is_custom,
             }
         )
-
-    if not rows:
-        return pd.DataFrame(columns=_CUSTOM_SQL_COLUMNS)
     return pd.DataFrame(rows, columns=_CUSTOM_SQL_COLUMNS)
 
 

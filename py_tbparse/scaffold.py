@@ -16,7 +16,6 @@ from __future__ import annotations
 import copy
 import json
 import os
-import uuid
 from pathlib import Path
 from typing import Optional, Union
 
@@ -26,6 +25,7 @@ from lxml import etree
 from .dashboards import CONTAINER_KINDS, _dashboard_xpath, integrity_check, zone_kind
 from .parser import TwbParser
 from .rename import _serialize_workbook
+from .sheetcopy_core import add_window, new_uuid as _new_uuid
 
 FORMAT = "py-tbparse-scaffold"
 VERSION = 1
@@ -214,14 +214,6 @@ def _choose(scaffold: dict, sheets, worksheets: set, allow_empty: bool) -> list[
     return picked
 
 
-def _new_uuid(taken: set) -> str:
-    while True:
-        u = "{" + str(uuid.uuid4()).upper() + "}"
-        if u not in taken:
-            taken.add(u)
-            return u
-
-
 def _fill(layout, picked: list, counter: list) -> None:
     """Number the zones 1..n in document order and turn slot zones into sheet (or blank) zones."""
     for z in layout.iter("zone"):
@@ -300,17 +292,7 @@ def build_scaffold_workbook(parser: TwbParser, scaffold: dict, name: str, sheets
             root.append(dashboards)
     dashboards.append(db)
 
-    windows = doc.find("windows")
-    if windows is None:
-        windows = etree.Element("windows")
-        dashboards.addnext(windows)
-    win = etree.SubElement(windows, "window", {"class": "dashboard", "name": name})
-    vps = etree.SubElement(win, "viewpoints")
-    for sheet in picked:
-        if sheet is not None:
-            etree.SubElement(vps, "viewpoint", name=sheet)
-    etree.SubElement(win, "active", id="-1")      # the schema wants it; -1 is "no zone selected"
-    etree.SubElement(win, "simple-id", uuid=win_uuid)
+    add_window(doc, "dashboard", name, [sheet for sheet in picked if sheet is not None], win_uuid)
 
     problems = integrity_check(doc, dashboard=name, require_window=True)
     if problems:       # a bug here, never the user's mistake: refuse to write a broken dashboard
