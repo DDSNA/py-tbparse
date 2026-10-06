@@ -41,6 +41,7 @@ class Subject:
     parser: Any = None
     template: Any = None
     path: Optional[str] = None
+    extra: Any = None       # anything else a scope needs (`template drift` puts its files and mapping here)
 
 
 @dataclass
