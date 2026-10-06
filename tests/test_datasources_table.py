@@ -37,9 +37,9 @@ def test_demo_workbook_has_no_blank_rows():
 def test_wenjie_rows_are_filled_and_agree(wenjie_xml):
     ds = table(wenjie_xml).set_index("primary_table")
     assert list(ds.index) == ["[Municipal_Boundaries_of_NJ]", "[Sheet1$]"]
-    # both tables sit in the same Tableau datasource, so name and field count agree
+    # both tables sit in the same Tableau datasource (name agrees); each has its own field count (#79)
     assert set(ds["datasource_name"]) == {"federated.0grgaor1pd01yy1f0yr380of1ags"}
-    assert (ds["field_count"] == 110).all()
+    assert dict(ds["field_count"]) == {"[Municipal_Boundaries_of_NJ]": 26, "[Sheet1$]": 3}
     shp, xls = ds.loc["[Municipal_Boundaries_of_NJ]"], ds.loc["[Sheet1$]"]
     assert shp["connection_class"] == "ogrdirect" and xls["connection_class"] == "excel-direct"
     assert shp["connection_type"] == "ogrdirect" and xls["connection_type"] == "excel-direct"
@@ -150,3 +150,54 @@ def test_datasource_without_object_graph_gets_one_row():
 def test_workbook_without_datasources_is_empty_with_columns():
     ds = table(xml_from_string("<workbook/>"))
     assert ds.empty and set(ds.columns) == set(COLUMNS)
+
+
+# field_count per table (issue #79) -----------------------------------------------------------------------------
+
+def _rec(table, local):
+    return (f"<metadata-record class='column'><local-name>[{local}]</local-name>"
+            f"<parent-name>[{table}]</parent-name></metadata-record>")
+
+
+TWO_TABLES = """
+<workbook><datasources>
+  <datasource name="federated.x">
+    <connection class="federated">
+      <relation type="join">
+        <relation name="Orders" table="[Orders$]" type="table"/>
+        <relation name="Returns" table="[Returns$]" type="table"/>
+      </relation>
+      <metadata-records>%s</metadata-records>
+    </connection>
+    <column name="[Calc]" datatype="integer" role="measure"/>
+    <column name="[a]"/><column name="[b]"/><column name="[c]"/><column name="[d]"/><column name="[e]"/>
+    <object-graph><objects>
+      <object id="o1"><properties context=""><relation name="Orders" table="[Orders$]" type="table"/></properties></object>
+      <object id="o2"><properties context=""><relation name="Returns" table="[Returns$]" type="table"/></properties></object>
+    </objects></object-graph>
+  </datasource>
+</datasources></workbook>
+"""
+
+
+def test_field_count_is_per_table_and_copies_are_not_double_counted():
+    hexed = "A" * 32
+    recs = "".join(_rec("Orders", c) for c in "abcd") + "".join(_rec(f"Orders_{hexed}", c) for c in "abcd")
+    recs += _rec("Returns", "a") + _rec("Returns", "b")
+    ds = table(xml_from_string(TWO_TABLES % recs)).set_index("datasource")
+    assert ds.loc["Orders", "field_count"] == 4
+    assert ds.loc["Returns", "field_count"] == 2
+
+
+def test_field_count_counts_a_hex_copy_when_there_is_no_plain_name():
+    recs = "".join(_rec("Orders_" + "B" * 32, c) for c in "abc") + _rec("Returns", "a")
+    ds = table(xml_from_string(TWO_TABLES % recs)).set_index("datasource")
+    assert ds.loc["Orders", "field_count"] == 3 and ds.loc["Returns", "field_count"] == 1
+
+
+def test_field_count_falls_back_to_the_whole_datasource_without_metadata():
+    ds = table(xml_from_string(TWO_TABLES % ""))
+    assert list(ds["field_count"]) == [6, 6]
+    # a table the metadata does not mention keeps the whole count, the other one is counted
+    ds = table(xml_from_string(TWO_TABLES % _rec("Orders", "a"))).set_index("datasource")
+    assert ds.loc["Orders", "field_count"] == 1 and ds.loc["Returns", "field_count"] == 6
