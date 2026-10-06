@@ -25,6 +25,7 @@ from typing import Iterable, Optional, Union
 
 from lxml import etree
 
+from ._xml import ANY_RELATION
 from .parser import TwbParser
 from .templates import (
     DataSource,
@@ -190,7 +191,7 @@ def _scrub_table_names(doc, run: _Run) -> None:
     rewritten (other parts of the workbook refer to them); they show up in the leftovers."""
     if not run.qualifiers:
         return
-    for rel in doc.xpath("//relation[@table]"):
+    for rel in doc.xpath(f"//{ANY_RELATION}[@table]"):
         pieces = _TABLE_PARTS.split(rel.get("table"))
         changed = False
         for i, piece in enumerate(pieces[:-1]):   # the last piece is the table itself
@@ -206,7 +207,7 @@ def _scrub_table_names(doc, run: _Run) -> None:
 def _scrub_sql(doc, run: _Run) -> None:
     if not run.active("custom_sql"):
         return
-    for rel in doc.iter("relation"):
+    for rel in doc.xpath(f"//{ANY_RELATION}"):
         text = (rel.text or "")
         is_text = rel.get("type") == "text"
         formula = rel.get("formula")
@@ -318,7 +319,7 @@ def _find_leftovers(doc, run: _Run) -> None:
         if _USER_FUNCTIONS.search(formula):
             run.leftover("user function in a calculation", _label(col),
                          "USERNAME()/FULLNAME()/ISMEMBEROF() and the like are kept (the calculation is not rewritten)")
-    tables = doc.xpath("//relation[@table]")
+    tables = doc.xpath(f"//{ANY_RELATION}[@table]")
     if tables:
         run.leftover("table names", f"{len(tables)} relation(s)",
                      "table names are kept, often qualified with the database and schema name: worksheets, "
