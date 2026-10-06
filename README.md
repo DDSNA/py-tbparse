@@ -22,6 +22,7 @@ It began as a port of PrigasG's R package [twbparser](https://github.com/PrigasG
 - Makes one workbook per file in a folder (`template apply-folder`), brings a workbook up to a newer template revision (`template update`) and lints a template (`template check`).
 - Audits a workbook (`audit`: unused or duplicate calculations, missing references, custom SQL, absolute-path leftovers) and writes a Markdown data dictionary of it (`docs`). Read-only; never opened in Tableau.
 - Writes a share-safe copy of a workbook (`sanitize IN OUT --report`): user names, servers, databases, paths, custom SQL, extracts, comments and thumbnails out, a report of what was removed and what it could not judge, optional placeholders and synthetic data. A clean-up, not a guarantee.
+- Removes what the audit finds unused (`prune WORKBOOK`: unused calculations and parameters, worksheets on no dashboard only with `--sheets`), only if nothing that stays refers to it. A dry run by default; `--write -o OUT` writes a new file.
 - Writes the findings of `validate`, `audit` and `template check` as JUnit, SARIF or GitHub annotations for CI (`--format junit|sarif|github`), with a pre-commit hook and a sample workflow.
 - Takes calculated fields and parameters out of one workbook into a library file and adds them to another (`library export`, `library import`). The output follows what Tableau writes but has not been opened in Tableau.
 - Takes named colour palettes out of workbooks and `Preferences.tps` files and writes them into a new `Preferences.tps`, a JSON file or a copy of a workbook (`style show`, `export`, `import`, `check`). Palettes only: it adds them to the colour picker and recolours nothing, and it has not been opened in Tableau.
@@ -87,6 +88,7 @@ scan_folder("./workbooks", table="datasources")   # one table, every workbook in
 - [Templates](https://github.com/DDSNA/py-tbparse/blob/main/docs/templates.md): make a template from a workbook and apply it to new data.
 - [Sanitize](https://github.com/DDSNA/py-tbparse/blob/main/docs/sanitize.md): the share-safe copy, its categories, the report and the optional synthetic data.
 - [CI output and pre-commit](https://github.com/DDSNA/py-tbparse/blob/main/docs/ci.md): `--format junit|sarif|github`, exit codes, rule ids, sample workflow.
+- [Prune](https://github.com/DDSNA/py-tbparse/blob/main/docs/prune.md): what it removes, what keeps a field, the report, the limits.
 - [Audit and data dictionary](https://github.com/DDSNA/py-tbparse/blob/main/docs/audit.md): the audit rules A001 to A011, what "used" means, the Markdown data dictionary.
 - [Libraries](https://github.com/DDSNA/py-tbparse/blob/main/docs/libraries.md): export calculated fields and parameters, add them to another workbook, what is not covered.
 - [Colour palettes](https://github.com/DDSNA/py-tbparse/blob/main/docs/styles.md): list, export and import named palettes, the clash policy, why nothing is recoloured and what was not checked in Tableau.

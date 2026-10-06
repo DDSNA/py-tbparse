@@ -61,6 +61,8 @@ Notes from `--help`:
 
 `py-tbparse audit WORKBOOK [--format table|csv|json] [--fail-on error|warning|info|never] [--only A001,A005] [--skip A006] [-o FILE]` lints a workbook (rules A001 to A011). It exits 0, 1 (a finding at `--fail-on`, default error), 2 (unreadable workbook or bad option) or 3 (a rule crashed). `py-tbparse docs WORKBOOK [-o page.md] [--graph]` (also `dictionary`) writes a Markdown data dictionary. Both only read the workbook; nothing was opened in Tableau. See [audit.md](audit.md).
 
+`py-tbparse prune WORKBOOK [--write -o OUT] [--sheets] [--no-calculations] [--no-parameters] [--overwrite] [--format table|json]` removes the unused calculations and parameters the audit finds (worksheets on no dashboard only with `--sheets`), if nothing that stays refers to them. A dry run unless `--write -o OUT`, which writes a new file and never the input. See [prune.md](prune.md).
+
 ## Libraries
 
 `py-tbparse library` has three subcommands: `export`, `show` and `import`. They move calculated fields and parameters between workbooks; [libraries.md](libraries.md) explains the clash handling and what is not covered. The output was never opened in Tableau: check a copy first.
