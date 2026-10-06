@@ -103,3 +103,35 @@ def validate_relationships(parser, strict: bool = False) -> dict:
         issues["unknown_fields"] = unknown_fields
 
     return {"ok": len(issues) == 0, "issues": issues}
+
+
+# Stable ids for the `validate` findings (never renumbered or reused, like the T- and A-series).
+VALIDATE_RULES = [
+    {"id": "V001", "title": "A relationship refers to a table the workbook does not have", "severity": "error",
+     "fix": "check the relationship in the data model"},
+    {"id": "V002", "title": "A relationship refers to a field the workbook does not have", "severity": "error",
+     "fix": "check the relationship in the data model"},
+]
+
+
+def validation_findings(result: dict, path=None):
+    """`validate_relationships()` as a findings frame (`findings.FINDING_COLUMNS`), so the CI formats can render it."""
+    import pandas as pd
+    from .findings import FINDING_COLUMNS
+    rows = []
+    for rule_id, key, text in (("V001", "unknown_tables", "relationship refers to a table the workbook does not have"),
+                               ("V002", "unknown_fields", "relationship refers to a field the workbook does not have")):
+        df = result.get("issues", {}).get(key)
+        if df is None:
+            continue
+        fix = next(r["fix"] for r in VALIDATE_RULES if r["id"] == rule_id)
+        for _, r in df.iterrows():
+            rows.append({"rule": rule_id, "severity": "error",
+                         "object": f"{r['left_table']}.{r['left_field']} -> {r['right_table']}.{r['right_field']}"
+                                   if rule_id == "V002" else f"{r['left_table']} -> {r['right_table']}",
+                         "detail": text, "fix": fix})
+    out = pd.DataFrame(rows, columns=FINDING_COLUMNS)
+    if not out.empty:
+        out = out.sort_values(["rule", "object"], kind="stable").reset_index(drop=True)
+    out.attrs.update({"crashed": [], "tracebacks": {}, "scope": "validate", "path": path})
+    return out
