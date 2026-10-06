@@ -503,6 +503,21 @@ button.stat:hover { border-color: var(--primary); transform: translateY(-2px); b
 }
 /* end libraries view */
 
+/* styles view (reuses the .lib-* layout of the libraries view) */
+.sty-chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.sty-chip { width: 22px; height: 22px; border-radius: var(--radius-sm, 4px); border: 1px solid var(--text); box-shadow: 0 0 0 1px var(--panel); flex: none; }
+.sty-more { font-size: var(--text-sm); color: var(--muted); padding-left: var(--space-1); }
+.sty-colours { min-width: 12em; display: grid; gap: var(--space-1); }
+.sty-hex summary { cursor: pointer; font-size: var(--text-sm); color: var(--muted); }
+.sty-hex code { display: block; font-family: var(--mono); font-size: var(--text-sm); overflow-wrap: anywhere; padding-top: 2px; }
+.sty-n { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sty-ok { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+.sty-bad { color: var(--danger); }
+.sty-problems { margin: 0; padding-left: var(--space-5); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.sty-check[hidden] { display: none; }
+@media (max-width: 760px) { .sty-colours { min-width: 0; } }
+/* end styles view */
+
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }
   .skeleton .row { animation: none; }
