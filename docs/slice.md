@@ -11,6 +11,8 @@ py-tbparse slice sales.twb -d Overview --no-prune --write -o out.twb     # skip 
 py-tbparse slice sales.twb -d Overview --format json                     # the report as JSON
 ```
 
+The GUI has a **Slice and copy** view for this (tick, see the plan, download), see [gui.md](gui.md).
+
 From Python: `from py_tbparse import slice_workbook, slice_doc`. `slice_workbook(path, ["Overview"], "out.twb")` writes; without the output path it is a dry run. `slice_doc(doc, names, strict=False, prune=True)` slices an lxml document in place, for use as a step of another edit (pass a deepcopy to keep the original).
 
 ## What stays and what goes
