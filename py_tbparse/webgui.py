@@ -47,11 +47,12 @@ from .rename import (
 )
 from .workbook_audit import audit as run_audit, SCOPE as _AUDIT_SCOPE
 from . import library as _library
+from . import style as _style
 from .templates import TemplateError, load_template, make_template, read_data
 
 # "tpl" is the Templates view's state (see `_tpl_new`); it stays None until the view is used. Defaults are copied
 # shallowly into each session, so every default must be immutable: a fresh dict is assigned on first use.
-_STATE_DEFAULTS = {"parser": None, "path": None, "uploaded": False, "report": None, "audit": None, "lib": None, "tpl": None}
+_STATE_DEFAULTS = {"parser": None, "path": None, "uploaded": False, "report": None, "audit": None, "lib": None, "sty": None, "tpl": None}
 
 # Server mode (`--server-mode`): the page is shared by several people behind a proxy, so each browser gets its
 # own workbook state, keyed by a random cookie. `_STATE` and `_UPLOAD` below look like plain dicts but read and
@@ -180,7 +181,13 @@ _LIBRARY_KEYS = {
     "/library/add": frozenset({"datasource", "on_clash"}),
     "/library/clear": frozenset(),
 }
-_JSON_ROUTES = _PATH_ROUTES | frozenset(_LIBRARY_KEYS) | frozenset({"/download-workbook", "/template/select-data", "/template/plan", "/template/apply", "/template/clear",
+_STYLE_KEYS = {
+    "/style/export": frozenset({"select", "format", "name"}),
+    "/style/plan": frozenset({"on_clash", "offset", "limit"}),
+    "/style/add": frozenset({"on_clash"}),
+    "/style/clear": frozenset(),
+}
+_JSON_ROUTES = _PATH_ROUTES | frozenset(_LIBRARY_KEYS) | frozenset(_STYLE_KEYS) | frozenset({"/download-workbook", "/template/select-data", "/template/plan", "/template/apply", "/template/clear",
                                          "/template/make", "/template/use-made"})
 
 _PLAN_KEYS = frozenset({"datasource", "mapping", "params", "tokens"})
@@ -604,6 +611,7 @@ _ASSETS = {
     "rename.js": "text/javascript; charset=utf-8",
     "audit.js": "text/javascript; charset=utf-8",
     "libraries.js": "text/javascript; charset=utf-8",
+    "styles.js": "text/javascript; charset=utf-8",
 }
 
 
@@ -659,6 +667,7 @@ def _open_response(parser: TwbParser, path: str, uploaded: bool = False, name: s
     _STATE["report"] = None
     _STATE["audit"] = None
     _STATE["lib"] = None
+    _STATE["sty"] = None
     dashboards_df = parser.get_dashboards()
     return {
         "ok": True,
@@ -944,6 +953,122 @@ def _library_add(payload: dict) -> tuple[bytes, str, dict]:
     return data, f"{_workbook_stem()}_library{ext}", report
 
 
+# ---- the Styles view (/style/*) ----
+# Lists the open workbook's custom colour palettes, exports a selection as a style file or a Preferences.tps, and
+# adds the palettes of an uploaded file to the open workbook. The uploaded file is kept in memory
+# (`_STATE["sty"]`, at most MAX_STYLE_BYTES) and everything sent back is built as bytes: nothing here takes a path or
+# writes a file, so it can touch neither the open workbook nor a real Preferences.tps, and it works in server mode.
+STYLE_PAGE = 100
+MAX_STYLE_BYTES = 2 * 1024 * 1024
+_CHIPS_SHOWN = 40
+
+
+def _sty_state() -> dict:
+    if _STATE["sty"] is None:
+        _STATE["sty"] = {"records": None, "summary": None}
+    return _STATE["sty"]
+
+
+def _sty_page(qs_or_payload, get) -> tuple[int, int]:
+    try:
+        offset = max(0, int(get("offset", 0)))
+        limit = min(STYLE_PAGE, max(1, int(get("limit", STYLE_PAGE))))
+    except (TypeError, ValueError):
+        raise ValueError("offset and limit must be whole numbers")
+    return offset, limit
+
+
+def _sty_row(r: dict) -> dict:
+    colors = r.get("colors") if isinstance(r.get("colors"), list) else []
+    return {"name": r.get("name") or "", "type": r.get("type") or "", "n_colors": len(colors),
+            "colors": [str(c) for c in colors[:_CHIPS_SHOWN]], "status": r["status"], "reason": r.get("reason") or ""}
+
+
+def _style_palettes_answer(qs: dict) -> dict:
+    records = [r for r in _style.palette_records(_STATE["parser"]) if not r.get("_skip")]
+    text = (qs.get("q") or [""])[0].strip().lower()
+    rows = [r for r in records if text in (r.get("name") or "").lower()] if text else records
+    offset, limit = _sty_page(qs, lambda k, d: (qs.get(k) or [d])[0])
+    problems = _style.palette_problems(_style.palette_records(_STATE["parser"]))
+    if not records:
+        problems = []          # a workbook without palettes is normal; the "none found" line is for a .tps
+    return {
+        "total": len(records), "matching": len(rows), "offset": offset, "limit": limit,
+        "rows": [_sty_row(r) for r in rows[offset:offset + limit]],
+        # names that can be exported (valid palettes) for "select all that match"
+        "names": [r["name"] for r in rows if r["status"] in ("ok", "warning")] if (qs.get("names") or [""])[0] == "1" else [],
+        "problems": problems[:100], "problem_count": len(problems),
+    }
+
+
+def _style_filename(name: str, fmt: str) -> str:
+    if fmt == "tps":
+        return "Preferences_palettes.tps"
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", name or "").strip("._") or "palettes"
+    return stem[:80] + ".style.json"
+
+
+def _style_export(payload: dict) -> tuple[bytes, str]:
+    select = payload.get("select")
+    if not isinstance(select, list) or not all(isinstance(x, str) for x in select) or not select:
+        raise ValueError("Tick at least one palette to export.")
+    if len(select) > 50_000:
+        raise ValueError("Too many palettes selected.")
+    fmt = payload.get("format", "style")
+    if fmt not in ("style", "tps"):
+        raise ValueError("format: use style or tps")
+    name = payload.get("name") or ""
+    if not isinstance(name, str):
+        raise ValueError("name must be text")
+    if len(name) > MAX_NAME:
+        raise ValueError(f"'name' is longer than {MAX_NAME} characters")
+    data = _style.build_export([_STATE["parser"]], "tps" if fmt == "tps" else "json", select=select, name=name or None)
+    return data, _style_filename(name or _workbook_stem(), fmt)
+
+
+def _style_loaded() -> list:
+    st = _sty_state()
+    if st["records"] is None:
+        raise ValueError("Add a palette file first.")
+    return st["records"]
+
+
+def _style_policy(payload: dict) -> str:
+    policy = payload.get("on_clash", "fail")
+    if policy not in _style.CLASH_POLICIES:
+        raise ValueError(f"on_clash: use {', '.join(_style.CLASH_POLICIES)}")
+    return policy
+
+
+def _style_plan(payload: dict) -> dict:
+    records = _style_loaded()
+    policy = _style_policy(payload)
+    plan = _style.plan_palette_import(_STATE["parser"], records, on_clash=policy)
+    offset, limit = _sty_page(payload, payload.get)
+    counts = {a: int(n) for a, n in plan["action"].value_counts().items()}
+    colors = {r["name"]: r["colors"] for r in records if isinstance(r.get("colors"), list)}
+    rows = plan.iloc[offset:offset + limit].fillna("").to_dict(orient="records")
+    for r in rows:
+        r["colors"] = [str(c) for c in colors.get(r["name"], [])[:_CHIPS_SHOWN]]
+    clashes = plan[plan["action"].isin(["fail", "skip", "rename", "replace"])]
+    blocked = bool(counts.get("fail"))
+    return {
+        "policy": policy, "blocked": blocked, "counts": counts, "total": int(len(plan)), "offset": offset, "limit": limit,
+        "rows": rows, "clash_count": int(len(clashes)),
+        "clashes": clashes.head(STYLE_PAGE).fillna("").to_dict(orient="records"),
+        "will_add": 0 if blocked else int(plan["action"].isin(["add", "rename", "replace"]).sum()),
+    }
+
+
+def _style_add(payload: dict) -> tuple[bytes, str, dict]:
+    parser = _STATE["parser"]
+    records = _style_loaded()
+    report: dict = {}
+    data = _style.build_with_palettes(parser, records, on_clash=_style_policy(payload), report=report)
+    ext = os.path.splitext(str(parser.twbx_path or parser.path))[1] or ".twb"
+    return data, f"{_workbook_stem()}_palettes{ext}", report
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "py-tbparse-gui/0.1"
 
@@ -1153,6 +1278,23 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/library/state":
             st = _STATE["lib"]
             self._send_json({"library": st.get("summary") if st else None})
+            return
+
+        if parsed.path == "/style/palettes":
+            if _STATE["parser"] is None:
+                self._send_json({"error": "No workbook loaded"}, 400)
+                return
+            try:
+                self._send_json(_style_palettes_answer(qs))
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                self._send_json({"error": f"could not read the workbook's palettes: {e}"}, 500)
+            return
+
+        if parsed.path == "/style/state":
+            st = _STATE["sty"]
+            self._send_json({"file": st.get("summary") if st else None})
             return
 
         if parsed.path == "/dashboards":
@@ -1420,6 +1562,72 @@ class Handler(BaseHTTPRequestHandler):
                     "X-Library-Added": str(report.get("added", 0)),
                     "Access-Control-Expose-Headers": "X-Library-Added, Content-Disposition"})
         except (ValueError, FileNotFoundError) as e:  # LibraryError is a ValueError
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            self._send_json({"error": f"could not complete this: {e}"}, 500)
+
+    def _style_upload(self) -> None:
+        """Receive a palette file (.style.json or .tps) as raw bytes (X-Filename) into memory, at most
+        MAX_STYLE_BYTES. It is parsed and kept for this session; it is never written to disk or opened as a path."""
+        length = self._declared_length()
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/octet-stream":
+            self._refuse_post(415, "Content-Type must be application/octet-stream")
+            return
+        if not _origin_ok(self.headers.get("Origin"), self.headers.get("Host")):
+            self._refuse_post(403, "cross-origin request rejected")
+            return
+        if _STATE["parser"] is None:
+            self._refuse_post(400, "Open a workbook first; the palettes are added to it.")
+            return
+        name = os.path.basename(unquote(self.headers.get("X-Filename") or "").replace("\\", "/"))
+        if not name or length <= 0:
+            self._refuse_post(400, "Send the file bytes with an X-Filename header.")
+            return
+        if length > MAX_STYLE_BYTES:
+            self._refuse_post(413, f"That file is {length // 1024} KB; a palette file can be at most "
+                                   f"{MAX_STYLE_BYTES // (1024 * 1024)} MB.")
+            return
+        raw = self.rfile.read(length)
+        try:
+            records = _style.palettes_from_bytes(raw, name)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+            return
+        usable = [r for r in records if r["status"] in ("ok", "warning")]
+        summary = {"file": name, "palettes": len(records), "usable": len(usable),
+                   "invalid": sum(1 for r in records if r["status"] == "invalid"),
+                   "problems": _style.palette_problems(records)[:100] if records else ["no palette found in this file"]}
+        st = _sty_state()
+        st["records"] = records
+        st["summary"] = summary
+        self._send_json({"ok": True, "file": summary})
+
+    def _style_post(self, path: str, payload: dict) -> None:
+        unknown = sorted(set(payload) - _STYLE_KEYS[path])
+        if unknown:
+            self._send_json({"error": f"not accepted here: {', '.join(unknown)}"}, 400)
+            return
+        if _STATE["parser"] is None:
+            self._send_json({"error": "No workbook loaded"}, 400)
+            return
+        try:
+            if path == "/style/clear":
+                _STATE["sty"] = None
+                self._send_json({"ok": True})
+            elif path == "/style/plan":
+                self._send_json(_style_plan(payload))
+            elif path == "/style/export":
+                data, filename = _style_export(payload)
+                ctype = "application/xml; charset=utf-8" if filename.endswith(".tps") else "application/json; charset=utf-8"
+                self._send(200, data, ctype, {"Content-Disposition": _attachment(filename)})
+            else:
+                data, filename, report = _style_add(payload)
+                self._send(200, data, "application/octet-stream", {
+                    "Content-Disposition": _attachment(filename),
+                    "X-Style-Added": str(len(report.get("added", [])) + len(report.get("renamed", [])) + len(report.get("replaced", []))),
+                    "Access-Control-Expose-Headers": "X-Style-Added, Content-Disposition"})
+        except (ValueError, FileNotFoundError) as e:  # StyleError is a ValueError
             self._send_json({"error": str(e)}, 400)
         except Exception as e:
             self._send_json({"error": f"could not complete this: {e}"}, 500)
@@ -1778,6 +1986,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/library/upload":
             self._library_upload()
             return
+        if self.path == "/style/upload":
+            self._style_upload()
+            return
         if self.path not in _JSON_ROUTES:
             self._refuse_post(404, "not found", as_json=False)
             return
@@ -1799,7 +2010,7 @@ class Handler(BaseHTTPRequestHandler):
             self._refuse_post(403, "cross-origin request rejected")
             return
 
-        if self.path.startswith(("/template/", "/library/")):
+        if self.path.startswith(("/template/", "/library/", "/style/")):
             declared = self._declared_length()
             if declared < 0:
                 self._refuse_post(400, "bad Content-Length")
@@ -1830,6 +2041,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path in _LIBRARY_KEYS:
             self._library_post(self.path, payload)
+            return
+        if self.path in _STYLE_KEYS:
+            self._style_post(self.path, payload)
             return
 
         path = str(payload.get("path", "")).strip()

@@ -4,7 +4,7 @@ const statusEl = $('status');
 // Sidebar grouping. Tables missing here (new ones added to _tables.py)
 // still show up, under "Other", so the registry stays the source of truth.
 const GROUPS = [
-  ['Workbook', ['overview', 'audit', 'libraries', 'published-refs']],
+  ['Workbook', ['overview', 'audit', 'libraries', 'styles', 'published-refs']],
   ['Data', ['datasources', 'parameters', 'fields', 'raw-fields', 'calculated-fields', 'field-usage', 'missing-references', 'field-renames']],
   ['Data model', ['relationships', 'joins', 'relations', 'inferred-relationships', 'graph']],
   ['Dashboards', ['dashboards', 'dashboard-sheets']],
@@ -32,6 +32,7 @@ const INFO = {
   'published-refs': ['Published sources', 'References to published datasources.'],
   'audit': ['Audit', 'What the workbook\u2019s author probably did not mean: unused or broken calculations, unused parameters, custom SQL, local file paths.'],
   'libraries': ['Libraries', 'Export calculated fields and parameters as a library file, or add a library file to this workbook.'],
+  'styles': ['Styles', 'Colour palettes in this workbook: check them, export them, or add palettes from a file. Palettes never recolour a mark.'],
   'graph': ['Relationship graph', 'Joins and relationships as Graphviz DOT.'],
 };
 
@@ -108,7 +109,7 @@ async function fetchJSON(url, opts) {
 
 function titleOf(name) { return (INFO[name] || [name])[0]; }
 
-function allTables() { return (window.TABLE_NAMES || []).concat(['audit', 'libraries', 'graph']); }
+function allTables() { return (window.TABLE_NAMES || []).concat(['audit', 'libraries', 'styles', 'graph']); }
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -147,7 +148,7 @@ function populateTables() {
       item.dataset.table = name;
       item.appendChild(el('span', '', titleOf(name)));
       // The overview is always one row and the graph is not a table.
-      if (name !== 'overview' && name !== 'graph' && name !== 'audit' && name !== 'libraries') {
+      if (name !== 'overview' && name !== 'graph' && name !== 'audit' && name !== 'libraries' && name !== 'styles') {
         const count = el('span', 'count');
         count.dataset.countFor = name;
         item.appendChild(count);
@@ -266,6 +267,7 @@ async function openWorkbook(label, request) {
     Object.keys(views).forEach((name) => { delete views[name]; });
     AuditView.reset();
     LibrariesView.reset();
+    StylesView.reset();
     const dsSel = $('renameDs');
     dsSel.innerHTML = '<option value="">(all datasources)</option>';
     (data.datasources || []).forEach((name) => {
@@ -338,7 +340,8 @@ async function showTable() {
   const isGraph = name === 'graph';
   const isOverview = name === 'overview';
   const isLibraries = name === 'libraries';
-  const isAudit = name === 'audit' || isLibraries;
+  const isStyles = name === 'styles';
+  const isAudit = name === 'audit' || isLibraries || isStyles;
   $('exportLink').hidden = isAudit;
   $('viewTitle').textContent = titleOf(name);
   $('viewDesc').textContent = (INFO[name] || ['', ''])[1];
@@ -363,6 +366,15 @@ async function showTable() {
     if ($('tableWrap').querySelector('.skeleton')) $('tableWrap').innerHTML = '';
     fail(e);
   };
+
+  if (isStyles) {
+    $('meta').textContent = 'Reading the palettes ...';
+    await StylesView.render();
+    clearTimeout(loadingTimer);
+    if (req !== state.req) return;
+    finishView(fresh, $('tableWrap'), 'Showing styles');
+    return;
+  }
 
   if (isLibraries) {
     $('meta').textContent = 'Reading the fields ...';
@@ -1366,7 +1378,7 @@ function renderChips() {
   const v = viewFor(state.table);
   box.replaceChildren();
   const live = liveFilters(v);
-  if (!live.length || state.table === 'overview' || state.table === 'graph' || state.table === 'audit' || state.table === 'libraries') { box.hidden = true; return; }
+  if (!live.length || state.table === 'overview' || state.table === 'graph' || state.table === 'audit' || state.table === 'libraries' || state.table === 'styles') { box.hidden = true; return; }
   live.forEach((f) => {
     const chip = el('button', 'chip');
     chip.type = 'button';
@@ -1559,6 +1571,7 @@ applyDensity(savedDensity === 'compact' ? 'compact' : 'comfortable', false);
 populateTables();
 AuditView.init({$: $, el: el, fetchJSON: fetchJSON, fail: fail, plural: plural});
 LibrariesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural});
+StylesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural});
 TemplatesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural});
 if (location.hash === '#templates') setTemplatesMode(true);
 if (window.SERVER_MODE) {
