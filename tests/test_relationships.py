@@ -250,3 +250,52 @@ def test_collection_never_reaches_the_graph(wenjie_xml):
     from py_tbparse.graph import to_dot
     dot = to_dot(extract_joins(wenjie_xml), extract_relationships(wenjie_xml))
     assert "collection" not in dot and dot.startswith("digraph") and dot.rstrip().endswith("}")
+
+
+def test_a_prefixed_collection_gets_a_row_like_a_plain_one(wenjie_xml):
+    # tests/fixtures/test_for_wenjie.twb writes its collections as `_.fcp.ObjectModelEncapsulateLegacy.true...relation`
+    rel = extract_relations(wenjie_xml)
+    names = list(rel[rel["type"] == "collection"]["name"])
+    assert "collection of Sheet1 and Municipal_Boundaries_of_NJ" in names
+    assert "collection of Sheet1_F3CB2A87000C42DCA10AF147C27ADEC1 and Municipal_Boundaries_of_NJ_2A19790ECAF443678151174403F1A84F" in names
+    assert (rel[rel["type"] == "collection"]["custom_sql"] == "").all()
+
+
+def test_prefixed_tables_are_not_added_twice():
+    # a prefixed table relation has a plain twin in real workbooks; only collections are read through the prefix
+    xml = xml_from_string(
+        "<workbook><connection>"
+        "<_.fcp.ObjectModelEncapsulateLegacy.false...relation name='A' table='[A]' type='table'/>"
+        "<_.fcp.ObjectModelEncapsulateLegacy.true...relation type='collection'>"
+        "<relation name='A' table='[A]' type='table'/></_.fcp.ObjectModelEncapsulateLegacy.true...relation>"
+        "</connection></workbook>")
+    rel = extract_relations(xml)
+    assert sorted(rel["type"]) == ["collection", "table"]
+
+
+def test_every_corpus_collection_has_a_row_in_either_spelling():
+    from pathlib import Path
+
+    import pytest
+    from py_tbparse import TwbParser
+
+    files = sorted((Path(__file__).parent / "corpus" / "files").glob("*.twb"))
+    if not files:
+        pytest.skip("corpus not fetched: python scripts/fetch_corpus.py")
+    plain = prefixed = 0
+    for path in files:
+        p = TwbParser(str(path))
+        doc = p.xml_doc
+        expected = {
+            "plain": len(doc.xpath("//relation[@type='collection']")),
+            "prefixed": len(doc.xpath(
+                "//*[substring(name(), string-length(name()) - 10) = '...relation'][@type='collection']")),
+        }
+        rows = p.get_relations()
+        got = len(rows[rows["type"] == "collection"]) if not rows.empty else 0
+        # identical collections are merged by drop_duplicates, so rows can be fewer than elements but never zero
+        assert (got > 0) == (expected["plain"] + expected["prefixed"] > 0), path.name
+        assert got <= expected["plain"] + expected["prefixed"], path.name
+        plain += expected["plain"]
+        prefixed += expected["prefixed"]
+    assert (plain, prefixed) == (13, 18)
