@@ -51,6 +51,9 @@ def _datasource_fields(ds) -> dict[str, dict]:
         if local:
             fields[local] = {"kind": "physical", "caption": None,
                              "datatype": rec.findtext("local-type"), "deps": set()}
+    for key in ds.xpath("./connection//cols/map/@key"):
+        # older workbooks (version 8.x, `csv.NNN` datasources) name their columns only here
+        fields.setdefault(key, {"kind": "physical", "caption": None, "datatype": None, "deps": set()})
     for col in ds.xpath("./column[@name]"):
         name = col.get("name")
         calc = col.find("calculation")

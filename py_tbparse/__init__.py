@@ -64,7 +64,8 @@ from .templates import (
     suggest_mapping,
 )
 from .template_batch import apply_template_folder
-from .docgen import template_markdown
+from .workbook_audit import audit
+from .docgen import template_markdown, workbook_markdown
 from .findings import format_findings, run_rules
 from .template_check import check_template
 from .template_update import diff_template_revisions, template_update_report, update_from_answers
@@ -121,6 +122,8 @@ __all__ = [
     "update_from_answers",
     "check_template",
     "template_markdown",
+    "workbook_markdown",
+    "audit",
     "run_rules",
     "format_findings",
     "resolve_apply",
