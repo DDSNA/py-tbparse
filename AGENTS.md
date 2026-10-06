@@ -133,6 +133,14 @@ The owner's policy (2026-10-05); older statements in other docs are superseded b
 - Later templating releases are 0.5.x.
 - 0.4.x stays reserved for UI-redesign releases.
 - No version bump inside a PR; the version is bumped for a release.
+- **Hotfixes get a fourth number: `x.x.x.N`** (owner, 2026-10-06), for example `0.5.2.1` is the first hotfix of
+  0.5.2. A hotfix is a fix to something already released, with no new feature; a feature or a changed CLI, API or rule
+  id is a normal patch or minor. The owner's words were "x.x.x.hotfix": a literal `.hotfix` suffix is not valid PEP 440
+  and PyPI would refuse it, so the counter is a number (`0.5.2.post1` is the other valid spelling; ask before using
+  it). The hotfix PR changes only `pyproject.toml` like any release, the tag is `v0.5.2.1`, and the release workflows
+  accept it because they compare the tag with `pyproject.toml` as text. Cut it only on the owner's explicit word. The
+  next normal release (0.5.3) goes on top, never from the hotfix branch. Fixes merged to `main` that are not released
+  are not hotfixes: they ship in the next normal release unless the owner asks for a hotfix.
 
 ### Release rules
 
