@@ -101,3 +101,18 @@ py-tbparse slice $F/b-o-r-i__BrasilianEcommerceAnalysis__Book3.twb -d "Purchases
 | `slice3.twb` | Six sheets removed and one datasource removed, six calculations pruned. |
 
 For each: does it open without an error or "repair" message? Does the kept dashboard draw all its sheets (a tooltip that shows another sheet included)? Is any removed sheet still listed in the sheet tabs, or a field marked with a red `!`? Do the remaining actions fire? Then save, close and reopen, and note any warning at save time. Report as for the other packs: `opens / opens with a message / does not open`, then what you saw.
+
+## Copied sheets (`sheet copy`)
+
+Workbooks written by `py-tbparse sheet copy` have not been opened in Tableau. The corpus is not in the repository (`python scripts/fetch_corpus.py`). Three copies, each between two workbooks of the corpus that share a datasource (the plan without `--write` shows what is added and dropped):
+
+```bash
+F=tests/corpus/files/Kilo-Org__kilo-marketplace__
+py-tbparse sheet copy ${F}action-filter.twb --sheets "line-chart" --to ${F}calculated-field.twb --write -o copy1.twb
+py-tbparse sheet copy ${F}calculated-field.twb --sheets "TotalPrice" --to ${F}lod-expression.twb --write -o copy2.twb
+py-tbparse sheet copy ${F}lod-expression.twb --sheets "LODRevenue" --to ${F}calculated-field.twb --write -o copy3.twb
+```
+
+`copy1.twb` has the action filter of `line-chart` dropped on purpose; `copy2.twb` and `copy3.twb` each add one calculation to the target. Add `--on-clash rename` if the target already has a sheet of that name.
+
+For each: does it open without an error or repair message? Is the copied sheet in the tabs with the same chart? Are the added calculations and parameters in the data pane with the right values? Did a renamed one (`X (2)`) take the place of the old name in the sheet? Is any field marked with a red `!`? Does a sheet that had an action filter draw all its data (the filter is dropped on purpose)? Then save, close, reopen and note any warning.

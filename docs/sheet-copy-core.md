@@ -1,6 +1,6 @@
 # Sheet copy: the shared core (WP14b)
 
-Part of [py-tbparse](https://github.com/DDSNA/py-tbparse). `py_tbparse/sheetcopy_core.py` holds the pieces that the coming `sheet copy` command (WP14e) is built from. It is a library only: there is no command yet, and nothing in it writes a file. Nothing here was opened in Tableau Desktop. It is checked on small synthetic workbooks and on the 200-workbook corpus by re-reading and by invariants, not by Tableau.
+Part of [py-tbparse](https://github.com/DDSNA/py-tbparse). `py_tbparse/sheetcopy_core.py` holds the pieces that `sheet copy` ([sheet-copy.md](sheet-copy.md)) is built from. Nothing in it writes a file. Nothing here was opened in Tableau Desktop. It is checked on small synthetic workbooks and on the 200-workbook corpus by re-reading and by invariants, not by Tableau.
 
 ```python
 from py_tbparse import TwbParser
