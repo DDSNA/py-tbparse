@@ -92,6 +92,11 @@
           <input id="renameRef" class="field" type="text" spellcheck="false"
                  placeholder="Reference workbook path (optional)" aria-label="Reference workbook path">
           <label class="check"><input type="checkbox" id="renameChanged" checked> Only changes</label>
+          <span id="renameSelect" class="rename-select" role="group" aria-label="Choose which renames to apply" hidden>
+            <button id="renameAll" class="btn" type="button">Select all</button>
+            <button id="renameNone" class="btn" type="button">Select none</button>
+            <span id="renameCount" class="note" role="status"></span>
+          </span>
           <button id="createBtn" class="btn primary" type="button">Create fixed workbook</button>
           <a id="downloadBtn" class="btn" href="#" download>Download fixed workbook</a>
           <span id="uploadNote" class="note" hidden>This workbook was dropped in, so there is no folder to save beside. Download the fixed copy instead.</span>
@@ -167,6 +172,7 @@
 <script src="/static/table.js"></script>
 <script src="/static/graph.js"></script>
 <script src="/static/templates.js"></script>
+<script src="/static/rename.js"></script>
 <script src="/static/app.js"></script>
 
 </body>

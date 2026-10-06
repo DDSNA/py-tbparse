@@ -91,7 +91,7 @@ def test_settings_follow_column_names_when_the_table_changes_shape(page, wenjie_
 
     _open_column_menu(page, "datasource")
     page.click("#menu >> text=Hide column")
-    page.wait_for_function("(n) => document.querySelectorAll('#tableWrap th').length === n - 1", arg=len(before), timeout=10_000)
+    page.wait_for_function("(n) => document.querySelectorAll('#tableWrap th:not(.sel)').length === n - 1", arg=len(before), timeout=10_000)
     _open_column_menu(page, "current")
     page.click("#menu >> text=Filter this column")
     page.fill("#menu input", "count")
@@ -210,7 +210,7 @@ def test_columns_menu_keeps_focus_on_the_item_you_toggled(page, wenjie_path):
     first = columns[0]
     assert page.evaluate("() => document.activeElement.textContent.trim().replace(/^\\u2713/, '')") == first
     page.keyboard.press("Enter")      # hide the first column
-    page.wait_for_function("(n) => document.querySelectorAll('#tableWrap th').length === n - 1", arg=len(columns), timeout=10_000)
+    page.wait_for_function("(n) => document.querySelectorAll('#tableWrap th:not(.sel)').length === n - 1", arg=len(columns), timeout=10_000)
     assert show_all.get_attribute("aria-disabled") is None                      # now available
     assert page.evaluate("() => document.activeElement.textContent.trim().replace(/^\\u2713/, '')") == first   # focus stayed
     page.keyboard.press("Enter")      # a second Enter toggles the SAME item back; it must not "show all"

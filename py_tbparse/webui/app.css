@@ -60,6 +60,12 @@ body { font: var(--text-md)/var(--leading) var(--font); background: var(--bg); c
 .btn.small { height: 32px; padding: 0 10px; font-size: var(--text-sm); }
 .rename-tools { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .rename-tools input[type=text] { width: 260px; font-family: var(--mono); font-size: var(--text-sm); }
+.rename-select { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.btn[aria-disabled="true"] { color: var(--muted); border-style: dashed; cursor: not-allowed; }
+.tbl th.sel, .tbl td.sel { text-align: center; padding: 0 8px; }
+.tbl td.sel input { width: 20px; height: 20px; margin: 0; cursor: pointer; accent-color: var(--primary); }
+.tbl tr.left-out td:not(.sel) { color: var(--muted); }
+.tbl tr.left-out td:not(.sel) { text-decoration: line-through; text-decoration-thickness: 1px; }
 .check { display: inline-flex; align-items: center; gap: 6px; min-height: var(--target); font-size: var(--text-sm);
          color: var(--muted); cursor: pointer; white-space: nowrap; }
 select.field { padding-right: 4px; }
@@ -411,7 +417,7 @@ button.stat:hover { border-color: var(--primary); transform: translateY(-2px); b
   #filter { width: 100%; }
   .toolbar { width: 100%; }
   .rename-tools { display: flex; width: 100%; }
-  .rename-tools > * { max-width: 100%; }
+  .rename-tools > *, .rename-select { max-width: 100%; }
   .rename-tools input[type=text] { width: 100%; }
   #tableWrap { max-height: none; }
   #hint { display: none; }  /* a long keyboard hint is noise on a touch screen */
