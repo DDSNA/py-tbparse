@@ -4,7 +4,7 @@ Three reserved subcommands, dispatched on the first argument before the
 normal single-workbook parser runs: `py-tbparse diff A.twb B.twb [TABLE]`,
 `py-tbparse batch DIR [TABLE]` and `py-tbparse rename WORKBOOK [-r OLD.twb]`, plus the two-level
 `py-tbparse template ...`, `py-tbparse library ...` (calculated fields and parameters),
-`py-tbparse style ...` (colour palettes), and the workbook `py-tbparse audit WORKBOOK` (findings) and
+`py-tbparse style ...` (colour palettes), `py-tbparse scaffold ...` (dashboard layouts), and the workbook `py-tbparse audit WORKBOOK` (findings) and
 `py-tbparse docs WORKBOOK` (a Markdown data dictionary; `dictionary` is the same command),
 `py-tbparse sanitize IN OUT` (a share-safe copy) and
 `py-tbparse diff-xml A B` (a normalised line diff of the two workbooks' XML).
@@ -36,6 +36,7 @@ from .library import (
     save_library,
 )
 from .parser import TwbParser
+from . import scaffold as _scaffold
 from . import style as _style
 from .templates import (
     apply_template,
@@ -1023,6 +1024,95 @@ def _run_style(argv: list[str]) -> int:
         return 1
 
 
+def build_scaffold_arg_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        prog="py-tbparse scaffold",
+        description="Dashboard layouts: save the layout of one dashboard (a *.scaffold.json file) and use it to "
+                    "make a NEW dashboard in a copy of a workbook, with your own sheets in its slots. First slice: "
+                    "the source needs a single tiled root; filters, legends, parameter controls, images, buttons "
+                    "and device layouts are dropped and listed. The output was never opened in Tableau.",
+    )
+    sub = ap.add_subparsers(dest="action", required=True)
+
+    mk = sub.add_parser("make", help="save the layout of a dashboard of WORKBOOK as a scaffold")
+    mk.add_argument("workbook")
+    mk.add_argument("--dashboard", "-d", help="dashboard to take the layout from (optional when there is only one)")
+    mk.add_argument("--output", "-o", required=True, help="scaffold file, e.g. overview.scaffold.json")
+    mk.add_argument("--name", help="scaffold name (default: the dashboard's)")
+    mk.add_argument("--description", default="", help="what the layout is for")
+    mk.add_argument("--overwrite", action="store_true", help="replace the scaffold file if it exists")
+
+    sh = sub.add_parser("show", help="list the slots of a scaffold and what was dropped from it")
+    sh.add_argument("scaffold")
+    sh.add_argument("--format", choices=("table", "csv", "json"), default="table", help="output format (default: table)")
+
+    ap_ = sub.add_parser(
+        "apply", help="make a new dashboard in a copy of WORKBOOK: print the plan; with --write, write the copy",
+        description="Without --write nothing is written. With --write a new file is written next to WORKBOOK (or "
+                    "at --output): never over the input. The dashboard is always new; existing ones are not "
+                    "touched. Exit code 1 on an error.",
+    )
+    ap_.add_argument("workbook")
+    ap_.add_argument("scaffold")
+    ap_.add_argument("--name", required=True, help="name of the new dashboard (must be unused)")
+    ap_.add_argument("--sheet", action="append", default=[], metavar="SHEET",
+                     help="sheet for the next slot (repeatable, in slot order)")
+    ap_.add_argument("--sheets", metavar="A,B,C", help="the same as comma-separated names (use --sheet if a name has a comma)")
+    ap_.add_argument("--allow-empty", action="store_true", help="leave slots without a sheet blank instead of failing")
+    ap_.add_argument("--output", "-o", help="new file (default: <name>_scaffold.<ext> beside WORKBOOK)")
+    ap_.add_argument("--overwrite", action="store_true", help="replace an earlier output (never the input)")
+    ap_.add_argument("--write", action="store_true", help="write the file")
+    ap_.add_argument("--format", choices=("table", "csv", "json"), default="table", help="plan format (default: table)")
+    return ap
+
+
+def _run_scaffold(argv: list[str]) -> int:
+    ap = build_scaffold_arg_parser()
+    args = ap.parse_args(argv)
+    try:
+        if args.action == "make":
+            sc = _scaffold.make_scaffold(args.workbook, args.dashboard, name=args.name, description=args.description)
+            out = _scaffold.save_scaffold(sc, args.output, overwrite=args.overwrite)
+            print(f"wrote {out}", file=sys.stderr)
+            print(f"{len(sc['slots'])} slot(s); dropped {len(sc['dropped'])} item(s) (scaffold show lists them)",
+                  file=sys.stderr)
+            return 0
+        if args.action == "show":
+            sc = _scaffold.load_scaffold(args.scaffold)
+            if args.format == "json":
+                print(json.dumps({k: sc.get(k) for k in ("name", "description", "source", "slots", "dropped")},
+                                 indent=2, ensure_ascii=False))
+                return 0
+            if args.format == "table":
+                print(f"scaffold {sc.get('name')!r} from dashboard {sc.get('source', {}).get('dashboard')!r}")
+                print("\nslots")
+            print(_df_text(_scaffold.scaffold_slots(sc), args.format))
+            if args.format == "table":
+                print("\ndropped")
+                print(_df_text(_scaffold.scaffold_dropped(sc), "table"))
+            return 0
+        sheets = list(args.sheet)
+        if args.sheets:
+            sheets += [s.strip() for s in args.sheets.split(",") if s.strip()]
+        sc = _scaffold.load_scaffold(args.scaffold)
+        if not args.write:
+            plan = _scaffold.scaffold_plan(args.workbook, sc, args.name, sheets, allow_empty=args.allow_empty)
+            print(_df_text(plan, args.format))
+            print("plan only, nothing written; add --write to write a new file", file=sys.stderr)
+            return 0
+        report: dict = {}
+        out = _scaffold.apply_scaffold(args.workbook, sc, args.name, sheets, output_path=args.output,
+                                       overwrite=args.overwrite, allow_empty=args.allow_empty, report=report)
+        print(f"wrote {out}", file=sys.stderr)
+        print(f"new dashboard {args.name!r}: {report['zones']} zone(s); existing dashboards untouched", file=sys.stderr)
+        print("not opened in Tableau: check a copy first", file=sys.stderr)
+        return 0
+    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile, etree.XMLSyntaxError,
+            json.JSONDecodeError) as e:   # ScaffoldError is a ValueError
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
 def _is_reserved_subcommand(argv: list[str], name: str) -> bool:
     """True if `argv` invokes the `name` subcommand -- but don't let that
     shadow an actual workbook that happens to be named exactly "diff" or
@@ -1193,6 +1283,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_docs(raw_argv[1:], prog="py-tbparse dictionary")
     if _is_reserved_subcommand(raw_argv, "style"):
         return _run_style(raw_argv[1:])
+    if _is_reserved_subcommand(raw_argv, "scaffold"):
+        return _run_scaffold(raw_argv[1:])
 
     ap = build_arg_parser()
     args = ap.parse_args(argv)

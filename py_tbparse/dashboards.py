@@ -17,7 +17,30 @@ _SUMMARY_COLUMNS = ["name", "worksheets", "sheets", "size", "filters", "paramete
 _SHEETS_COLUMNS = ["dashboard", "sheet", "zone_id", "x", "y", "w", "h"]
 # Zones of these kinds are named after the worksheet they show or control (`sheet` and `worksheet` are what some
 # generated workbooks write; Tableau itself writes no type for a sheet).
-_SHEET_ZONE_TYPES = {None, "sheet", "worksheet", "filter", "color", "size", "shape", "highlighter", "map", "legend"}
+_SHEET_ZONE_TYPES = {"sheet", "filter", "color", "size", "shape", "highlighter", "map", "legend"}
+CONTAINER_KINDS = ("layout-basic", "layout-flow")
+_FCP = "_.fcp."
+
+
+def zone_kind(z) -> str:
+    """What a `<zone>` is: `sheet`, `filter`, `color`, `size`, `paramctrl`, `text`, `title`, `empty`, `bitmap`,
+    `web`, `layout-basic`, `layout-flow`, ... or `unknown`. Tableau stores the kind in `type-v2` (newer files),
+    `type` (older ones), or, in some files, only in a feature-flag attribute such as
+    `_.fcp.SetMembershipControl.true...type-v2`. A zone with a name and none of these is a sheet; `worksheet`
+    (written by some generators) is read as `sheet`."""
+    kind = z.get("type-v2") or z.get("type")
+    if not kind:
+        flagged = {k: v for k, v in z.attrib.items() if k.startswith(_FCP) and v}
+        for suffix in ("type-v2", "type"):
+            hit = sorted(k for k in flagged if k.endswith("..." + suffix))
+            if hit:
+                kind = flagged[hit[0]]
+                break
+    if kind == "worksheet":
+        return "sheet"
+    if kind:
+        return kind
+    return "sheet" if (z.get("name") or z.get("worksheet")) else "unknown"
 
 
 def _zone_sheet(z) -> str:
@@ -29,7 +52,7 @@ def dashboard_zones(db) -> list:
     A zone names it in `@worksheet` or, in some files, only in `@name`; layout containers, text and the
     like are skipped."""
     return [z for z in db.xpath(".//zone[@name or @worksheet]")
-            if (z.get("type-v2") or z.get("type")) in _SHEET_ZONE_TYPES]
+            if zone_kind(z) in _SHEET_ZONE_TYPES]
 
 
 def dashboard_targets(db) -> list[str]:
@@ -142,10 +165,79 @@ def dashboard_summary(xml_doc) -> pd.DataFrame:
     for name in list_dashboards(xml_doc)["name"]:
         for db in xml_doc.xpath(_dashboard_xpath(name))[:1]:
             sheets = sorted({t for t in dashboard_targets(db) if t})
-            kinds = [z.get("type-v2") or z.get("type") for z in db.xpath(".//zone")]
+            # the main layout only: a device layout repeats the same filters and controls
+            kinds = [zone_kind(z) for z in db.xpath("./zones//zone")]
             rows.append({
                 "name": name, "worksheets": len(sheets), "sheets": "; ".join(sheets), "size": _size_text(db),
                 "filters": kinds.count("filter"), "parameters": kinds.count("paramctrl"),
                 "actions": action_counts.get(name, 0),
             })
     return pd.DataFrame(rows, columns=_SUMMARY_COLUMNS)
+
+
+def _uuid_owners(xml_doc) -> dict[str, list[str]]:
+    owners: dict[str, list[str]] = {}
+    for el in xml_doc.xpath("//simple-id[@uuid]"):
+        parent = el.getparent()
+        label = f"{parent.tag} {parent.get('name')!r}" if parent is not None and parent.get("name") else (
+            parent.tag if parent is not None else "?")
+        owners.setdefault(el.get("uuid"), []).append(label)
+    return owners
+
+
+def integrity_check(xml_doc, dashboard: Optional[str] = None, require_window: bool = False) -> list[dict]:
+    """Reference checks on the dashboards of a workbook (all of them, or one by name); an empty list means none
+    failed. The schema does not check any of this. Each problem is a dict with `check`, `dashboard` and `detail`:
+
+    - `zone-id-duplicate`: two zones of one `<zones>` tree (the main layout, or one device layout) share an id.
+      Zones without an id are not counted.
+    - `sheet-unresolved`: a sheet, filter or legend zone names something that is not a worksheet or dashboard.
+    - `viewpoint-unresolved`: the dashboard's window has a viewpoint for a sheet that does not exist.
+    - `active-zone-missing`: the window's `<active id>` is neither -1 nor a zone id of the dashboard.
+    - `simple-id-shared`: the dashboard and its window carry the same `simple-id` uuid.
+    - `uuid-duplicate`: a `simple-id` uuid of the dashboard or its window is used twice in the workbook.
+    - `window-missing`: the dashboard has no window (only with `require_window=True`; real workbooks lack
+      one in about one dashboard in nine).
+    """
+    sheets = set(xml_doc.xpath("/workbook/worksheets/worksheet/@name"))
+    names = sheets | set(xml_doc.xpath("/workbook/dashboards/dashboard/@name"))
+    owners = _uuid_owners(xml_doc)
+    problems: list[dict] = []
+
+    def add(check, db_name, detail):
+        problems.append({"check": check, "dashboard": db_name, "detail": detail})
+
+    for db in xml_doc.xpath(_dashboard_xpath(dashboard)):
+        name = db.get("name")
+        for zones in db.xpath(".//zones"):
+            seen: dict[str, int] = {}
+            for z in zones.iter("zone"):
+                if z.get("id") is not None:
+                    seen[z.get("id")] = seen.get(z.get("id"), 0) + 1
+            where = "" if zones.getparent() is db else f" in the {zones.getparent().get('name')!r} device layout"
+            for zid in sorted((i for i, n in seen.items() if n > 1), key=lambda i: (len(i), i)):
+                add("zone-id-duplicate", name, f"zone id {zid} is used {seen[zid]} times{where}")
+        for z in db.xpath(".//zone[@name or @worksheet]"):
+            if zone_kind(z) in _SHEET_ZONE_TYPES and _zone_sheet(z) not in names:
+                add("sheet-unresolved", name, f"zone {z.get('id')} ({zone_kind(z)}) names {_zone_sheet(z)!r}, "
+                                              "which is not a worksheet or dashboard")
+        ids = {z.get("id") for z in db.xpath("./zones//zone")}
+        own = [u.get("uuid") for u in db.xpath("./simple-id[@uuid]")]
+        windows = xml_doc.xpath("/workbook/windows/window[@class='dashboard'][@name=$n]", n=name)
+        if not windows and require_window:
+            add("window-missing", name, "no <window class='dashboard'> with this name")
+        for w in windows[:1]:
+            for vp in w.xpath("./viewpoints/viewpoint[@name]"):
+                if vp.get("name") not in sheets:
+                    add("viewpoint-unresolved", name, f"viewpoint {vp.get('name')!r} is not a worksheet")
+            active = w.find("active")
+            if active is not None and active.get("id") not in (None, "-1") and active.get("id") not in ids:
+                add("active-zone-missing", name, f"the window's active zone {active.get('id')} is not in the dashboard")
+            wid = [u.get("uuid") for u in w.xpath("./simple-id[@uuid]")]
+            if set(wid) & set(own):
+                add("simple-id-shared", name, "the dashboard and its window share one simple-id uuid")
+            own += wid
+        for u in sorted(set(own)):
+            if len(owners.get(u, [])) > 1:
+                add("uuid-duplicate", name, f"simple-id {u} is used by {', '.join(owners[u])}")
+    return problems

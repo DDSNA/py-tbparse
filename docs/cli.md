@@ -103,3 +103,17 @@ py-tbparse-gui --server-mode --allowed-host tbparse.example.com --trust-proxy   
 ```
 
 `--max-sessions` (default 20) and `--session-ttl` (seconds, default 3600) belong to server mode, and each server option has a `PY_TBPARSE_*` environment variable. See [gui.md](gui.md) and [deployment.md](deployment.md).
+
+## Dashboard scaffolds
+
+`py-tbparse scaffold` has three subcommands: `make`, `show` and `apply`. They save the layout of one dashboard as a `*.scaffold.json` file and make a new dashboard from it in a copy of a workbook; [scaffolds.md](scaffolds.md) explains what is kept, what is dropped and listed, and the checks. The output was never opened in Tableau: check a copy first.
+
+```bash
+py-tbparse scaffold make sales.twb -d Overview -o overview.scaffold.json    # also --name, --description, --overwrite
+py-tbparse scaffold show overview.scaffold.json                             # also --format csv|json
+py-tbparse scaffold apply other.twb overview.scaffold.json --name Regional --sheets "Sales,Profit"   # the plan only
+py-tbparse scaffold apply other.twb overview.scaffold.json --name Regional --sheet Sales --sheet Profit --write -o out.twb
+```
+
+- The source needs a single tiled root; floating layouts and storyboards are refused.
+- `apply` writes nothing without `--write`. It always adds a new dashboard, writes a new file (default `<name>_scaffold.<ext>` beside the workbook) and never replaces the input. Every slot needs a sheet unless `--allow-empty` is given.
