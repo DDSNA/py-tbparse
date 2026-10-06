@@ -558,6 +558,59 @@ def applicable_renames(renames: pd.DataFrame) -> pd.DataFrame:
     return renames[keep]
 
 
+def rename_id(kind, datasource, name) -> str:
+    """The id of one suggested rename, as the GUI and the server both write it: kind, datasource and
+    name joined by the unit separator (U+001F), which a Tableau name never contains. A missing kind means
+    a field, a missing datasource means none."""
+    kind = "field" if is_missing(kind) or not kind else kind
+    return "\x1f".join((str(kind), "" if is_missing(datasource) else str(datasource), "" if is_missing(name) else str(name)))
+
+
+def select_renames(renames: pd.DataFrame, exclude=None) -> pd.DataFrame:
+    """`renames` without the rows named in `exclude`, a list of `rename_id()` strings.
+
+    Only a rename that would be applied (changed, not a conflict) can be left out; any other id is an error,
+    so a stale or mistyped request cannot pass unnoticed. Leaving every rename out is an error too. Sheets
+    and dashboards share one namespace, so the result is refused if leaving one out would make two of them
+    end up with the same name. No ids (None or empty) returns `renames` unchanged.
+    """
+    if exclude is None:
+        return renames
+    if not isinstance(exclude, list) or not all(isinstance(x, str) for x in exclude):
+        raise ValueError("exclude must be a list of rename ids (strings)")
+    if not exclude:
+        return renames
+    todo = applicable_renames(renames)
+    known = {rename_id(r.get("kind"), r["datasource"], r["name"]) for r in todo.to_dict("records")}
+    unknown = sorted(set(exclude) - known)
+    if unknown:
+        shown = ", ".join(repr(u.replace("\x1f", " / ")) for u in unknown[:3])
+        raise ValueError(
+            f"{len(unknown)} of the excluded ids {'is' if len(unknown) == 1 else 'are'} not one of the suggested renames "
+            f"({shown}). Reload the suggestions and try again."
+        )
+    gone = set(exclude)
+    if known <= gone:
+        raise ValueError("Every rename is left out, so there is nothing to apply. Tick at least one rename.")
+    out = renames[[rename_id(r.get("kind"), r["datasource"], r["name"]) not in gone for r in renames.to_dict("records")]]
+    _check_sheet_names(out)
+    return out
+
+
+def _check_sheet_names(renames: pd.DataFrame) -> None:
+    final: dict[str, str] = {}
+    for r in renames.to_dict("records"):
+        if r.get("kind") not in ("worksheet", "dashboard"):
+            continue
+        new = r["suggested"] if r["changed"] and r["reason"] != "conflict" else r["name"]
+        if new in final and final[new] != r["name"]:
+            raise ValueError(
+                f"Leaving out a rename would give two sheets or dashboards the name {new!r}. "
+                "Leave out the other one as well, or keep every rename."
+            )
+        final[new] = r["name"]
+
+
 def _insert_column(ds_el, col) -> None:
     """Put a new `<column>` after the datasource's last column (else after its aliases, else its connection)."""
     anchor = None

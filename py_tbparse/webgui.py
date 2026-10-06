@@ -39,6 +39,7 @@ from .rename import (
     _drop_parameters,
     build_renamed_workbook,
     default_renamed_path,
+    select_renames,
     suggest_field_renames,
     suggest_renames,
 )
@@ -169,7 +170,7 @@ _WARN_LOCK = threading.Lock()  # `warnings.catch_warnings` is not thread safe; h
 _UPLOAD_ROUTES = frozenset({"/upload", "/template/upload-template", "/template/upload-data"})
 _UPLOAD_SLOTS = {"/upload": "workbook", "/template/upload-template": "template", "/template/upload-data": "data"}
 _PATH_ROUTES = frozenset({"/load", "/create-workbook", "/template/open", "/template/open-data", "/template/save"})
-_JSON_ROUTES = _PATH_ROUTES | frozenset({"/template/select-data", "/template/plan", "/template/apply", "/template/clear",
+_JSON_ROUTES = _PATH_ROUTES | frozenset({"/download-workbook", "/template/select-data", "/template/plan", "/template/apply", "/template/clear",
                                          "/template/make", "/template/use-made"})
 
 _PLAN_KEYS = frozenset({"datasource", "mapping", "params", "tokens"})
@@ -484,6 +485,17 @@ def _rename_options(src: dict) -> dict:
     if one("kinds") == "all":  # the page offers fields only or everything, nothing in between
         opts["kinds"] = KINDS
     return opts
+
+
+def _rename_exclude(src: dict):
+    """The ids of the renames to leave out, from a query-string dict (repeated `exclude`) or a JSON body
+    (a list). None when there are none. A malformed value raises ValueError."""
+    value = src.get("exclude")
+    if value is None:
+        return None
+    if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
+        raise ValueError("exclude must be a list of rename ids (strings)")
+    return value
 
 
 def _attachment(filename: str) -> str:
@@ -838,7 +850,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, "No workbook loaded", "text/plain")
                 return
             try:
-                data, filename, _n = self._renamed_workbook(_rename_options(qs))
+                data, filename, _n = self._renamed_workbook(_rename_options(qs), _rename_exclude(qs))
             except (FileNotFoundError, ValueError) as e:
                 self._send(400, str(e), "text/plain")
                 return
@@ -865,13 +877,27 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, "not found", "text/plain")
 
     @staticmethod
-    def _renamed_workbook(opts: dict):
+    def _renamed_workbook(opts: dict, exclude=None):
         parser = _STATE["parser"]
         renames = (suggest_renames if "kinds" in opts else suggest_field_renames)(parser, **opts)
+        renames = select_renames(renames, exclude)
         filename = os.path.basename(default_renamed_path(parser))
         report: dict = {}
         data = build_renamed_workbook(parser, renames, report)
         return data, filename, report["applied"]
+
+    def _download_workbook(self, payload: dict) -> None:
+        """The same fixed copy as GET /download-workbook, asked for in a JSON body so that a long list of
+        left-out renames is not squeezed into a URL."""
+        if _STATE["parser"] is None:
+            self._send_json({"error": "No workbook loaded"}, 400)
+            return
+        try:
+            data, filename, _n = self._renamed_workbook(_rename_options(payload), _rename_exclude(payload))
+        except (FileNotFoundError, ValueError) as e:
+            self._send_json({"error": str(e)}, 400)
+            return
+        self._send(200, data, "application/octet-stream", {"Content-Disposition": _attachment(filename)})
 
     def _create_workbook(self, payload: dict) -> None:
         """Save `<name>_renamed.<ext>` beside the loaded workbook (never over
@@ -887,7 +913,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         out = default_renamed_path(_STATE["parser"])
         try:
-            data, _, renamed = self._renamed_workbook(_rename_options(payload))
+            data, _, renamed = self._renamed_workbook(_rename_options(payload), _rename_exclude(payload))
             # "xb" refuses an existing file atomically, so nothing is overwritten.
             with open(out, "xb") as fh:
                 fh.write(data)
@@ -1391,6 +1417,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/create-workbook":
             self._create_workbook(payload)
+            return
+        if self.path == "/download-workbook":
+            self._download_workbook(payload)
             return
         if self.path.startswith("/template/"):
             self._template_post(self.path, payload)
