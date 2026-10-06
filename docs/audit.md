@@ -2,7 +2,7 @@
 
 Part of [py-tbparse](https://github.com/DDSNA/py-tbparse).
 
-Two read-only commands for a workbook: `audit` lists what its author probably did not mean, and `docs` writes a Markdown data dictionary. Neither writes to the workbook, and nothing here was opened in Tableau: the commands read the XML of the `.twb`/`.twbx` and say what they find there. This is the basic level; there is no `prune`, no health score and no JUnit or SARIF output yet.
+Two read-only commands for a workbook: `audit` lists what its author probably did not mean, and `docs` writes a Markdown data dictionary. The GUI has an [Audit view](gui.md#audit) for the audit, with the data dictionary as a download. Neither writes to the workbook, and nothing here was opened in Tableau: the commands read the XML of the `.twb`/`.twbx` and say what they find there. This is the basic level; there is no `prune`, no health score and no JUnit or SARIF output yet.
 
 ## Audit
 
