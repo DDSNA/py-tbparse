@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from py_tbparse import TwbParser, apply_template, load_template, make_template, suggest_renames  # noqa: E402
+from py_tbparse import TwbParser, apply_template, load_template, make_template, normalised_diff, suggest_renames  # noqa: E402
 from py_tbparse.rename import build_renamed_workbook  # noqa: E402
 from py_tbparse.verify import validate_workbook  # noqa: E402
 
@@ -114,6 +114,17 @@ def reference_summary(original: Path, produced: Path) -> str:
     return "no new findings" if not new else f"{len(new)} NEW: " + "; ".join(f"{r.check} {r.detail[:60]}" for r in new[:3])
 
 
+def diff_summary(before: Path, produced: Path, diff_dir: Path) -> str:
+    """Normalised XML diff (`py-tbparse diff-xml`) of `before` and `produced`, saved under `diff_dir`."""
+    text = normalised_diff(str(before), str(produced), name_a=before.name, name_b=produced.name)
+    if not text:
+        return f"none against {before.name}"
+    diff_dir.mkdir(exist_ok=True)
+    (diff_dir / f"{produced.stem}.diff").write_text(text, encoding="utf-8")
+    changed = sum(1 for d in text.splitlines() if d[:1] in "+-" and not d.startswith(("+++", "---")))
+    return f"{changed} changed lines against {before.name}, saved as diffs/{produced.stem}.diff"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Make the workbooks to open in Tableau by hand.")
     ap.add_argument("out_dir", help="a new or empty folder")
@@ -169,10 +180,12 @@ def main(argv=None) -> int:
 
     print(f"Pack in {out}\n")
     print(f"renames applied: {report.get('applied', '?')} (skipped {report.get('skipped', '?')})")
+    template_path = work / "template.twbx"
     for path in files:
         print(f"\n{path.name}")
         print(f"  schema:     {schema_summary(original, path)}")
         print(f"  references: {reference_summary(original, path)}")
+        print(f"  xml diff:   {diff_summary(original if path == renamed else template_path, path, out / 'diffs')}")
     print("\nNext: open each file in Tableau and follow docs/verify-in-tableau.md")
     return 0
 

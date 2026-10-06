@@ -139,8 +139,11 @@ def test_the_verification_pack_is_made_and_clean(tmp_path, capsys):
     assert pack["main"]([str(out)]) == 0
     assert sorted(p.name for p in out.iterdir()) == [
         "0-original.twb", "1-renamed.twb", "2-template-on-csv.twbx", "3-template-on-workbook.twbx",
-        "4-template-on-excel.twbx", "5-template-on-db.twbx", "_work", "data"]
+        "4-template-on-excel.twbx", "5-template-on-db.twbx", "_work", "data", "diffs"]
     assert sorted(p.suffix for p in (out / "data").iterdir()) == [".csv", ".json", ".xlsx"]
     text = capsys.readouterr().out
     assert text.count("no new errors") == 5 and text.count("no new findings") == 5
+    assert text.count("xml diff:") == 5 and "saved as diffs/1-renamed.diff" in text
+    assert sorted(p.name for p in (out / "diffs").iterdir())[0] == "1-renamed.diff"
+    assert (out / "diffs" / "1-renamed.diff").read_text(encoding="utf-8").startswith("--- 0-original.twb")
     assert pack["main"]([str(out)]) == 2                       # never writes into a folder with files
