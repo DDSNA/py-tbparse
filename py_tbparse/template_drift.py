@@ -224,7 +224,9 @@ def _quote(text: str) -> str:
 
 # ----------------------------------------------------------------- rules --
 
-@rule("D001", SCOPE, severity="error",
+@rule("D001", SCOPE,
+      severity="error",
+      title="Column the mapping needs is missing from a file",
       fix="Restore the column in the file, or map the field to another column; an optional field only loses what uses it")
 def mapped_column_missing(s: Subject):
     """A column the template's mapping needs is missing from a file."""
@@ -239,7 +241,9 @@ def mapped_column_missing(s: Subject):
                           severity="error" if req else "warning")
 
 
-@rule("D002", SCOPE, severity="error",
+@rule("D002", SCOPE,
+      severity="error",
+      title="File with another encoding or separator than the rest",
       fix="Save the file with the encoding and separator of the others; one text connection has one of each")
 def encoding_or_separator(s: Subject):
     """A CSV file has another encoding or separator than most of the files."""
@@ -256,7 +260,9 @@ def encoding_or_separator(s: Subject):
                                   f"most files use a {shown.get(sep, sep)}")
 
 
-@rule("D003", SCOPE, severity="warning",
+@rule("D003", SCOPE,
+      severity="warning",
+      title="File has a column the template does not know",
       fix="If the column is wanted, add it to the template and update; otherwise ignore it (it becomes a nullable column)")
 def extra_column(s: Subject):
     """A file has a column the template or the saved answers do not know."""
@@ -266,7 +272,9 @@ def extra_column(s: Subject):
             yield finding(f"{part.name}: {col}", "the column is not in the template or the saved answers")
 
 
-@rule("D004", SCOPE, severity="warning",
+@rule("D004", SCOPE,
+      severity="warning",
+      title="Mapped column is missing and a similar one is new",
       fix="If it is the same column renamed, rename it back in the file or map the field to it; a union keeps both names as separate columns")
 def likely_rename(s: Subject):
     """A mapped column is missing and a new column has a similar name."""
@@ -277,7 +285,9 @@ def likely_rename(s: Subject):
                 yield finding(f"{part.name}: {old}", f"the column is missing and {_quote(new)} looks like it renamed (similar name)")
 
 
-@rule("D005", SCOPE, severity="warning",
+@rule("D005", SCOPE,
+      severity="warning",
+      title="Mapped column differs only in case, spaces or punctuation",
       fix="Use the exact spelling in the file; Tableau is thought to treat the two spellings as different columns")
 def spelling_only_rename(s: Subject):
     """A mapped column is missing and a column differs from it only in case, spaces or punctuation."""
@@ -289,7 +299,9 @@ def spelling_only_rename(s: Subject):
                                                      "spaces or punctuation")
 
 
-@rule("D006", SCOPE, severity="warning",
+@rule("D006", SCOPE,
+      severity="warning",
+      title="Column reads as another type than in most files",
       fix="Clean the odd values in the file, or retype the column; a mixed column becomes text in the merged source")
 def type_conflict(s: Subject):
     """A column reads as another type in this file than in most files."""
@@ -313,7 +325,9 @@ def type_conflict(s: Subject):
                               severity="error" if bad else "warning")
 
 
-@rule("D007", SCOPE, severity="warning",
+@rule("D007", SCOPE,
+      severity="warning",
+      title="Excel sheet or header cell differs from the other files",
       fix="Move the header back to the cell the others use, or name the right sheet; a missing sheet leaves the file unread")
 def excel_layout(s: Subject):
     """An Excel file lacks the sheet, or its header starts in another cell than in most files."""
@@ -328,7 +342,9 @@ def excel_layout(s: Subject):
             yield finding(p.name, f"the header starts at {p.origin}; most files start at {origin}")
 
 
-@rule("D008", SCOPE, severity="warning", fix="Check the export that made the file; an empty file adds no rows")
+@rule("D008", SCOPE,
+      severity="warning",
+      title="File has no header or no data rows", fix="Check the export that made the file; an empty file adds no rows")
 def empty_file(s: Subject):
     """A file has no header, or a header and no data rows."""
     for p in s.extra.multi.parts:
@@ -336,7 +352,9 @@ def empty_file(s: Subject):
             yield finding(p.name, p.error)
 
 
-@rule("D009", SCOPE, severity="info", fix="Nothing to do for a union that matches columns by name; check anything that reads by position")
+@rule("D009", SCOPE,
+      severity="info",
+      title="File has the same columns in another order", fix="Nothing to do for a union that matches columns by name; check anything that reads by position")
 def column_order(s: Subject):
     """A file has the same columns in another order."""
     ctx: DriftContext = s.extra
@@ -351,7 +369,9 @@ def column_order(s: Subject):
                           else "the same columns in another order than in most files")
 
 
-@rule("D010", SCOPE, severity="info", fix="Run `template drift --save-answers` to record the files as they are now")
+@rule("D010", SCOPE,
+      severity="info",
+      title="File is new, or a file saved earlier is gone", fix="Run `template drift --save-answers` to record the files as they are now")
 def files_changed(s: Subject):
     """A file is new, or one the saved answers listed is not here any more."""
     ctx: DriftContext = s.extra
@@ -374,7 +394,9 @@ def files_changed(s: Subject):
             yield finding(Path(written).name, "the saved answers list this file and these files do not include it")
 
 
-@rule("D011", SCOPE, severity="error", fix="Open the file and re-save it as a plain CSV or .xlsx")
+@rule("D011", SCOPE,
+      severity="error",
+      title="File cannot be read", fix="Open the file and re-save it as a plain CSV or .xlsx")
 def unreadable_file(s: Subject):
     """A file cannot be read."""
     for p in s.extra.multi.parts:

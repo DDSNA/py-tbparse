@@ -278,6 +278,18 @@ def test_cli_runs_from_answers_and_profiles_and_explains(setup, tmp_path, capsys
     assert "no profile 'dev'" in capsys.readouterr().err
 
 
+def test_cli_xml_diff_shows_the_normalised_diff_and_writes_nothing(setup, tmp_path, capsys):
+    from py_tbparse.cli import main
+
+    t, name, csv, allowed = setup
+    before = sorted(p.name for p in tmp_path.iterdir())
+    assert main(["template", "apply", t.path, "--data", csv, "--allow-missing", "--xml-diff"]) == 0
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
+    err = capsys.readouterr().err
+    assert "XML changes (normalised diff, template -> output):" in err
+    assert "--- " + Path(t.path).name in err and "+++ (output)" in err and "\n+" in err
+
+
 def test_answers_for_other_datasources_are_kept(setup, tmp_path):
     t, name, csv, allowed = setup
     elsewhere = {"datasource": "federated.elsewhere", "data": {"file": "x.csv"}, "mapping": {"[A]": "a"}, "missing": []}

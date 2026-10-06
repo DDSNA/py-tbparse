@@ -6,7 +6,8 @@ normal single-workbook parser runs: `py-tbparse diff A.twb B.twb [TABLE]`,
 `py-tbparse template ...`, `py-tbparse library ...` (calculated fields and parameters),
 `py-tbparse style ...` (colour palettes), `py-tbparse scaffold ...` (dashboard layouts), and the workbook `py-tbparse audit WORKBOOK` (findings) and
 `py-tbparse docs WORKBOOK` (a Markdown data dictionary; `dictionary` is the same command),
-`py-tbparse sanitize IN OUT` (a share-safe copy) and
+`py-tbparse sanitize IN OUT` (a share-safe copy), `py-tbparse prune WORKBOOK` (remove what the audit
+finds unused; a dry run unless `--write -o OUT`) and
 `py-tbparse diff-xml A B` (a normalised line diff of the two workbooks' XML).
 """
 
@@ -51,6 +52,7 @@ from .templates import (
 )
 from .template_batch import DEFAULT_PATTERNS as DEFAULT_BATCH_PATTERNS, apply_template_folder
 from .template_update import template_update_report, update_from_answers
+from .prune import PruneError, format_report as prune_report, prune
 from .sanitize import CATEGORIES as SANITIZE_CATEGORIES, SanitizeError, format_report as sanitize_report, sanitize
 from .workbook_audit import audit, rules_help as audit_rules_help
 from .docgen import template_markdown, workbook_markdown
@@ -471,6 +473,9 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     ap_.add_argument("--explain", action="store_true",
                      help="also list what this changes besides the connection: new field types, dropped "
                           "fields and what they break (to stderr)")
+    ap_.add_argument("--xml-diff", action="store_true",
+                     help="also show the normalised XML diff of the template's workbook and the one this would "
+                          "write (to stderr; see 'diff-xml'); builds the workbook in a temporary folder")
     ap_.add_argument("--check", action="store_true",
                      help="also check the new data: missing dimensions, empty columns, repeated keys (to stderr)")
     ap_.add_argument("--deep", action="store_true", help="with --check, read the whole CSV, not its first 2000 rows")
@@ -779,6 +784,19 @@ def _run_template(argv: list[str]) -> int:
         if args.explain:
             print("\nWhat applying changes:", file=sys.stderr)
             _write(_df_text(explain(t, data, mapping, datasource=datasource), args.format), None, stream=sys.stderr)
+        if args.xml_diff:
+            import tempfile
+
+            print("\nXML changes (normalised diff, template -> output):", file=sys.stderr)
+            with tempfile.TemporaryDirectory() as tmp:
+                try:
+                    probe = apply_template(t, data, mapping=mapping, params=plan.params,
+                                           output_path=str(Path(tmp) / "probe.twbx"), datasource=datasource,
+                                           allow_missing=args.allow_missing, tokens=plan.tokens)
+                    text = normalised_diff(t.path, probe, name_a=Path(t.path).name, name_b="(output)")
+                    sys.stderr.write(text or "no difference\n")
+                except TemplateError as e:
+                    print(f"not built: {e}", file=sys.stderr)
         if args.check:
             found = check_data(t, data, mapping, datasource=datasource, deep=args.deep)
             print("\nData checks:" + ("" if len(found) else " nothing found"), file=sys.stderr)
@@ -1203,6 +1221,50 @@ def _run_sanitize(argv: list[str]) -> int:
     return 0
 
 
+def _run_prune(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(
+        prog="py-tbparse prune",
+        description="Remove what the audit finds unused, if nothing that stays refers to it: unused calculations "
+                    "(A001), unused parameters (A005) and, only with --sheets, worksheets that are on no dashboard "
+                    "(A006). A calculation that a set, group, bin, action, filter, dashboard, window entry, extract "
+                    "or another calculation still names is kept, and the report says what names it. Every trace of a "
+                    "removed field goes with it (column, instances, folder entries, hierarchy entries, colour "
+                    "entries, dependency lists). A dry run by default: it prints what would be removed and why. "
+                    "--write -o OUT writes a NEW file (the input is never written; an existing OUT is refused "
+                    "unless --overwrite). A second run on OUT removes nothing. The audit only sees this workbook: "
+                    "another workbook or a published datasource may use a field, and nothing is opened in Tableau, "
+                    "so open the result before you rely on it.",
+    )
+    ap.add_argument("workbook", help="the .twb or .twbx to read")
+    ap.add_argument("--write", action="store_true", help="write the pruned copy to -o OUT (otherwise a dry run)")
+    ap.add_argument("--output", "-o", help="the .twb or .twbx to write, same format as the input (needs --write)")
+    ap.add_argument("--sheets", action="store_true",
+                    help="also remove worksheets that are on no dashboard, story or tooltip (A006; off by default)")
+    ap.add_argument("--no-calculations", action="store_true", help="leave calculations alone")
+    ap.add_argument("--no-parameters", action="store_true", help="leave parameters alone")
+    ap.add_argument("--overwrite", action="store_true", help="replace an existing OUT (never the input)")
+    ap.add_argument("--format", "-f", choices=["table", "json"], default="table", help="the report as text or JSON")
+    args = ap.parse_args(argv)
+    if args.write and not args.output:
+        ap.error("--write needs -o OUT")
+    if args.output and not args.write:
+        ap.error("-o OUT is only used with --write (without it prune is a dry run)")
+    if args.overwrite and not args.write:
+        ap.error("--overwrite is only used with --write")
+    try:
+        report = prune(args.workbook, args.output if args.write else None, sheets=args.sheets,
+                       calculations=not args.no_calculations, parameters=not args.no_parameters,
+                       overwrite=args.overwrite)
+    except (PruneError, FileExistsError, *_WORKBOOK_ERRORS) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    if args.format == "json":
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print(prune_report(report))
+    return 0
+
+
 def _run_docs(argv: list[str], prog: str = "py-tbparse docs") -> int:
     ap = argparse.ArgumentParser(
         prog=prog,
@@ -1277,6 +1339,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_audit(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "sanitize"):
         return _run_sanitize(raw_argv[1:])
+    if _is_reserved_subcommand(raw_argv, "prune"):
+        return _run_prune(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "docs"):
         return _run_docs(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "dictionary"):

@@ -23,6 +23,7 @@ It began as a port of PrigasG's R package [twbparser](https://github.com/PrigasG
 - Checks a folder or glob of monthly CSV/Excel files against a template or saved answers (`template drift`): missing, renamed and extra columns, type conflicts, encoding, separator, moved Excel headers, empty files, with fingerprints per file. It does not write a union workbook yet.
 - Audits a workbook (`audit`: unused or duplicate calculations, missing references, custom SQL, absolute-path leftovers) and writes a Markdown data dictionary of it (`docs`). Read-only; never opened in Tableau.
 - Writes a share-safe copy of a workbook (`sanitize IN OUT --report`): user names, servers, databases, paths, custom SQL, extracts, comments and thumbnails out, a report of what was removed and what it could not judge, optional placeholders and synthetic data. A clean-up, not a guarantee.
+- Removes what the audit finds unused (`prune WORKBOOK`: unused calculations and parameters, worksheets on no dashboard only with `--sheets`), only if nothing that stays refers to it. A dry run by default; `--write -o OUT` writes a new file.
 - Writes the findings of `validate`, `audit` and `template check` as JUnit, SARIF or GitHub annotations for CI (`--format junit|sarif|github`), with a pre-commit hook and a sample workflow.
 - Takes calculated fields and parameters out of one workbook into a library file and adds them to another (`library export`, `library import`). The output follows what Tableau writes but has not been opened in Tableau.
 - Saves the layout of a dashboard (containers, text, styles, one slot per sheet) as a scaffold and makes a new dashboard from it with your own sheets (`scaffold make`, `show`, `apply`). First slice: a single tiled root only; filters, legends, controls, images and device layouts are dropped and listed. It has not been opened in Tableau.
@@ -89,6 +90,7 @@ scan_folder("./workbooks", table="datasources")   # one table, every workbook in
 - [Templates](https://github.com/DDSNA/py-tbparse/blob/main/docs/templates.md): make a template from a workbook and apply it to new data.
 - [Sanitize](https://github.com/DDSNA/py-tbparse/blob/main/docs/sanitize.md): the share-safe copy, its categories, the report and the optional synthetic data.
 - [CI output and pre-commit](https://github.com/DDSNA/py-tbparse/blob/main/docs/ci.md): `--format junit|sarif|github`, exit codes, rule ids, sample workflow.
+- [Prune](https://github.com/DDSNA/py-tbparse/blob/main/docs/prune.md): what it removes, what keeps a field, the report, the limits.
 - [Audit and data dictionary](https://github.com/DDSNA/py-tbparse/blob/main/docs/audit.md): the audit rules A001 to A011, what "used" means, the Markdown data dictionary.
 - [Libraries](https://github.com/DDSNA/py-tbparse/blob/main/docs/libraries.md): export calculated fields and parameters, add them to another workbook, what is not covered; also a Libraries view in the GUI.
 - [Dashboard scaffolds](https://github.com/DDSNA/py-tbparse/blob/main/docs/scaffolds.md): make a dashboard layout from another one, what is kept and dropped, the integrity check, and what was not checked in Tableau.

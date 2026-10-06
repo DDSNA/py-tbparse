@@ -15,4 +15,4 @@ dist/
 /CLAUDE.md
 
 # example-workbook corpus: fetched with scripts/fetch_corpus.py, not tracked
-/tests/corpus/files/
+/tests/corpus/files

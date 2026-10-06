@@ -11,7 +11,7 @@ shows or filters it, directly or through the calculations, groups, sets, bins an
 worksheet's fields depend on. On top of that a name that a dashboard, an action or a worksheet's text
 (a title or caption that shows a parameter) mentions as `[Name]` counts as used. Not followed: a field
 that only another datasource's blend, a story point caption or an external tool uses. A rule says
-"probably", never "safe to delete"; nothing here removes anything (there is no `prune`).
+"probably", never "safe to delete"; the audit removes nothing (`prune.py` removes from the same lists).
 
 Every rule is a heuristic about what a workbook author probably did not mean; none says Tableau will
 refuse the file, and nothing here was checked by opening a workbook in Tableau.
@@ -278,12 +278,19 @@ def normalise_formula(formula: str) -> str:
 
 # ------------------------------------------------------------------ the rules --
 
-@rule("A001", SCOPE, severity="info",
+@rule("A001", SCOPE,
+      severity="info",
+      title="Calculated field that no worksheet uses",
       fix="If nothing needs it, delete the calculation or hide it; check first that no other workbook or "
           "published datasource uses it, py-tbparse only sees this workbook")
 def unused_calculation(s: Subject):
     """A calculated field that no worksheet uses, not even through another calculation."""
-    f = _facts(s)
+    for calc, detail in unused_calculations(_facts(s)):
+        yield finding(calc.label, detail)
+
+
+def unused_calculations(f: _Facts) -> Iterator[tuple]:
+    """`(calc, detail)` for each calculation A001 reports; `prune` removes from this same list."""
     if not f.has_worksheets:
         return                                    # a workbook of data sources only: nothing could use a field
     for _, row in f.usage[(f.usage["kind"] == "calculated") & ~f.usage["used"]].iterrows():
@@ -291,12 +298,13 @@ def unused_calculation(s: Subject):
         if calc is None or calc.hidden or calc.auto or row["field"].strip("[]") in f.mentioned:
             continue
         by = [c for c in row["calculations"] if c != _label_of(row)]
-        yield finding(calc.label,
-                      f"no worksheet uses it; only the calculation(s) {_names(by)} refer to it, and no worksheet uses those"
-                      if by else "no worksheet, dashboard or other calculation uses it")
+        yield calc, (f"no worksheet uses it; only the calculation(s) {_names(by)} refer to it, and no worksheet uses those"
+                     if by else "no worksheet, dashboard or other calculation uses it")
 
 
-@rule("A002", SCOPE, severity="warning",
+@rule("A002", SCOPE,
+      severity="warning",
+      title="Two calculations with the same formula",
       fix="Keep one of the calculations and point the worksheets at it, or give the copies different formulas "
           "if they were meant to differ")
 def duplicate_calculation(s: Subject):
@@ -315,7 +323,9 @@ def duplicate_calculation(s: Subject):
             yield finding(c.label, f"same formula as {_names(names[:i] + names[i + 1:])}")
 
 
-@rule("A003", SCOPE, severity="error",
+@rule("A003", SCOPE,
+      severity="error",
+      title="Calculation refers to a field that does not exist",
       fix="Point the formula at a field that exists, or restore the field; Tableau shows the calculation as "
           "invalid until then")
 def missing_reference(s: Subject):
@@ -375,7 +385,9 @@ def _cycles(graph: dict) -> list[list[tuple]]:
     return sorted(found)
 
 
-@rule("A004", SCOPE, severity="error",
+@rule("A004", SCOPE,
+      severity="error",
+      title="Calculations that refer to each other in a circle",
       fix="Break the loop: one of the calculations must stop referring to the next; Tableau refuses a circular "
           "calculation")
 def circular_calculation(s: Subject):
@@ -388,12 +400,19 @@ def circular_calculation(s: Subject):
                           "refers to itself" if len(comp) == 1 else f"part of a circular dependency: {_names(names)}")
 
 
-@rule("A005", SCOPE, severity="info",
+@rule("A005", SCOPE,
+      severity="info",
+      title="Parameter that nothing uses",
       fix="If nothing needs the parameter, delete it; check first that no title, action or other workbook does "
           "(this rule follows a parameter through calculations, which `field_usage` itself does not yet)")
 def unused_parameter(s: Subject):
     """A parameter that no worksheet, calculation or text uses."""
-    f = _facts(s)
+    for row, detail in unused_parameters(_facts(s)):
+        yield finding(f"Parameters: {_label_of(row)}", detail)
+
+
+def unused_parameters(f: _Facts) -> Iterator[tuple]:
+    """`(usage row, detail)` for each parameter A005 reports; `prune` removes from this same list."""
     if not f.has_worksheets:
         return
     users = f.parameter_users
@@ -409,9 +428,8 @@ def unused_parameter(s: Subject):
         if any(c.key in used_fields for c in refs) or any(k in used_fields for k, _ in more):
             continue
         names = sorted({c.caption or c.name.strip("[]") for c in refs} | {lab for _, lab in more})
-        yield finding(f"Parameters: {_label_of(row)}",
-                      f"no worksheet uses it; it is only used by {_names(names)}, and no worksheet uses those"
-                      if names else "no worksheet, dashboard, action or calculation uses it")
+        yield row, (f"no worksheet uses it; it is only used by {_names(names)}, and no worksheet uses those"
+                    if names else "no worksheet, dashboard, action or calculation uses it")
 
 
 def _hidden_sheets(doc) -> set:
@@ -426,14 +444,21 @@ def _tooltip_sheets(doc) -> set:
     return {m for t in doc.xpath("//customized-tooltip//run") for m in _TOOLTIP_SHEET.findall("".join(t.itertext()))}
 
 
-@rule("A006", SCOPE, severity="info",
+@rule("A006", SCOPE,
+      severity="info",
+      title="Worksheet that is on no dashboard or story",
       fix="Add the worksheet to a dashboard or story, hide it if it only feeds another sheet, or delete it")
 def sheet_in_no_dashboard(s: Subject):
     """A worksheet that is on no dashboard, story or tooltip and not hidden, in a workbook that has a
     dashboard or story at all."""
-    doc = _facts(s).doc
+    for name, detail in sheets_in_no_dashboard(_facts(s).doc):
+        yield finding(name, detail)
+
+
+def sheets_in_no_dashboard(doc) -> list[tuple]:
+    """`(sheet name, detail)` for each worksheet A006 reports, sorted; `prune --sheets` removes from this list."""
     if not doc.xpath("/workbook/dashboards/dashboard") and not doc.xpath("//story-point"):
-        return                                    # a workbook of plain sheets has no dashboard to be missing from
+        return []                                 # a workbook of plain sheets has no dashboard to be missing from
     shown = set(_dashboards_of(doc))
     shown |= set(doc.xpath("//story-point/@captured-sheet"))
     shown |= _tooltip_sheets(doc)
@@ -441,9 +466,9 @@ def sheet_in_no_dashboard(s: Subject):
     # write `type-v2='layout-basic'` there; Tableau's own layout containers carry no sheet name)
     shown |= set(doc.xpath("/workbook/dashboards/dashboard//zone[@name][not(zone)]/@name"))
     hidden = _hidden_sheets(doc)
-    for name in sorted(doc.xpath("/workbook/worksheets/worksheet/@name")):
-        if name not in shown and name not in hidden:
-            yield finding(name, "not on any dashboard, story or tooltip, and not hidden")
+    return [(name, "not on any dashboard, story or tooltip, and not hidden")
+            for name in sorted(doc.xpath("/workbook/worksheets/worksheet/@name"))
+            if name not in shown and name not in hidden]
 
 
 def _sql_snippet(text: str) -> str:
@@ -452,7 +477,9 @@ def _sql_snippet(text: str) -> str:
     return flat if len(flat) <= SQL_SHOWN else flat[:SQL_SHOWN] + "..."
 
 
-@rule("A007", SCOPE, severity="info",
+@rule("A007", SCOPE,
+      severity="info",
+      title="Custom SQL is present",
       fix="Custom SQL runs as written on every refresh and Tableau cannot optimise around it; a view or a table in "
           "the database is often easier to maintain. Check it for credentials and for hard-coded dates")
 def custom_sql(s: Subject):
@@ -486,7 +513,9 @@ def _abs_extract_path(ds) -> Optional[str]:
     return None
 
 
-@rule("A008", SCOPE, severity="info",
+@rule("A008", SCOPE,
+      severity="info",
+      title="Data source tied to a file or extract on one machine",
       fix="Point file connections at a folder next to the workbook or at a shared location, and refresh and "
           "republish (or remove) an extract that lives on one machine; `template make` strips extracts for you")
 def absolute_path_leftover(s: Subject):
@@ -515,7 +544,9 @@ def absolute_path_leftover(s: Subject):
             yield finding(label, "; ".join(parts))
 
 
-@rule("A009", SCOPE, severity="info",
+@rule("A009", SCOPE,
+      severity="info",
+      title="Calculation still has Tableau's default name",
       fix="Give the calculation a name that says what it does; the formulas and worksheets keep working (the "
           "caption is display text)")
 def default_name(s: Subject):
@@ -546,7 +577,9 @@ def calculation_depths(f: _Facts) -> dict[tuple, int]:
     return depth
 
 
-@rule("A010", SCOPE, severity="info",
+@rule("A010", SCOPE,
+      severity="info",
+      title="Calculation on a chain of more than 5 calculations",
       fix="Fold the inner calculations together or compute the intermediate result once in the data; long chains "
           "are hard to read and slow to change")
 def deep_calculation(s: Subject):
@@ -557,7 +590,9 @@ def deep_calculation(s: Subject):
             yield finding(f.by_key[key].label, f"depends on a chain of {d} calculations (more than {DEEP_CALCULATION})")
 
 
-@rule("A011", SCOPE, severity="info",
+@rule("A011", SCOPE,
+      severity="info",
+      title="Formula longer than 1000 characters",
       fix="Split the formula into smaller calculations with names, or move the logic into the data")
 def long_formula(s: Subject):
     """A formula is longer than 1000 characters."""
