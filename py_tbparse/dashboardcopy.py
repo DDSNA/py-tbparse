@@ -302,8 +302,13 @@ def _run_dashboards(source, target, dashboards: Iterable[str], on_clash: str = "
             acts = etree.Element("actions")
             doc.find("worksheets").addprevious(acts)
         have_names = set(doc.xpath("/workbook/actions/action/@name"))
-        for a in carried:
-            acts.append(_copy_action(a, dbmap, sheetmap, have_names))
+        for a in carried:       # the schema wants `action` before `edit-parameter-action`
+            new_action = _copy_action(a, dbmap, sheetmap, have_names)
+            last = acts.xpath("./action[last()]")
+            if last:
+                last[0].addnext(new_action)
+            else:
+                acts.insert(0, new_action)
     if doc.find("worksheets") is not None and len(doc.find("worksheets")) == 0 \
             and dst.xml_doc.find("worksheets") is None:
         doc.remove(doc.find("worksheets"))
