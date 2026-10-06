@@ -17,6 +17,11 @@ from typing import Iterable, Optional
 import pandas as pd
 from lxml import etree
 
+# XPath step for a <relation> element in either spelling. Tableau writes some relations with a feature-flag tag,
+# `_.fcp.ObjectModelEncapsulateLegacy.true...relation` (also `.false...`), which `relation` alone never matches.
+# Use as `.//{ANY_RELATION}[@type='table']`, not `.//relation[...]`.
+ANY_RELATION = "*[self::relation or substring(name(), string-length(name()) - 10) = '...relation']"
+
 _WORKBOOK_EXT = {"twb"}
 _EXTRACT_EXT = {"hyper", "tde"}
 _IMAGE_EXT = {"png", "jpg", "jpeg", "gif", "svg"}

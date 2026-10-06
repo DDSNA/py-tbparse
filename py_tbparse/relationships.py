@@ -12,6 +12,7 @@ from typing import Optional
 import pandas as pd
 
 from ._clean import attr_safe_get, bracket_tokens, clean_table
+from ._xml import ANY_RELATION
 
 _FUNC_START_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(")
 _FUNC_CALL_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\([^)]*\)")
@@ -27,7 +28,7 @@ _RELATIONSHIP_COLUMNS = [
 
 
 def _member_names(node) -> list[str]:
-    return [n.get("name") or n.get("table") or "?" for n in node.xpath(".//relation[not(@type='join' or @type='collection')]")]
+    return [n.get("name") or n.get("table") or "?" for n in node.xpath(f".//{ANY_RELATION}[not(@type='join' or @type='collection')]")]
 
 
 def _list_names(names: list[str]) -> str:
@@ -53,7 +54,7 @@ def extract_relations(xml_doc) -> pd.DataFrame:
     """Port of `extract_relations()`. A join container has no name or table of its own, so it is named
     after the tables it joins; a `collection` (type `collection`, the group of physical tables under a
     logical model) is named "collection of ..." after its member tables the same way. Neither carries the text of its subtree (unlike the R original)."""
-    nodes = xml_doc.xpath(".//relation")
+    nodes = xml_doc.xpath(f".//relation | .//{ANY_RELATION}[@type='collection']")
     if not nodes:
         return pd.DataFrame(columns=_RELATION_COLUMNS)
 
