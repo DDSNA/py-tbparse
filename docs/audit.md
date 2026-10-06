@@ -2,7 +2,7 @@
 
 Part of [py-tbparse](https://github.com/DDSNA/py-tbparse).
 
-Two read-only commands for a workbook: `audit` lists what its author probably did not mean, and `docs` writes a Markdown data dictionary. The GUI has an [Audit view](gui.md#audit) for the audit, with the data dictionary as a download. Neither writes to the workbook, and nothing here was opened in Tableau: the commands read the XML of the `.twb`/`.twbx` and say what they find there. This is the basic level; there is no `prune` and no health score. JUnit, SARIF and GitHub output are described in [ci.md](ci.md).
+Two read-only commands for a workbook: `audit` lists what its author probably did not mean, and `docs` writes a Markdown data dictionary. The GUI has an [Audit view](gui.md#audit) for the audit, with the data dictionary as a download. Neither writes to the workbook, and nothing here was opened in Tableau: the commands read the XML of the `.twb`/`.twbx` and say what they find there. This is the basic level; there is no health score. [`prune`](prune.md) removes what A001, A005 and A006 report, as a dry run unless told to write a new file. JUnit, SARIF and GitHub output are described in [ci.md](ci.md).
 
 ## Audit
 
