@@ -73,6 +73,22 @@ py-tbparse library import other.twb kpis.library.json --mapping map.csv --on-cla
 - `--on-clash` is `rename` (default), `skip` or `fail`. `--mapping` is a CSV with `field` and `mapped_to`.
 - Exit codes of `import`: 0, 1 (an error, including `--on-clash fail` meeting a clash), 2 (some entry could not be imported; the others are written).
 
+## Colour palettes
+
+`py-tbparse style` has four subcommands: `show`, `export`, `import` and `check`. They move named colour palettes between workbooks, `Preferences.tps` files and `*.style.json` files; [styles.md](styles.md) explains the clash handling. Palettes become selectable in the colour picker; nothing is recoloured. The output was never opened in Tableau: check a copy first.
+
+```bash
+py-tbparse style show brand.twb Preferences.tps                  # also --format csv|json
+py-tbparse style export brand.twb -o acme.style.json             # or acme.tps; also --palette NAME (repeatable), --on-clash, --name, --overwrite
+py-tbparse style import acme.style.json Preferences.tps          # the plan only
+py-tbparse style import acme.style.json Preferences.tps --on-clash replace --write
+py-tbparse style check Preferences_palettes.tps
+```
+
+- `import` writes nothing without `--write`. It always writes a new file (default `<name>_palettes.<ext>` beside the target) and never replaces the input or an existing `Preferences.tps`; there is no in-place option.
+- `--on-clash` is `fail` (default), `skip`, `rename` or `replace`.
+- Exit codes: 0, 1 (an error, a clash under `--on-clash fail`, or problems found by `check`), 2 (some palette was invalid; the others are written).
+
 ## The GUI command
 
 ```bash

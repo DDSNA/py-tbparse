@@ -23,6 +23,20 @@ from .library import (
     save_library,
 )
 from .parser import TwbParser
+from .style import (
+    StyleError,
+    build_with_palettes,
+    check_style_file,
+    export_palettes,
+    import_palettes,
+    load_style,
+    make_style,
+    palettes_table,
+    plan_palette_import,
+    read_palettes,
+    save_style,
+    tps_bytes,
+)
 from .published import extract_published_refs
 from .relationships import extract_relations, extract_relationships
 from .rename import (
@@ -125,6 +139,18 @@ __all__ = [
     "plan_import",
     "build_imported_workbook",
     "import_library",
+    "StyleError",
+    "read_palettes",
+    "palettes_table",
+    "make_style",
+    "save_style",
+    "load_style",
+    "tps_bytes",
+    "check_style_file",
+    "plan_palette_import",
+    "build_with_palettes",
+    "import_palettes",
+    "export_palettes",
 ]
 
 try:
