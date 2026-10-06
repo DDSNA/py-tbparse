@@ -159,7 +159,7 @@ def test_tps_does_not_read_external_entities(tmp_path):
     secret = tmp_path / "secret.txt"
     secret.write_text("LEAKED")
     p = tmp_path / "e.tps"
-    p.write_text(f'<?xml version="1.0"?><!DOCTYPE workbook [<!ENTITY x SYSTEM "{secret}">]><workbook><preferences>'
+    p.write_text(f'<?xml version="1.0"?><!DOCTYPE workbook [<!ENTITY x SYSTEM "{secret.as_uri()}">]><workbook><preferences>'
                  '<color-palette name="a" type="regular"><color>#000000</color></color-palette>'
                  '<color-palette name="b" type="regular"><color>&x;</color></color-palette></preferences></workbook>')
     rep = {}
