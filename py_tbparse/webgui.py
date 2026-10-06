@@ -52,7 +52,7 @@ from .templates import TemplateError, load_template, make_template, read_data
 
 # "tpl" is the Templates view's state (see `_tpl_new`); it stays None until the view is used. Defaults are copied
 # shallowly into each session, so every default must be immutable: a fresh dict is assigned on first use.
-_STATE_DEFAULTS = {"parser": None, "path": None, "uploaded": False, "report": None, "audit": None, "lib": None, "sty": None, "tpl": None}
+_STATE_DEFAULTS = {"parser": None, "path": None, "uploaded": False, "report": None, "audit": None, "lib": None, "sty": None, "cpy": None, "tpl": None}
 
 # Server mode (`--server-mode`): the page is shared by several people behind a proxy, so each browser gets its
 # own workbook state, keyed by a random cookie. `_STATE` and `_UPLOAD` below look like plain dicts but read and
@@ -116,12 +116,15 @@ def _drop_session(session: dict) -> None:
         shutil.rmtree(session["upload"]["dir"], ignore_errors=True)
         session["upload"]["dir"] = None
     _drop_tpl(session["state"].get("tpl"))
+    _cpy_drop(session["state"].get("cpy"))
 
 
 def _clear_all_uploads() -> None:
     _clear_upload()
     _drop_tpl(_STATE.base.get("tpl"))
     _STATE.base["tpl"] = None
+    _cpy_drop(_STATE.base.get("cpy"))
+    _STATE.base["cpy"] = None
     with _SESSIONS_LOCK:
         for session in _SESSIONS.values():
             _drop_session(session)
@@ -187,7 +190,14 @@ _STYLE_KEYS = {
     "/style/add": frozenset({"on_clash"}),
     "/style/clear": frozenset(),
 }
-_JSON_ROUTES = _PATH_ROUTES | frozenset(_LIBRARY_KEYS) | frozenset(_STYLE_KEYS) | frozenset({"/download-workbook", "/template/select-data", "/template/plan", "/template/apply", "/template/clear",
+_COPY_KEYS = {
+    "/copy/slice-plan": frozenset({"dashboards", "strict", "prune", "offset", "limit"}),
+    "/copy/slice-download": frozenset({"dashboards", "strict", "prune"}),
+    "/copy/plan": frozenset({"sheets", "on_clash", "strict", "offset", "limit"}),
+    "/copy/download": frozenset({"sheets", "on_clash", "strict"}),
+    "/copy/clear": frozenset(),
+}
+_JSON_ROUTES = _PATH_ROUTES | frozenset(_LIBRARY_KEYS) | frozenset(_STYLE_KEYS) | frozenset(_COPY_KEYS) | frozenset({"/download-workbook", "/template/select-data", "/template/plan", "/template/apply", "/template/clear",
                                          "/template/make", "/template/use-made"})
 
 _PLAN_KEYS = frozenset({"datasource", "mapping", "params", "tokens"})
@@ -612,6 +622,7 @@ _ASSETS = {
     "audit.js": "text/javascript; charset=utf-8",
     "libraries.js": "text/javascript; charset=utf-8",
     "styles.js": "text/javascript; charset=utf-8",
+    "copy.js": "text/javascript; charset=utf-8",
 }
 
 
@@ -668,6 +679,7 @@ def _open_response(parser: TwbParser, path: str, uploaded: bool = False, name: s
     _STATE["audit"] = None
     _STATE["lib"] = None
     _STATE["sty"] = None
+    _cpy_clear()
     dashboards_df = parser.get_dashboards()
     return {
         "ok": True,
@@ -1069,6 +1081,203 @@ def _style_add(payload: dict) -> tuple[bytes, str, dict]:
     return data, f"{_workbook_stem()}_palettes{ext}", report
 
 
+# ---- the Copy view (/copy/*) ----
+# Slice (keep chosen dashboards of the open workbook) and sheet copy (copy chosen worksheets of the open workbook
+# into an uploaded target workbook). Both call the library functions (`slice_workbook`, `plan_sheet_copy`,
+# `build_sheet_copy`) and send the result as a download: no endpoint takes a path or writes next to a workbook, so
+# it works in server mode. The target workbook is parsed from a private temp folder (a .twbx has to be read again
+# when the result is made), kept for this session and deleted when it is replaced, cleared or the session ends.
+# There is no overwrite policy: the clash policy is fail (default), rename or skip.
+COPY_PAGE = 100
+_COPY_POLICIES = ("fail", "rename", "skip")
+_COPY_MAX_PICK = 50_000
+
+
+def _cpy_drop(cpy) -> None:
+    if cpy and cpy.get("dir"):
+        shutil.rmtree(cpy["dir"], ignore_errors=True)
+        cpy["dir"] = None
+
+
+def _cpy_clear() -> None:
+    _cpy_drop(_STATE["cpy"])
+    _STATE["cpy"] = None
+
+
+def _cpy_page(get) -> tuple[int, int]:
+    try:
+        offset = max(0, int(get("offset", 0)))
+        limit = min(COPY_PAGE, max(1, int(get("limit", COPY_PAGE))))
+    except (TypeError, ValueError):
+        raise ValueError("offset and limit must be whole numbers")
+    return offset, limit
+
+
+def _cpy_names(payload: dict, key: str) -> list:
+    names = payload.get(key)
+    if (not isinstance(names, list) or not names or not all(isinstance(x, str) for x in names)):
+        raise ValueError("Tick at least one dashboard." if key == "dashboards" else "Tick at least one worksheet.")
+    if len(names) > _COPY_MAX_PICK:
+        raise ValueError("Too many items selected.")
+    return list(dict.fromkeys(names))
+
+
+def _cpy_flag(payload: dict, key: str, default: bool) -> bool:
+    v = payload.get(key, default)
+    if not isinstance(v, bool):
+        raise ValueError(f"{key} must be true or false")
+    return v
+
+
+def _cpy_dashboards_answer(qs: dict) -> dict:
+    doc = _STATE["parser"].xml_doc
+    sheets = set(doc.xpath("/workbook/worksheets/worksheet/@name"))
+    text = (qs.get("q") or [""])[0].strip().lower()
+    els = doc.xpath("/workbook/dashboards/dashboard[@name]")
+    rows = [e for e in els if text in e.get("name").lower()] if text else els
+    offset, limit = _cpy_page(lambda k, d: (qs.get(k) or [d])[0])
+    out = []
+    for e in rows[offset:offset + limit]:
+        shown = {n for n in e.xpath(".//zone/@name | .//@sheet") if n in sheets}
+        out.append({"name": e.get("name"), "kind": "story" if e.get("type") == "storyboard" else "dashboard",
+                    "n_sheets": len(shown)})
+    names = [e.get("name") for e in rows] if (qs.get("names") or [""])[0] == "1" else []
+    return {"total": len(els), "matching": len(rows), "offset": offset, "limit": limit, "rows": out, "names": names}
+
+
+def _cpy_sheets_answer(qs: dict) -> dict:
+    from .sheetcopy_core import sheet_datasources
+    doc = _STATE["parser"].xml_doc
+    text = (qs.get("q") or [""])[0].strip().lower()
+    els = doc.xpath("/workbook/worksheets/worksheet[@name]")
+    rows = [e for e in els if text in e.get("name").lower()] if text else els
+    offset, limit = _cpy_page(lambda k, d: (qs.get(k) or [d])[0])
+    out = [{"name": e.get("name"), "datasources": sheet_datasources(doc, e.get("name"))}
+           for e in rows[offset:offset + limit]]
+    names = [e.get("name") for e in rows] if (qs.get("names") or [""])[0] == "1" else []
+    return {"total": len(els), "matching": len(rows), "offset": offset, "limit": limit, "rows": out, "names": names}
+
+
+def _cpy_ext(parser: TwbParser) -> str:
+    return os.path.splitext(str(parser.twbx_path or parser.path))[1] or ".twb"
+
+
+def _cpy_slice_report(payload: dict, write: bool):
+    """`(report, bytes or None)` of the library's `slice_workbook`; a write goes to a private temp folder and is read back."""
+    from .slicer import slice_workbook
+    names = _cpy_names(payload, "dashboards")
+    strict, prune = _cpy_flag(payload, "strict", False), _cpy_flag(payload, "prune", True)
+    parser = _STATE["parser"]
+    if not write:
+        return slice_workbook(parser, names, None, strict=strict, prune=prune), None
+    with tempfile.TemporaryDirectory(prefix="py-tbparse-slice-") as folder:
+        out = os.path.join(folder, "sliced" + _cpy_ext(parser))
+        report = slice_workbook(parser, names, out, strict=strict, prune=prune)
+        with open(out, "rb") as fh:
+            return report, fh.read()
+
+
+def _cpy_slice_plan(payload: dict) -> dict:
+    from .slicer import SliceError
+    offset, limit = _cpy_page(payload.get)
+    try:
+        r, _ = _cpy_slice_report(payload, False)
+    except SliceError as e:
+        return {"error": str(e)}
+    rows = ([{"kind": "Dashboard", "name": n, "action": "keep", "why": ""} for n in r["kept_dashboards"]]
+            + [{"kind": "Worksheet", "name": n, "action": "keep", "why": ""} for n in r["kept_sheets"]]
+            + [{"kind": "Dashboard", "name": n, "action": "remove", "why": ""} for n in r["removed_dashboards"]]
+            + [{"kind": "Worksheet", "name": n, "action": "remove", "why": ""} for n in r["removed_sheets"]])
+    actions = ([{"caption": a["caption"], "action": "drop", "why": a["reason"]} for a in r["dropped_actions"]]
+               + [{"caption": a["caption"], "action": "trim", "why": a["reason"]} for a in r["trimmed_actions"]])
+    prune = (r["prune"] or {}).get("counts") or {}
+    return {
+        "kept_dashboards": len(r["kept_dashboards"]), "kept_sheets": len(r["kept_sheets"]),
+        "removed_dashboards": len(r["removed_dashboards"]), "removed_sheets": len(r["removed_sheets"]),
+        "total": len(rows), "offset": offset, "limit": limit, "rows": rows[offset:offset + limit],
+        "action_count": len(actions), "actions": actions[:COPY_PAGE], "dropped_filters": r["dropped_filters"],
+        "pruned": {k: int(prune.get(k, 0)) for k in ("calculations", "parameters", "sheets", "datasources")},
+        "integrity": [f"{p['check']}: {p['detail']}" for p in r["integrity_new"]][:COPY_PAGE],
+        "integrity_count": len(r["integrity_new"]),
+    }
+
+
+def _cpy_slice_download(payload: dict) -> tuple[bytes, str, dict]:
+    report, data = _cpy_slice_report(payload, True)
+    return data, f"{_workbook_stem()}_sliced{_cpy_ext(_STATE['parser'])}", report
+
+
+def _cpy_target():
+    cpy = _STATE["cpy"]
+    if not cpy or not cpy.get("parser") or not cpy.get("dir"):
+        raise ValueError("Choose the target workbook first.")
+    return cpy
+
+
+def _cpy_policy(payload: dict) -> str:
+    policy = payload.get("on_clash", "fail")
+    if policy not in _COPY_POLICIES:
+        raise ValueError(f"on_clash: use {', '.join(_COPY_POLICIES)}")
+    return policy
+
+
+def _cpy_scrub(text: str) -> str:
+    """A message from the planner without the server's file names: the open workbook and the target by label."""
+    cpy = _STATE["cpy"] or {}
+    for path, label in ((str(_STATE["path"] or ""), "the open workbook"),
+                        (str((cpy.get("parser") and (cpy["parser"].twbx_path or cpy["parser"].path)) or ""), "the target")):
+        if path:
+            text = text.replace(path, label)
+    return text
+
+
+def _cpy_copy_plan(payload: dict) -> dict:
+    from .sheetcopy import SheetCopyAbort, SheetCopyError, plan_sheet_copy
+    cpy = _cpy_target()
+    sheets, policy = _cpy_names(payload, "sheets"), _cpy_policy(payload)
+    strict = _cpy_flag(payload, "strict", False)
+    offset, limit = _cpy_page(payload.get)
+    blocked = ""
+    try:
+        rep = plan_sheet_copy(_STATE["parser"], cpy["parser"], sheets, policy, strict)
+    except SheetCopyAbort as e:
+        blocked = _cpy_scrub(str(e))
+        try:
+            # list every sheet and library row anyway, as the plan of `library add` does for a clash
+            rep = plan_sheet_copy(_STATE["parser"], cpy["parser"], sheets, "rename" if policy == "fail" else policy, False)
+        except SheetCopyError:
+            return {"error": blocked}
+    rows = [{"sheet": r["sheet"], "new_name": r["new_name"], "status": r["status"], "datasource": r["datasource"],
+             "reason": _cpy_scrub(r["reason"]), "dropped": r["dropped"]} for r in rep["sheets"]]
+    def text(v):
+        return "" if v is None or (isinstance(v, float) and v != v) else str(v)
+
+    lib = [{"kind": text(r["kind"]), "name": text(r["name"]), "caption": text(r["caption"]), "action": text(r["action"]),
+            "reason": text(r["reason"]), "datasource": text(r["datasource"])} for r in rep["library"]]
+    return {
+        "policy": policy, "blocked": bool(blocked), "blocked_reason": blocked,
+        "copied": rep["copied"], "skipped": rep["skipped"], "refused": rep["refused"],
+        "total": len(rows), "offset": offset, "limit": limit, "rows": rows[offset:offset + limit],
+        "library_count": len(lib), "library": lib[:COPY_PAGE],
+        "will_copy": 0 if blocked else rep["copied"],
+    }
+
+
+def _cpy_copy_download(payload: dict) -> tuple[bytes, str, dict]:
+    from .sheetcopy import SheetCopyAbort, build_sheet_copy
+    cpy = _cpy_target()
+    sheets, policy = _cpy_names(payload, "sheets"), _cpy_policy(payload)
+    strict = _cpy_flag(payload, "strict", False)
+    try:
+        data, report = build_sheet_copy(_STATE["parser"], cpy["parser"], sheets, policy, strict)
+    except SheetCopyAbort as e:
+        raise ValueError(_cpy_scrub(str(e))) from e
+    if not report["copied"]:
+        raise ValueError("No sheet can be copied with these choices, so nothing was made.")
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.splitext(cpy["name"])[0]).strip("._") or "target"
+    return data, f"{stem[:80]}_sheetcopy{_cpy_ext(cpy['parser'])}", report
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "py-tbparse-gui/0.1"
 
@@ -1295,6 +1504,23 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/style/state":
             st = _STATE["sty"]
             self._send_json({"file": st.get("summary") if st else None})
+            return
+
+        if parsed.path in ("/copy/dashboards", "/copy/sheets"):
+            if _STATE["parser"] is None:
+                self._send_json({"error": "No workbook loaded"}, 400)
+                return
+            try:
+                self._send_json((_cpy_dashboards_answer if parsed.path.endswith("dashboards") else _cpy_sheets_answer)(qs))
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                self._send_json({"error": f"could not read the workbook: {e}"}, 500)
+            return
+
+        if parsed.path == "/copy/state":
+            cpy = _STATE["cpy"]
+            self._send_json({"target": cpy.get("summary") if cpy else None})
             return
 
         if parsed.path == "/dashboards":
@@ -1631,6 +1857,86 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": str(e)}, 400)
         except Exception as e:
             self._send_json({"error": f"could not complete this: {e}"}, 500)
+
+    def _copy_upload(self) -> None:
+        """Receive the target workbook (.twb or .twbx) as raw bytes (X-Filename), streamed into a private temp folder
+        and parsed there. At most MAX_UPLOAD_BYTES; the folder goes when it is replaced, cleared or the session ends."""
+        length = self._declared_length()
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/octet-stream":
+            self._refuse_post(415, "Content-Type must be application/octet-stream")
+            return
+        if not _origin_ok(self.headers.get("Origin"), self.headers.get("Host")):
+            self._refuse_post(403, "cross-origin request rejected")
+            return
+        if _STATE["parser"] is None:
+            self._refuse_post(400, "Open a workbook first; its sheets are copied into the target.")
+            return
+        name = os.path.basename(unquote(self.headers.get("X-Filename") or "").replace("\\", "/"))
+        if not name or length <= 0:
+            self._refuse_post(400, "Send the file bytes with an X-Filename header.")
+            return
+        if length > MAX_UPLOAD_BYTES:
+            self._refuse_post(413, f"That file is {length // (1024 * 1024)} MB; the limit is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+            return
+        head = self.rfile.read(min(length, 16))
+        problem = _upload_problem(name, head, "workbook")
+        if problem:
+            self._drain(length - len(head))
+            self._send_json({"error": problem}, 400)
+            return
+        if _free_bytes(tempfile.gettempdir()) < 2 * length + _DISK_HEADROOM:
+            self._drain(length - len(head))
+            self._send_json({"error": "The server is short of disk space; try again later or with a smaller file."}, 507)
+            return
+        _cpy_clear()
+        folder = tempfile.mkdtemp(prefix="py-tbparse-copy-")
+        dest = os.path.join(folder, name)
+        try:
+            self._receive(dest, head, length)
+            parser = TwbParser(dest)
+        except (FileNotFoundError, ValueError, OSError) as e:
+            shutil.rmtree(folder, ignore_errors=True)
+            self._send_json({"error": str(e).replace(dest, name)}, 400)
+            return
+        except Exception as e:  # malformed workbook, broken zip
+            shutil.rmtree(folder, ignore_errors=True)
+            self._send_json({"error": f"failed to parse workbook: {str(e).replace(dest, name)}"}, 400)
+            return
+        doc = parser.xml_doc
+        summary = {"file": name, "worksheets": len(doc.xpath("/workbook/worksheets/worksheet")),
+                   "dashboards": len(doc.xpath("/workbook/dashboards/dashboard")),
+                   "datasources": [d for d in doc.xpath("/workbook/datasources/datasource[@name!='Parameters']/@name")][:50]}
+        _STATE["cpy"] = {"dir": folder, "parser": parser, "name": name, "summary": summary}
+        self._send_json({"ok": True, "target": summary})
+
+    def _copy_post(self, path: str, payload: dict) -> None:
+        from .slicer import SliceError
+        unknown = sorted(set(payload) - _COPY_KEYS[path])
+        if unknown:
+            self._send_json({"error": f"not accepted here: {', '.join(unknown)}"}, 400)
+            return
+        if _STATE["parser"] is None:
+            self._send_json({"error": "No workbook loaded"}, 400)
+            return
+        try:
+            if path == "/copy/clear":
+                _cpy_clear()
+                self._send_json({"ok": True})
+            elif path == "/copy/slice-plan":
+                self._send_json(_cpy_slice_plan(payload))
+            elif path == "/copy/plan":
+                self._send_json(_cpy_copy_plan(payload))
+            else:
+                data, filename, report = (_cpy_slice_download if path == "/copy/slice-download" else _cpy_copy_download)(payload)
+                self._send(200, data, "application/octet-stream", {
+                    "Content-Disposition": _attachment(filename),
+                    "X-Copy-Count": str(report["copied"] if "copied" in report else len(report["kept_dashboards"])),
+                    "Access-Control-Expose-Headers": "X-Copy-Count, Content-Disposition"})
+        except (ValueError, FileNotFoundError) as e:  # SliceError and SheetCopyError are ValueErrors
+            self._send_json({"error": _cpy_scrub(str(e))}, 400)
+        except Exception as e:
+            self._send_json({"error": f"could not complete this: {_cpy_scrub(str(e))}"}, 500)
 
     # ---- the Templates view ----
 
@@ -1989,6 +2295,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/style/upload":
             self._style_upload()
             return
+        if self.path == "/copy/upload":
+            self._copy_upload()
+            return
         if self.path not in _JSON_ROUTES:
             self._refuse_post(404, "not found", as_json=False)
             return
@@ -2010,7 +2319,7 @@ class Handler(BaseHTTPRequestHandler):
             self._refuse_post(403, "cross-origin request rejected")
             return
 
-        if self.path.startswith(("/template/", "/library/", "/style/")):
+        if self.path.startswith(("/template/", "/library/", "/style/", "/copy/")):
             declared = self._declared_length()
             if declared < 0:
                 self._refuse_post(400, "bad Content-Length")
@@ -2044,6 +2353,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path in _STYLE_KEYS:
             self._style_post(self.path, payload)
+            return
+        if self.path in _COPY_KEYS:
+            self._copy_post(self.path, payload)
             return
 
         path = str(payload.get("path", "")).strip()
