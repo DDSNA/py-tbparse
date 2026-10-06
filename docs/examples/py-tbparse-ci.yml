@@ -1,0 +1,53 @@
+# Sample GitHub Actions workflow for a repository that keeps Tableau workbooks.
+# Copy it to .github/workflows/ in YOUR repository; it is deliberately not in this repository's
+# own .github/workflows. See docs/ci.md.
+name: Tableau workbook checks
+
+on:
+  pull_request:
+    paths: ["**/*.twb", "**/*.twbx"]
+
+permissions:
+  contents: read
+  security-events: write   # only needed for the SARIF upload
+
+jobs:
+  workbooks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install py-tbparse
+
+      # 1. Annotations on the pull request: one line per finding.
+      #    The step fails (exit 1) when a workbook has an error finding.
+      - name: Audit workbooks
+        shell: bash
+        run: |
+          rc=0
+          for f in $(git ls-files '*.twb' '*.twbx'); do
+            py-tbparse audit "$f" --format github || rc=$?
+            py-tbparse "$f" validate --format github || rc=$?
+          done
+          exit $rc
+
+      # 2. Optional: a JUnit report for the test-results tab of your CI, and SARIF for code scanning.
+      - name: Reports
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p reports
+          for f in $(git ls-files '*.twb' '*.twbx'); do
+            name=$(echo "$f" | tr '/ ' '__')
+            py-tbparse audit "$f" --format junit --fail-on never -o "reports/$name.junit.xml"
+            py-tbparse audit "$f" --format sarif --fail-on never -o "reports/$name.sarif"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tableau-reports
+          path: reports/
+      # SARIF upload to code scanning (github/codeql-action/upload-sarif, one file per run) is
+      # described in docs/ci.md; it is not part of this sample.

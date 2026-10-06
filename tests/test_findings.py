@@ -152,8 +152,9 @@ def test_formats():
     assert back.iloc[0]["detail"] == 'say "hi"\nnow'
     assert json.loads(format_findings(df, "json"))[0]["rule"] == "T001"
     assert json.loads(format_findings(df.iloc[0:0], "json")) == []
-    with pytest.raises(ValueError, match="junit.*table, csv, json|table, csv, json.*junit"):
-        format_findings(df, "junit")
+    with pytest.raises(ValueError, match="table, csv, json, junit, sarif, github"):
+        format_findings(df, "xml")
+    assert "<testsuite " in format_findings(df, "junit")      # the CI formats are in ci_formats.py
 
 
 def test_formats_are_a_registry_a_later_format_slots_into():

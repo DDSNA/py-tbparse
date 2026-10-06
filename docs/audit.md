@@ -2,7 +2,7 @@
 
 Part of [py-tbparse](https://github.com/DDSNA/py-tbparse).
 
-Two read-only commands for a workbook: `audit` lists what its author probably did not mean, and `docs` writes a Markdown data dictionary. Neither writes to the workbook, and nothing here was opened in Tableau: the commands read the XML of the `.twb`/`.twbx` and say what they find there. This is the basic level; there is no `prune`, no health score and no JUnit or SARIF output yet.
+Two read-only commands for a workbook: `audit` lists what its author probably did not mean, and `docs` writes a Markdown data dictionary. Neither writes to the workbook, and nothing here was opened in Tableau: the commands read the XML of the `.twb`/`.twbx` and say what they find there. This is the basic level; there is no `prune` and no health score. JUnit, SARIF and GitHub output are described in [ci.md](ci.md).
 
 ## Audit
 
@@ -13,7 +13,7 @@ py-tbparse audit sales.twb --only A001,A005 --format csv -o findings.csv
 py-tbparse audit sales.twb --skip A006,A009 --format json
 ```
 
-Findings go to stdout (or `-o`), the count to stderr. Formats are `table`, `csv` and `json`. Exit codes are the ones of `template check`: 0, 1 (a finding at `--fail-on`), 2 (the workbook cannot be read or an option is wrong) and 3 (a rule crashed; it is reported as an error finding and its traceback goes to stderr).
+Findings go to stdout (or `-o`), the count to stderr. Formats are `table`, `csv`, `json` and the CI formats `junit`, `sarif` and `github` ([ci.md](ci.md)). Exit codes are the ones of `template check`: 0, 1 (a finding at `--fail-on`), 2 (the workbook cannot be read or an option is wrong) and 3 (a rule crashed; it is reported as an error finding and its traceback goes to stderr).
 
 From Python: `from py_tbparse import audit; audit("sales.twb", only=["A001"])` returns a pandas DataFrame with the columns `rule, severity, object, detail, fix`, sorted so the same workbook always gives the same frame.
 

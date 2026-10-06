@@ -50,7 +50,9 @@ from .template_batch import DEFAULT_PATTERNS as DEFAULT_BATCH_PATTERNS, apply_te
 from .template_update import template_update_report, update_from_answers
 from .workbook_audit import audit, rules_help as audit_rules_help
 from .docgen import template_markdown, workbook_markdown
+from .ci_formats import CI_FORMATS
 from .findings import exceeds, format_findings, summary as findings_summary
+from .validators import validation_findings
 from .template_check import check_template, rules_help
 from .templates import TemplateError, _token_values
 from .rename import (
@@ -101,8 +103,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "of joins/relationships",
     )
     ap.add_argument(
-        "--format", "-f", choices=["table", "csv", "json"], default="table",
-        help="output format (default: table)",
+        "--format", "-f", choices=["table", "csv", "json", *CI_FORMATS], default="table",
+        help="output format (default: table); junit, sarif and github (CI annotations) are for 'validate' only",
     )
     ap.add_argument("--output", "-o", help="write to this file instead of stdout")
     ap.add_argument(
@@ -329,7 +331,8 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
         epilog="rules:\n" + rules_help(),
     )
     ck.add_argument("template")
-    ck.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    ck.add_argument("--format", "-f", choices=["table", "csv", "json", *CI_FORMATS], default="table",
+                    help="table, csv, json, or a CI format: junit (XML), sarif (2.1.0) or github (workflow commands)")
     ck.add_argument("--fail-on", choices=["error", "warning", "info", "never"], default="error",
                     help="exit 1 when a finding has this severity or worse (default: error)")
     ck.add_argument("--only", help="comma-separated rule ids to run, e.g. T001,T003")
@@ -614,7 +617,7 @@ def _run_template_check(args) -> int:
     except (FileNotFoundError, ValueError, OSError, zipfile.BadZipFile, json.JSONDecodeError, etree.XMLSyntaxError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
-    _write(format_findings(found, args.format), None)
+    _write(format_findings(found, args.format, path=args.template), None)
     print(findings_summary(found), file=sys.stderr)
     crashed = found.attrs.get("crashed") or []
     if crashed:
@@ -978,7 +981,8 @@ def _run_audit(argv: list[str]) -> int:
         epilog="rules:\n" + audit_rules_help(),
     )
     ap.add_argument("workbook")
-    ap.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    ap.add_argument("--format", "-f", choices=["table", "csv", "json", *CI_FORMATS], default="table",
+                    help="table, csv, json, or a CI format: junit (XML), sarif (2.1.0) or github (workflow commands)")
     ap.add_argument("--fail-on", choices=["error", "warning", "info", "never"], default="error",
                     help="exit 1 when a finding has this severity or worse (default: error)")
     ap.add_argument("--only", help="comma-separated rule ids to run, e.g. A001,A003")
@@ -990,7 +994,7 @@ def _run_audit(argv: list[str]) -> int:
     except _WORKBOOK_ERRORS as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
-    _write(format_findings(found, args.format), args.output)
+    _write(format_findings(found, args.format, path=args.workbook), args.output)
     print(findings_summary(found), file=sys.stderr)
     crashed = found.attrs.get("crashed") or []
     if crashed:
@@ -1048,7 +1052,10 @@ def main(argv: list[str] | None = None) -> int:
     if _is_reserved_subcommand(raw_argv, "style"):
         return _run_style(raw_argv[1:])
 
-    args = build_arg_parser().parse_args(argv)
+    ap = build_arg_parser()
+    args = ap.parse_args(argv)
+    if args.format in CI_FORMATS and args.table != "validate":
+        ap.error(f"--format {args.format} is for 'validate' (and `audit` / `template check`), not for {args.table!r}")
 
     if args.table == "tables":
         for name in TABLE_NAMES:
@@ -1068,7 +1075,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.table == "validate":
         result = parser.validate()
-        if args.format == "json":
+        if args.format in CI_FORMATS:
+            # the exit code stays the one of the plain formats: 0, or 2 when a relationship is broken
+            _write(format_findings(validation_findings(result, args.workbook), args.format, path=args.workbook),
+                   args.output)
+        elif args.format == "json":
             payload = {
                 "ok": result["ok"],
                 "issues": {
