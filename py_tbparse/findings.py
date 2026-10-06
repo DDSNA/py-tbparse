@@ -18,8 +18,7 @@ batch run). The frame says so in `df.attrs["crashed"]` (the rule ids) and keeps 
 subject's own path and folder are replaced by `<path>`.
 
 `format_findings` renders a frame through the `FORMATS` registry (`table`, `csv`, `json`); the
-CI formats planned for WP18 (JUnit, SARIF, GitHub annotations) are further entries there, each a
-function from the frame to text.
+CI formats (`junit`, `sarif`, `github`) live in `ci_formats.py`, which every command shares.
 """
 
 from __future__ import annotations
@@ -156,6 +155,8 @@ def run_rules(subject: Subject, scope: str, only: Optional[Iterable[str]] = None
         df = df.reset_index(drop=True)
     df.attrs["crashed"] = crashed
     df.attrs["tracebacks"] = tracebacks
+    df.attrs["scope"] = scope
+    df.attrs["path"] = subject.path
     return df
 
 
@@ -204,8 +205,15 @@ FORMATS: dict[str, Callable[[pd.DataFrame], str]] = {
 }
 
 
-def format_findings(df: pd.DataFrame, fmt: str = "table") -> str:
+def format_findings(df: pd.DataFrame, fmt: str = "table", path: Optional[str] = None,
+                    scope: Optional[str] = None) -> str:
+    """Render `df` as `fmt`: `table`, `csv`, `json`, or a CI format (`junit`, `sarif`, `github`, see
+    `ci_formats.py`). `path` (the file the findings are about) and `scope` only matter to the CI formats; they
+    default to what `run_rules` recorded in `df.attrs`."""
+    from .ci_formats import CI_FORMATS, render
+    if fmt in CI_FORMATS:
+        return render(df, fmt, path, scope)
     formatter = FORMATS.get(fmt)
     if formatter is None:
-        raise ValueError(f"unknown format {fmt!r}; use {', '.join(FORMATS)}")
+        raise ValueError(f"unknown format {fmt!r}; use {', '.join([*FORMATS, *CI_FORMATS])}")
     return formatter(df)
