@@ -5,7 +5,8 @@ normal single-workbook parser runs: `py-tbparse diff A.twb B.twb [TABLE]`,
 `py-tbparse batch DIR [TABLE]` and `py-tbparse rename WORKBOOK [-r OLD.twb]`, plus the two-level
 `py-tbparse template ...`, `py-tbparse library ...` (calculated fields and parameters),
 `py-tbparse style ...` (colour palettes), and the workbook `py-tbparse audit WORKBOOK` (findings) and
-`py-tbparse docs WORKBOOK` (a Markdown data dictionary; `dictionary` is the same command).
+`py-tbparse docs WORKBOOK` (a Markdown data dictionary; `dictionary` is the same command) and
+`py-tbparse sanitize IN OUT` (a share-safe copy).
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ from .templates import (
 )
 from .template_batch import DEFAULT_PATTERNS as DEFAULT_BATCH_PATTERNS, apply_template_folder
 from .template_update import template_update_report, update_from_answers
+from .sanitize import CATEGORIES as SANITIZE_CATEGORIES, SanitizeError, format_report as sanitize_report, sanitize
 from .workbook_audit import audit, rules_help as audit_rules_help
 from .docgen import template_markdown, workbook_markdown
 from .findings import exceeds, format_findings, summary as findings_summary
@@ -1001,6 +1003,48 @@ def _run_audit(argv: list[str]) -> int:
     return 1 if exceeds(found, args.fail_on) else 0
 
 
+def _run_sanitize(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(
+        prog="py-tbparse sanitize",
+        description="Write a copy of a workbook that is safer to share: user names, passwords, server, database and "
+                    "schema names, absolute folders, custom SQL, extracts and packaged data, comments, field "
+                    "descriptions, user filters, author ids, thumbnails and the repository location are taken out. "
+                    "The input is never written and an existing OUT is refused unless --overwrite. The report lists "
+                    "what was removed and the leftovers it could not judge (a USERNAME() calculation, a removed "
+                    "name that still appears elsewhere, titles and captions it keeps). Read it, and the result, "
+                    "before sharing; nothing is opened in Tableau. A second run on OUT removes nothing. "
+                    "Categories: " + ", ".join(SANITIZE_CATEGORIES) + ".",
+    )
+    ap.add_argument("workbook", help="the .twb or .twbx to read")
+    ap.add_argument("output", help="the .twb or .twbx to write (same format as the input; .twbx with --fake-data)")
+    ap.add_argument("--report", action="store_true", help="print the full report (counts per category and leftovers)")
+    ap.add_argument("--placeholders", action="store_true",
+                    help="write stand-in values (server.example.com, database, schema, user) instead of blanks")
+    ap.add_argument("--keep", action="append", default=[], metavar="CATEGORY",
+                    help="leave this category alone (repeatable)")
+    ap.add_argument("--fake-data", action="store_true",
+                    help="also make a small synthetic CSV per simple datasource from its fields and connect to it "
+                         "(optional, experimental; the output is a .twbx)")
+    ap.add_argument("--seed", type=int, default=0, help="seed of the synthetic data (default 0)")
+    ap.add_argument("--rows", type=int, default=20, help="rows of synthetic data per datasource (default 20)")
+    ap.add_argument("--overwrite", action="store_true", help="replace an existing OUT (never the input)")
+    args = ap.parse_args(argv)
+    report: dict = {}
+    try:
+        sanitize(args.workbook, args.output, keep=args.keep, placeholders=args.placeholders,
+                 fake_data=args.fake_data, seed=args.seed, fake_rows=args.rows, overwrite=args.overwrite,
+                 report=report)
+    except (SanitizeError, FileExistsError, *_WORKBOOK_ERRORS) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    if args.report:
+        print(sanitize_report(report))
+    else:
+        print(f"wrote {report['output']}: {sum(report['removed'].values())} item(s) removed, "
+              f"{len(report['leftovers'])} leftover(s) listed (use --report to see them)", file=sys.stderr)
+    return 0
+
+
 def _run_docs(argv: list[str], prog: str = "py-tbparse docs") -> int:
     ap = argparse.ArgumentParser(
         prog=prog,
@@ -1041,6 +1085,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_library(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "audit"):
         return _run_audit(raw_argv[1:])
+    if _is_reserved_subcommand(raw_argv, "sanitize"):
+        return _run_sanitize(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "docs"):
         return _run_docs(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "dictionary"):
