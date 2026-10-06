@@ -4,7 +4,7 @@ Three reserved subcommands, dispatched on the first argument before the
 normal single-workbook parser runs: `py-tbparse diff A.twb B.twb [TABLE]`,
 `py-tbparse batch DIR [TABLE]` and `py-tbparse rename WORKBOOK [-r OLD.twb]`, plus the two-level
 `py-tbparse template ...`, `py-tbparse library ...` (calculated fields and parameters),
-`py-tbparse style ...` (colour palettes), `py-tbparse scaffold ...` (dashboard layouts), and the workbook `py-tbparse audit WORKBOOK` (findings) and
+`py-tbparse style ...` (colour palettes), `py-tbparse scaffold ...` (dashboard layouts), `py-tbparse sheet copy ...` (worksheets between workbooks), and the workbook `py-tbparse audit WORKBOOK` (findings) and
 `py-tbparse docs WORKBOOK` (a Markdown data dictionary; `dictionary` is the same command),
 `py-tbparse sanitize IN OUT` (a share-safe copy), `py-tbparse prune WORKBOOK` (remove what the audit
 finds unused; a dry run unless `--write -o OUT`) and
@@ -53,6 +53,8 @@ from .templates import (
 from .template_batch import DEFAULT_PATTERNS as DEFAULT_BATCH_PATTERNS, apply_template_folder
 from .template_update import template_update_report, update_from_answers
 from .prune import PruneError, format_report as prune_report, prune
+from .sheetcopy import SheetCopyAbort, copy_sheets, format_report as sheetcopy_report, plan_sheet_copy
+from .sheetcopy_core import SheetCopyError
 from .slicer import SliceError, format_report as slice_report, slice_workbook
 from .sanitize import CATEGORIES as SANITIZE_CATEGORIES, SanitizeError, format_report as sanitize_report, sanitize
 from .workbook_audit import audit, rules_help as audit_rules_help
@@ -1270,6 +1272,57 @@ def _run_prune(argv: list[str]) -> int:
     return 0
 
 
+def _run_sheet(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(
+        prog="py-tbparse sheet",
+        description="Worksheet operations. `sheet copy SRC --sheets A,B --to TARGET` copies worksheets into a copy "
+                    "of TARGET. Same-name slice: the target needs a datasource with the same connection AND the "
+                    "same internal name. Calculations and parameters the sheets need are added; action filters "
+                    "(and tooltip sheets that are not copied) are dropped and reported. A dry run by default. "
+                    "Nothing is opened in Tableau.",
+    )
+    sub = ap.add_subparsers(dest="action", required=True)
+    cp = sub.add_parser(
+        "copy", help="copy worksheets from SRC into TARGET (a new file with --write)",
+        description="Exit codes: 0 done, 1 error or the run stopped (a clash under --on-clash fail, --strict "
+                    "refusal, nothing copyable), 2 some sheet was refused (the others are written).")
+    cp.add_argument("source", metavar="SRC", help="the .twb or .twbx to copy from")
+    cp.add_argument("--sheets", action="append", default=[], metavar="A,B", help="comma-separated worksheet names")
+    cp.add_argument("--sheet", action="append", default=[], metavar="NAME",
+                    help="one worksheet name (repeatable; use it for names that contain a comma)")
+    cp.add_argument("--to", required=True, metavar="TARGET", help="the .twb or .twbx to copy into")
+    cp.add_argument("--on-clash", choices=CLASH_POLICIES, default="fail",
+                    help="a calculation, parameter or sheet name already in use: fail (default), rename or skip")
+    cp.add_argument("--strict", action="store_true", help="refuse instead of dropping action filters")
+    cp.add_argument("--write", action="store_true", help="write the result to -o OUT (otherwise a dry run)")
+    cp.add_argument("--output", "-o", help="output file (default: <TARGET>_sheetcopy.<ext>; needs --write)")
+    cp.add_argument("--overwrite", action="store_true", help="replace an existing output (never an input)")
+    cp.add_argument("--format", "-f", choices=("text", "json"), default="text")
+    args = ap.parse_args(argv)
+    if args.output and not args.write:
+        ap.error("-o OUT is only used with --write (without it sheet copy is a dry run)")
+    sheets = [x.strip() for v in args.sheets for x in v.split(",") if x.strip()] + args.sheet
+    try:
+        if args.write:
+            out, report = copy_sheets(args.source, args.to, sheets, args.output, args.on_clash, args.strict,
+                                      args.overwrite)
+        else:
+            out, report = None, plan_sheet_copy(args.source, args.to, sheets, args.on_clash, args.strict)
+    except (SheetCopyError, FileExistsError, *_WORKBOOK_ERRORS) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(json.dumps(report, indent=2, ensure_ascii=False, default=str) if args.format == "json"
+          else sheetcopy_report(report))
+    if out:
+        print(f"wrote {out}", file=sys.stderr)
+    elif report["copied"]:
+        print("plan only, nothing written; add --write to make the workbook", file=sys.stderr)
+    if not report["copied"] and not report["skipped"]:
+        print("error: no sheet can be copied", file=sys.stderr)
+        return 1
+    return 2 if report["refused"] else 0
+
+
 def _run_slice(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         prog="py-tbparse slice",
@@ -1387,6 +1440,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_sanitize(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "prune"):
         return _run_prune(raw_argv[1:])
+    if _is_reserved_subcommand(raw_argv, "sheet"):
+        return _run_sheet(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "slice"):
         return _run_slice(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "docs"):
