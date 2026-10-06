@@ -62,11 +62,11 @@ def rules_help() -> str:
 # ------------------------------------------------------------------ shared facts --
 
 class _Calc:
-    __slots__ = ("ds", "ds_label", "name", "caption", "formula", "hidden")
+    __slots__ = ("ds", "ds_label", "name", "caption", "formula", "hidden", "auto")
 
-    def __init__(self, ds, ds_label, name, caption, formula, hidden):
-        self.ds, self.ds_label, self.name, self.caption, self.formula, self.hidden = \
-            ds, ds_label, name, caption, formula, hidden
+    def __init__(self, ds, ds_label, name, caption, formula, hidden, auto=False):
+        self.ds, self.ds_label, self.name, self.caption, self.formula, self.hidden, self.auto = \
+            ds, ds_label, name, caption, formula, hidden, auto
 
     @property
     def key(self) -> tuple:
@@ -75,6 +75,15 @@ class _Calc:
     @property
     def label(self) -> str:
         return f"{self.ds_label}: {self.caption or self.name.strip('[]')}"
+
+
+def _tableau_made(col) -> bool:
+    """Tableau adds this column itself (`Number of Records` carries `user:auto-column='numrec'`; a file with
+    the attribute stripped still has the name and the formula `1`)."""
+    if any(etree.QName(k).localname == "auto-column" for k in col.attrib):
+        return True
+    calc = col.find("calculation")
+    return col.get("name") == "[Number of Records]" and calc is not None and (calc.get("formula") or "").strip() == "1"
 
 
 def _ds_label(ds) -> str:
@@ -93,10 +102,12 @@ class _Facts:
                 if col.get("param-domain-type"):
                     continue                      # a parameter's formula is its current value
                 self.calcs.append(_Calc(ds.get("name"), _ds_label(ds), col.get("name"), col.get("caption"),
-                                        col.find("calculation").get("formula") or "", col.get("hidden") == "true"))
+                                        col.find("calculation").get("formula") or "", col.get("hidden") == "true",
+                                        _tableau_made(col)))
         self.calcs.sort(key=lambda c: (c.ds_label, c.ds, c.name))
         self.by_key = {c.key: c for c in self.calcs}
         self.ds_names = set(self.doc.xpath("/workbook/datasources/datasource/@name"))
+        self.has_worksheets = bool(self.doc.xpath("/workbook/worksheets/worksheet"))
         self._graph: Optional[dict] = None
         self._usage: Optional[pd.DataFrame] = None
         self._mentioned: Optional[set] = None
@@ -121,6 +132,12 @@ class _Facts:
             blob = "\n".join(text)
             self._mentioned = set(re.findall(r"(?<=[\[:])[^\[\]:]+(?=[\]:])", blob))
         return self._mentioned
+
+    @property
+    def shown_parameters(self) -> set:
+        """`[Parameter 1]` of every parameter a worksheet window shows as a control (`<card param='[Parameters].[X]'>`)."""
+        return {m for v in self.doc.xpath("//card/@param")
+                for m in re.findall(r"^\[Parameters\]\.(\[[^\]]+\])$", v)}
 
     @property
     def graph(self) -> dict:
@@ -160,6 +177,27 @@ class _Facts:
                 if ds == "Parameters":
                     users.setdefault(name, []).append(c)
         return users
+
+
+_PARAM_REF = re.compile(r"\[Parameters\]\.(\[[^\]]+\])")
+
+
+def _field_users_of_parameters(f: "_Facts") -> dict[str, list[tuple]]:
+    """`[Parameter 1]` -> (key, label) of the bins (`size-parameter`) and the sets or groups (a top-N count, a
+    formula) of a datasource that name it. Calculations are in `parameter_users`."""
+    out: dict[str, list[tuple]] = {}
+    for ds in f.doc.xpath("/workbook/datasources/datasource[@name]"):
+        label = _ds_label(ds)
+        for col in ds.xpath("./column[@name][calculation[@size-parameter]]"):
+            for name in _PARAM_REF.findall(col.find("calculation").get("size-parameter")):
+                out.setdefault(name, []).append(((ds.get("name"), col.get("name")),
+                                                 col.get("caption") or col.get("name").strip("[]")))
+        for grp in ds.xpath("./group[@name]"):
+            names = {m for el in grp.iter() for v in el.attrib.values() for m in _PARAM_REF.findall(v)}
+            for name in sorted(names):
+                out.setdefault(name, []).append(((ds.get("name"), grp.get("name")),
+                                                 grp.get("caption") or grp.get("name").strip("[]")))
+    return out
 
 
 def _facts(s: Subject) -> _Facts:
@@ -246,9 +284,11 @@ def normalise_formula(formula: str) -> str:
 def unused_calculation(s: Subject):
     """A calculated field that no worksheet uses, not even through another calculation."""
     f = _facts(s)
+    if not f.has_worksheets:
+        return                                    # a workbook of data sources only: nothing could use a field
     for _, row in f.usage[(f.usage["kind"] == "calculated") & ~f.usage["used"]].iterrows():
         calc = f.by_key.get((row["datasource"], row["field"]))
-        if calc is None or calc.hidden or row["field"].strip("[]") in f.mentioned:
+        if calc is None or calc.hidden or calc.auto or row["field"].strip("[]") in f.mentioned:
             continue
         by = [c for c in row["calculations"] if c != _label_of(row)]
         yield finding(calc.label,
@@ -354,18 +394,23 @@ def circular_calculation(s: Subject):
 def unused_parameter(s: Subject):
     """A parameter that no worksheet, calculation or text uses."""
     f = _facts(s)
+    if not f.has_worksheets:
+        return
     users = f.parameter_users
-    used_calcs = {(r["datasource"], r["field"]) for _, r in f.usage.iterrows()
-                  if r["kind"] == "calculated" and (r["used"] or r["field"].strip("[]") in f.mentioned)}
+    used_fields = {(r["datasource"], r["field"]) for _, r in f.usage.iterrows()
+                   if r["kind"] in ("calculated", "group") and (r["used"] or r["field"].strip("[]") in f.mentioned)}
+    others = _field_users_of_parameters(f)
+    shown = f.shown_parameters
     for _, row in f.usage[(f.usage["kind"] == "parameter") & ~f.usage["used"]].iterrows():
-        if row["field"].strip("[]") in f.mentioned:
+        if row["field"].strip("[]") in f.mentioned or row["field"] in shown:
             continue
         refs = users.get(row["field"], [])
-        if any(c.key in used_calcs for c in refs):
+        more = others.get(row["field"], [])
+        if any(c.key in used_fields for c in refs) or any(k in used_fields for k, _ in more):
             continue
-        names = sorted({c.caption or c.name.strip("[]") for c in refs})
+        names = sorted({c.caption or c.name.strip("[]") for c in refs} | {lab for _, lab in more})
         yield finding(f"Parameters: {_label_of(row)}",
-                      f"no worksheet uses it; only the calculation(s) {_names(names)} refer to it, and no worksheet uses those"
+                      f"no worksheet uses it; only {_names(names)} refer to it, and no worksheet uses those"
                       if names else "no worksheet, dashboard, action or calculation uses it")
 
 
@@ -373,17 +418,32 @@ def _hidden_sheets(doc) -> set:
     return set(doc.xpath("/workbook/windows/window[@class='worksheet'][@hidden='true']/@name"))
 
 
+_TOOLTIP_SHEET = re.compile(r"<Sheet\s+name=\"([^\"]+)\"")
+
+
+def _tooltip_sheets(doc) -> set:
+    """Worksheets that another sheet's tooltip embeds (`<Sheet name="X" .../>` in the tooltip's text)."""
+    return {m for t in doc.xpath("//customized-tooltip//run") for m in _TOOLTIP_SHEET.findall("".join(t.itertext()))}
+
+
 @rule("A006", SCOPE, severity="info",
       fix="Add the worksheet to a dashboard or story, hide it if it only feeds another sheet, or delete it")
 def sheet_in_no_dashboard(s: Subject):
-    """A worksheet that is on no dashboard and not hidden."""
+    """A worksheet that is on no dashboard, story or tooltip and not hidden, in a workbook that has a
+    dashboard or story at all."""
     doc = _facts(s).doc
+    if not doc.xpath("/workbook/dashboards/dashboard") and not doc.xpath("//story-point"):
+        return                                    # a workbook of plain sheets has no dashboard to be missing from
     shown = set(_dashboards_of(doc))
     shown |= set(doc.xpath("//story-point/@captured-sheet"))
+    shown |= _tooltip_sheets(doc)
+    # a childless zone named like a worksheet is that sheet, whatever type the file gives it (generated files
+    # write `type-v2='layout-basic'` there; Tableau's own layout containers carry no sheet name)
+    shown |= set(doc.xpath("/workbook/dashboards/dashboard//zone[@name][not(zone)]/@name"))
     hidden = _hidden_sheets(doc)
     for name in sorted(doc.xpath("/workbook/worksheets/worksheet/@name")):
         if name not in shown and name not in hidden:
-            yield finding(name, "not on any dashboard or story, and not hidden")
+            yield finding(name, "not on any dashboard, story or tooltip, and not hidden")
 
 
 def _sql_snippet(text: str) -> str:
@@ -418,16 +478,24 @@ def _absolute(path: str) -> bool:
     return path.startswith(("/", "\\\\", "~")) or bool(re.match(r"[A-Za-z]:[\\/]", path))
 
 
+def _abs_extract_path(ds) -> Optional[str]:
+    for conn in ds.xpath("./extract//connection[@dbname]"):
+        value = conn.get("dbname")
+        if _absolute(value):
+            return value
+    return None
+
+
 @rule("A008", SCOPE, severity="info",
-      fix="Remove the extract (or refresh and republish it) and point file connections at a folder next to the "
-          "workbook or at a shared location; `template make` strips extracts for you")
-def extract_or_path_leftover(s: Subject):
-    """A datasource keeps an extract, or a file connection with an absolute local path."""
+      fix="Point file connections at a folder next to the workbook or at a shared location, and refresh and "
+          "republish (or remove) an extract that lives on one machine; `template make` strips extracts for you")
+def absolute_path_leftover(s: Subject):
+    """A datasource points at a file on one machine: a file connection with an absolute local path, or an
+    extract file with one (a temp or desktop copy). An extract by itself, or a relative path, is not reported."""
     doc = _facts(s).doc
     for ds in doc.xpath("/workbook/datasources/datasource[@name]"):
         label = _ds_label(ds)
-        if any(isinstance(el.tag, str) and etree.QName(el).localname == "extract" for el in ds):
-            yield finding(label, "keeps an extract (a copy of the data, which can show data the workbook was shared without)")
+        parts = []
         seen = set()
         for conn in ds.xpath(".//connection[@class][not(ancestor::*[local-name()='extract'])]"):
             if conn.get("class") not in _FILE_CLASSES:
@@ -437,7 +505,14 @@ def extract_or_path_leftover(s: Subject):
                 if value and _absolute(value) and (attr, value) not in seen:
                     seen.add((attr, value))
                     shown = _base_name(value) if attr == "filename" else "a local folder, not shown"
-                    yield finding(label, f"a {conn.get('class')} connection has an absolute {attr} ({shown})")
+                    parts.append(f"a {conn.get('class')} connection has an absolute {attr} ({shown})")
+        extract = _abs_extract_path(ds)
+        if extract:
+            temp = "TableauTemp" in extract
+            parts.append("the extract is a " + ("temporary " if temp else "") + "file at an absolute local path "
+                         "(the folder is not shown)")
+        if parts:
+            yield finding(label, "; ".join(parts))
 
 
 @rule("A009", SCOPE, severity="info",

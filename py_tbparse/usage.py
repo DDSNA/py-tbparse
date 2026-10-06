@@ -234,6 +234,13 @@ def missing_references(parser_or_doc) -> pd.DataFrame:
     doc = parser_or_doc.xml_doc if isinstance(parser_or_doc, TwbParser) else parser_or_doc
     by_ds = {ds.get("name"): _datasource_fields(ds)
              for ds in doc.xpath("/workbook/datasources/datasource[@name]")}
+    # a blended (secondary) datasource's field that its own definition does not list but the primary
+    # datasource's own `<datasource-dependencies datasource=...>` declares
+    for dep in doc.xpath("/workbook/datasources/datasource/datasource-dependencies[@datasource]"):
+        known = by_ds.get(dep.get("datasource"))
+        if known is not None:
+            for name in dep.xpath("./column/@name"):
+                known.setdefault(name, {"kind": "physical", "caption": None, "datatype": None, "deps": set()})
     rows = []
     for ds in doc.xpath("/workbook/datasources/datasource[@name]"):
         ds_name = ds.get("name")

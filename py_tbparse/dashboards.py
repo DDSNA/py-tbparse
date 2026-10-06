@@ -15,8 +15,9 @@ import pandas as pd
 _DASHBOARD_COLUMNS = ["name"]
 _SUMMARY_COLUMNS = ["name", "worksheets", "sheets", "size", "filters", "parameters", "actions"]
 _SHEETS_COLUMNS = ["dashboard", "sheet", "zone_id", "x", "y", "w", "h"]
-# Zones of these kinds are named after the worksheet they show or control.
-_SHEET_ZONE_TYPES = {None, "filter", "color", "size", "shape", "highlighter", "map", "legend"}
+# Zones of these kinds are named after the worksheet they show or control (`sheet` and `worksheet` are what some
+# generated workbooks write; Tableau itself writes no type for a sheet).
+_SHEET_ZONE_TYPES = {None, "sheet", "worksheet", "filter", "color", "size", "shape", "highlighter", "map", "legend"}
 
 
 def _zone_sheet(z) -> str:
