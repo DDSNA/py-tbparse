@@ -36,6 +36,17 @@ It has no login, so run it on your own machine only. To share it, see [Running a
 
 The endpoints behind it (`GET /audit`, `/audit/export` and `/dictionary`) take no path, so they also work in a shared server.
 
+## Libraries
+
+**Libraries** in the sidebar (Workbook group; the address `#libraries` opens it) is the GUI for [libraries of calculated fields and parameters](libraries.md). It has two cards. Read the warning at the top of that page first: nothing here was opened in Tableau.
+
+- **Export from this workbook.** A table of the calculated fields and parameters that a library can hold (the same set `py-tbparse library export` takes), 100 rows at a time with **Previous 100** and **Next 100**, a kind filter and a search over name, formula and folder. Tick rows to select them; the selection stays while you page and filter. **Select all N** takes every row that matches the filter, **Clear selection** empties it. **Export library file** saves the selection as a `*.library.json` (name it in the box if you like); by default it also takes the calculations and parameters the selection uses. If the workbook has several datasources with a connection, choose one first. Calculations that use another datasource are listed as not exportable.
+- **Add a library to this workbook.** **Choose a library file** uploads a `*.library.json` (up to 8 MB; it is kept in memory for this session and never written to disk). Then pick what happens when a field with the same caption is already there: **Stop** (the default, as in the command line), **Rename** or **Skip**. The page shows the plan before anything is made: one line of counts, the list of clashes (what each one would do under the chosen policy), and every item with its action and reason, 100 rows at a time. With **Stop** and a clash, the plan says it stopped and the download button stays off; choose Rename or Skip to go on. **Download new workbook** saves a copy of the open workbook with the library added, named `<workbook>_library.twb` (or `.twbx`).
+
+The open workbook and every other file are never changed: the new workbook is built in memory and sent as a download, so there is no "save beside" and no overwrite. Matching the library's fields to the workbook is by name (as in the command line with no `--mapping`); the GUI has no mapping file. Opening another workbook forgets the added library and the selection.
+
+The endpoints behind it (`GET /library/entries`, `POST /library/export`, `/library/upload`, `/library/plan`, `/library/add`, `/library/clear`, `GET /library/state`) take no path, so they also work in a shared server, and each browser has its own library.
+
 ## Templates
 
 The **Templates** button in the top bar opens a view for filling a template with new data. It works with no workbook open, and **Back to workbook** (or **Back to start**) takes you out again. The address `#templates` opens it directly. The view has three steps, one card each:

@@ -4,7 +4,7 @@ Three reserved subcommands, dispatched on the first argument before the
 normal single-workbook parser runs: `py-tbparse diff A.twb B.twb [TABLE]`,
 `py-tbparse batch DIR [TABLE]` and `py-tbparse rename WORKBOOK [-r OLD.twb]`, plus the two-level
 `py-tbparse template ...`, `py-tbparse library ...` (calculated fields and parameters),
-`py-tbparse style ...` (colour palettes), and the workbook `py-tbparse audit WORKBOOK` (findings) and
+`py-tbparse style ...` (colour palettes), `py-tbparse scaffold ...` (dashboard layouts), and the workbook `py-tbparse audit WORKBOOK` (findings) and
 `py-tbparse docs WORKBOOK` (a Markdown data dictionary; `dictionary` is the same command),
 `py-tbparse sanitize IN OUT` (a share-safe copy), `py-tbparse prune WORKBOOK` (remove what the audit
 finds unused; a dry run unless `--write -o OUT`) and
@@ -37,6 +37,7 @@ from .library import (
     save_library,
 )
 from .parser import TwbParser
+from . import scaffold as _scaffold
 from . import style as _style
 from .templates import (
     apply_template,
@@ -59,6 +60,7 @@ from .ci_formats import CI_FORMATS
 from .findings import exceeds, format_findings, summary as findings_summary
 from .validators import validation_findings
 from .template_check import check_template, rules_help
+from .template_drift import check_drift, rules_help as drift_rules_help, save_union_answers
 from .templates import TemplateError, _token_values
 from .xmldiff import normalised_diff
 from .rename import (
@@ -343,6 +345,35 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
                     help="exit 1 when a finding has this severity or worse (default: error)")
     ck.add_argument("--only", help="comma-separated rule ids to run, e.g. T001,T003")
     ck.add_argument("--skip", help="comma-separated rule ids not to run")
+
+    dr = sub.add_parser(
+        "drift", help="do many data files (a folder or glob) still fit a template or saved answers?",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Read the CSV, TSV and Excel files as one source and report, per file, what differs from the "
+                    "template's mapping or the saved answers: a missing column, another encoding or separator, a "
+                    "renamed or new column, a type conflict, a moved Excel header, an empty file. Findings go to "
+                    "stdout, a count and the fingerprints to stderr; the exit code is 1 when a finding is at or "
+                    "above --fail-on, 2 when the template or files cannot be read or an option is wrong, 3 when a "
+                    "rule crashed. Nothing is written unless --save-answers is given. Rule ids are stable.",
+        epilog="rules:\n" + drift_rules_help(),
+    )
+    dr.add_argument("template", metavar="TEMPLATE_OR_ANSWERS",
+                    help="a template (.twbx), or answers (.json, or a workbook made by 'template apply')")
+    dr.add_argument("files", nargs="+", metavar="GLOB_OR_FOLDER",
+                    help="a folder, a quoted glob such as 'data/sales_*.csv' ('**' reaches subfolders), or files")
+    dr.add_argument("--answers", "-a", metavar="PATH", help="with a template: saved answers (their mapping, columns and files are the reference)")
+    dr.add_argument("--sheet", help="the worksheet of every Excel file (a name, or an index from 0)")
+    dr.add_argument("--datasource", help="which template datasource to check (when it has several)")
+    dr.add_argument("--max-files", type=int, default=500, help="refuse to read more files than this (default 500)")
+    dr.add_argument("--format", "-f", choices=["table", "csv", "json", *CI_FORMATS], default="table",
+                    help="table, csv, json, or a CI format: junit (XML), sarif (2.1.0) or github (workflow commands)")
+    dr.add_argument("--fail-on", choices=["error", "warning", "info", "never"], default="error",
+                    help="exit 1 when a finding has this severity or worse (default: error)")
+    dr.add_argument("--only", help="comma-separated rule ids to run, e.g. D001,D002")
+    dr.add_argument("--skip", help="comma-separated rule ids not to run")
+    dr.add_argument("--save-answers", metavar="PATH",
+                    help="also write a copy of the answers whose data block lists these files and their fingerprints "
+                         "(never overwrites; needs answers)")
 
     sub.add_parser("targets", help="list the database connection classes a target file can use, and how well each is known")
 
@@ -634,6 +665,36 @@ def _run_template_check(args) -> int:
     return 1 if exceeds(found, args.fail_on) else 0
 
 
+def _run_template_drift(args) -> int:
+    files = args.files if len(args.files) > 1 else args.files[0]
+    try:
+        found = check_drift(args.template, files, answers=args.answers, datasource=args.datasource,
+                            sheet=_sheet_arg(args.sheet), only=_ids(args.only, "--only"),
+                            skip=_ids(args.skip, "--skip") or (), max_files=args.max_files)
+        if args.save_answers:
+            save_union_answers(args.template, files, args.save_answers, answers=args.answers,
+                               datasource=args.datasource, sheet=_sheet_arg(args.sheet))
+    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile, json.JSONDecodeError,
+            etree.XMLSyntaxError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    _write(format_findings(found, args.format, path=found.attrs.get("path")), None)
+    saved = found.attrs.get("saved_fingerprint")
+    print(f"{found.attrs['files']} file(s), merged fingerprint {found.attrs['fingerprint']}"
+          + (f" ({'same as' if saved == found.attrs['fingerprint'] else 'differs from'} the saved answers)" if saved else ""),
+          file=sys.stderr)
+    print(findings_summary(found), file=sys.stderr)
+    crashed = found.attrs.get("crashed") or []
+    if crashed:
+        for rule_id in crashed:
+            print(f"rule {rule_id} crashed (a bug in py-tbparse, not a finding about the files):\n"
+                  + found.attrs["tracebacks"][rule_id], file=sys.stderr)
+        return 3
+    if args.save_answers:
+        print(f"wrote {args.save_answers}", file=sys.stderr)
+    return 1 if exceeds(found, args.fail_on) else 0
+
+
 def _run_template(argv: list[str]) -> int:
     ap = build_template_arg_parser()
     args = ap.parse_args(argv)
@@ -645,6 +706,8 @@ def _run_template(argv: list[str]) -> int:
         args.format = args.format or "table"
     if args.action == "check":
         return _run_template_check(args)
+    if args.action == "drift":
+        return _run_template_drift(args)
     try:
         if args.action == "make":
             out = make_template(args.workbook, output_path=args.output, name=args.name,
@@ -963,6 +1026,95 @@ def _run_style(argv: list[str]) -> int:
         return 1
 
 
+def build_scaffold_arg_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        prog="py-tbparse scaffold",
+        description="Dashboard layouts: save the layout of one dashboard (a *.scaffold.json file) and use it to "
+                    "make a NEW dashboard in a copy of a workbook, with your own sheets in its slots. First slice: "
+                    "the source needs a single tiled root; filters, legends, parameter controls, images, buttons "
+                    "and device layouts are dropped and listed. The output was never opened in Tableau.",
+    )
+    sub = ap.add_subparsers(dest="action", required=True)
+
+    mk = sub.add_parser("make", help="save the layout of a dashboard of WORKBOOK as a scaffold")
+    mk.add_argument("workbook")
+    mk.add_argument("--dashboard", "-d", help="dashboard to take the layout from (optional when there is only one)")
+    mk.add_argument("--output", "-o", required=True, help="scaffold file, e.g. overview.scaffold.json")
+    mk.add_argument("--name", help="scaffold name (default: the dashboard's)")
+    mk.add_argument("--description", default="", help="what the layout is for")
+    mk.add_argument("--overwrite", action="store_true", help="replace the scaffold file if it exists")
+
+    sh = sub.add_parser("show", help="list the slots of a scaffold and what was dropped from it")
+    sh.add_argument("scaffold")
+    sh.add_argument("--format", choices=("table", "csv", "json"), default="table", help="output format (default: table)")
+
+    ap_ = sub.add_parser(
+        "apply", help="make a new dashboard in a copy of WORKBOOK: print the plan; with --write, write the copy",
+        description="Without --write nothing is written. With --write a new file is written next to WORKBOOK (or "
+                    "at --output): never over the input. The dashboard is always new; existing ones are not "
+                    "touched. Exit code 1 on an error.",
+    )
+    ap_.add_argument("workbook")
+    ap_.add_argument("scaffold")
+    ap_.add_argument("--name", required=True, help="name of the new dashboard (must be unused)")
+    ap_.add_argument("--sheet", action="append", default=[], metavar="SHEET",
+                     help="sheet for the next slot (repeatable, in slot order)")
+    ap_.add_argument("--sheets", metavar="A,B,C", help="the same as comma-separated names (use --sheet if a name has a comma)")
+    ap_.add_argument("--allow-empty", action="store_true", help="leave slots without a sheet blank instead of failing")
+    ap_.add_argument("--output", "-o", help="new file (default: <name>_scaffold.<ext> beside WORKBOOK)")
+    ap_.add_argument("--overwrite", action="store_true", help="replace an earlier output (never the input)")
+    ap_.add_argument("--write", action="store_true", help="write the file")
+    ap_.add_argument("--format", choices=("table", "csv", "json"), default="table", help="plan format (default: table)")
+    return ap
+
+
+def _run_scaffold(argv: list[str]) -> int:
+    ap = build_scaffold_arg_parser()
+    args = ap.parse_args(argv)
+    try:
+        if args.action == "make":
+            sc = _scaffold.make_scaffold(args.workbook, args.dashboard, name=args.name, description=args.description)
+            out = _scaffold.save_scaffold(sc, args.output, overwrite=args.overwrite)
+            print(f"wrote {out}", file=sys.stderr)
+            print(f"{len(sc['slots'])} slot(s); dropped {len(sc['dropped'])} item(s) (scaffold show lists them)",
+                  file=sys.stderr)
+            return 0
+        if args.action == "show":
+            sc = _scaffold.load_scaffold(args.scaffold)
+            if args.format == "json":
+                print(json.dumps({k: sc.get(k) for k in ("name", "description", "source", "slots", "dropped")},
+                                 indent=2, ensure_ascii=False))
+                return 0
+            if args.format == "table":
+                print(f"scaffold {sc.get('name')!r} from dashboard {sc.get('source', {}).get('dashboard')!r}")
+                print("\nslots")
+            print(_df_text(_scaffold.scaffold_slots(sc), args.format))
+            if args.format == "table":
+                print("\ndropped")
+                print(_df_text(_scaffold.scaffold_dropped(sc), "table"))
+            return 0
+        sheets = list(args.sheet)
+        if args.sheets:
+            sheets += [s.strip() for s in args.sheets.split(",") if s.strip()]
+        sc = _scaffold.load_scaffold(args.scaffold)
+        if not args.write:
+            plan = _scaffold.scaffold_plan(args.workbook, sc, args.name, sheets, allow_empty=args.allow_empty)
+            print(_df_text(plan, args.format))
+            print("plan only, nothing written; add --write to write a new file", file=sys.stderr)
+            return 0
+        report: dict = {}
+        out = _scaffold.apply_scaffold(args.workbook, sc, args.name, sheets, output_path=args.output,
+                                       overwrite=args.overwrite, allow_empty=args.allow_empty, report=report)
+        print(f"wrote {out}", file=sys.stderr)
+        print(f"new dashboard {args.name!r}: {report['zones']} zone(s); existing dashboards untouched", file=sys.stderr)
+        print("not opened in Tableau: check a copy first", file=sys.stderr)
+        return 0
+    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile, etree.XMLSyntaxError,
+            json.JSONDecodeError) as e:   # ScaffoldError is a ValueError
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
 def _is_reserved_subcommand(argv: list[str], name: str) -> bool:
     """True if `argv` invokes the `name` subcommand -- but don't let that
     shadow an actual workbook that happens to be named exactly "diff" or
@@ -1179,6 +1331,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_docs(raw_argv[1:], prog="py-tbparse dictionary")
     if _is_reserved_subcommand(raw_argv, "style"):
         return _run_style(raw_argv[1:])
+    if _is_reserved_subcommand(raw_argv, "scaffold"):
+        return _run_scaffold(raw_argv[1:])
 
     ap = build_arg_parser()
     args = ap.parse_args(argv)

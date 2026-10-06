@@ -9,7 +9,11 @@ A library is a small JSON file (`*.library.json`) that holds the calculated fiel
 ## What it covers
 
 - Calculated fields (including level-of-detail and table calculations) and parameters (range, list and any-value).
-- Not covered yet: sets, groups, bins, folders on import, replacing a field that already exists (`overwrite`) and the GUI. A calculation that uses a set, group or bin keeps the reference, and the target must already have that object under the same name. A calculation that refers to another datasource (`[other].[Field]`) is not exported; the export says which ones.
+- Not covered yet: sets, groups, bins, folders on import, replacing a field that already exists (`overwrite`). A calculation that uses a set, group or bin keeps the reference, and the target must already have that object under the same name. A calculation that refers to another datasource (`[other].[Field]`) is not exported; the export says which ones.
+
+## In the GUI
+
+The [Libraries view](gui.md#libraries) lists the workbook's calculations and parameters with a selection, exports the selection as a library file, and adds an uploaded library file to the open workbook. The clash policy is chosen on the page and defaults to `fail`, as in the command line; the plan and the clashes are shown before anything is made, and the result is a download. It never writes over the open workbook or any other file. It has no mapping file (fields are matched by name and close name only).
 
 ## Command line
 
