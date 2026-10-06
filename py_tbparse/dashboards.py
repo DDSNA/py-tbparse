@@ -8,12 +8,14 @@ worksheet/zone counts) -- see AGENTS.md's v2 scope.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 import pandas as pd
 
 _DASHBOARD_COLUMNS = ["name"]
-_SUMMARY_COLUMNS = ["name", "worksheets", "sheets", "size", "filters", "parameters", "actions"]
+_SUMMARY_COLUMNS = ["name", "worksheets", "sheets", "size", "filters", "parameters", "actions",
+                    "filter_fields", "parameter_names"]
 _SHEETS_COLUMNS = ["dashboard", "sheet", "zone_id", "x", "y", "w", "h"]
 # Zones of these kinds are named after the worksheet they show or control (`sheet` and `worksheet` are what some
 # generated workbooks write; Tableau itself writes no type for a sheet).
@@ -155,9 +157,42 @@ def _size_text(db) -> str:
     return "automatic"
 
 
+_PARAM_REF = re.compile(r"^\[([^\]]*)\]\.\[(.*)\]$")
+_INSTANCE = re.compile(r"^[a-z]{2,5}:(.+):[a-z]{2}$")
+
+
+def _zone_field_name(xml_doc, param: str) -> str:
+    """The name a filter or parameter-control zone's `param` stands for: `[ds].[none:Category:nk]` is
+    `Category`; a field with a caption (a calculation, a parameter) reads as its caption."""
+    m = _PARAM_REF.match(param)
+    if not m:
+        return param
+    ds_name, inner = m.groups()
+    inst = _INSTANCE.match(inner)
+    base = inst.group(1) if inst else inner
+    for ds in xml_doc.xpath("//datasource[@name=$n]", n=ds_name):
+        for col in ds.xpath("column[@name=$c]", c=f"[{base}]"):
+            if col.get("caption"):
+                return col.get("caption")
+    return base
+
+
+def _zone_names(xml_doc, db, kind: str) -> str:
+    """Names of the fields (or parameters) the `kind` zones of a dashboard's main layout point at,
+    `; `-separated, each once, in layout order."""
+    names = []
+    for z in db.xpath("./zones//zone"):
+        if zone_kind(z) == kind and z.get("param"):
+            n = _zone_field_name(xml_doc, z.get("param"))
+            if n not in names:
+                names.append(n)
+    return "; ".join(names)
+
+
 def dashboard_summary(xml_doc) -> pd.DataFrame:
     """One row per dashboard: how many distinct worksheets it shows (and which), its size, and how many
-    quick filters, parameter controls and workbook actions it has. `list_dashboards` stays the name-only list."""
+    quick filters, parameter controls and workbook actions it has, plus the fields the filters are on
+    (`filter_fields`) and the parameters the controls set (`parameter_names`). `list_dashboards` stays the name-only list."""
     action_counts: dict[str, int] = {}
     for src in xml_doc.xpath(".//actions/action/source[@dashboard]"):
         action_counts[src.get("dashboard")] = action_counts.get(src.get("dashboard"), 0) + 1
@@ -171,6 +206,8 @@ def dashboard_summary(xml_doc) -> pd.DataFrame:
                 "name": name, "worksheets": len(sheets), "sheets": "; ".join(sheets), "size": _size_text(db),
                 "filters": kinds.count("filter"), "parameters": kinds.count("paramctrl"),
                 "actions": action_counts.get(name, 0),
+                "filter_fields": _zone_names(xml_doc, db, "filter"),
+                "parameter_names": _zone_names(xml_doc, db, "paramctrl"),
             })
     return pd.DataFrame(rows, columns=_SUMMARY_COLUMNS)
 
