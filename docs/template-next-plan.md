@@ -1,25 +1,13 @@
 # py-tbparse templates: the plan for the next agent
 
-## Start here (brief for the next agent)
+## Start here
 
-1. Read sections 0 and 1 of this file, then `AGENTS.md`. Run the verify commands below; the branch state may have moved.
-2. Make your own worktree off `origin/main` (`git worktree add -b NAME PATH origin/main`).
-3. Next (state on 2026-10-05, section 1): the review findings #24 to #33 and the T009 token rule are done (#40, #42,
-   #21); open are issue #39 (WP4b leftovers) and the draft PR #43 (tests only, issue #41); then package F (WP10/WP11
-   basic, issue #37). Test-first. Store no credentials.
-4. Package B gets no sample workbooks (answered, section 2): classes without corpus evidence stay refused without
-   `--experimental`, or B is skipped. Do not invent connection XML.
-5. Finish each package with: the full non-browser suite, the corpus tests, docs (`docs/templates.md`, `AGENTS.md`,
-   `docs/next-steps.md`), and a commit as DDSNA (no attribution lines). Push only if told. No PR, version bump or merge
-   unasked; one PR per package.
-6. Report what was verified and what was not. The CSV and workbook outputs have been opened in Tableau; the Excel file
-   `4-template-on-excel.twbx` in the verification pack is still waiting for the owner.
+> **All packages A to F below are built and merged (2026-10-06).** This file is now the record of their designs and of
+> the owner's decisions. The plan to work from is `docs/template-roadmap-plan.md`; for the state use `git log`,
+> `gh pr list`, `gh issue list` and `pyproject.toml`, not the dated notes in this file. Rules: `AGENTS.md`.
 
-Written 2026-10-04 for the next agent, after WP0 to WP4 (core) were built; the state sections (1, 3, 6, 7, 8) were
-refreshed on 2026-10-05, the rest is as written. It replaces the "next work packages"
-part of `docs/next-steps.md` (that file keeps the history of what was built and the known gaps). The long research
-and the full catalogue of packages (WP0 to WP19) is `docs/template-roadmap-plan.md` (brought over from the branch
-`docs/template-roadmap`); this file is the decided, ordered, detailed version for what comes next.
+Written 2026-10-04 after WP0 to WP4 (core) were built; state sections refreshed 2026-10-05 and replaced on
+2026-10-06. The detail of what WP0 to WP5 built is in `docs/next-steps.md`.
 
 **Verify before relying on anything here** (push and PR state in particular moved within hours on 2026-10-04): `git log --oneline -8`, `git ls-remote --heads origin`,
 `gh pr list -R DDSNA/py-tbparse`, `git show origin/main:pyproject.toml | grep ^version`. The owner works in parallel
@@ -59,24 +47,29 @@ Read `CLAUDE.md` (the author's workspace file, `ai-sandbox/CLAUDE.md`: local, no
 - **Corpus**: `python3 scripts/fetch_corpus.py` (200 workbooks, 26 MB, gitignored, about 1 minute). Most tests that
   read workbook XML have a corpus twin; run it for anything that reads or writes XML.
 
-## 1. State on 2026-10-05 (refreshed; first written 2026-10-04)
+## 1. State on 2026-10-06
 
-| What | Where | State |
-|---|---|---|
-| `main` | origin | `adce403`, version **0.4.6**. Released **v0.4.6** (tag on `5cf3c7b`, PyPI): WP0 to WP4 core (#19, then #18) and Docker server mode (#17). **Merged since, unreleased**: #20 (WP19 tokens, package C), #21 (WP4b part 1, package A), #22 (Docker publish workflow to GHCR), #23 (WP5 check and `show --markdown`, package D), #35 (drain the request body before an early POST refusal), #38 (release workflow tag check), #40 (token findings #24 to #27) and #42 (check and markdown findings #28 to #30, T009, issue #36). |
-| Open | PR #43 (draft), issues #37, #39, #41 | #43: tests only (corpus target test, `Town`/`TOWN`, issue #41). #37: WP10 audit and WP11 data dictionary. #39: WP4b leftovers (MySQL backslash escape, unverified remote types). Issues #24 to #33 and #36 are closed. |
-| The long plan | `docs/template-roadmap-plan.md` | brought over from the branch `docs/template-roadmap`. |
+| Package | State on `main` |
+|---|---|
+| WP0 verification harness | done (`verify.py`, XSD differential; the owner opened the CSV and workbook outputs in Tableau) |
+| WP1 answers, ids, matcher, explain | done |
+| WP2 Excel input, WP3 `template update` (stages A, B), WP4 `apply-folder` | done; WP3 stage C (three-way merge) not started, not wanted yet |
+| WP4b part 1 database targets (MySQL, PostgreSQL, SQL Server, Snowflake) | done; leftovers in issue #39; part 2 (Oracle, Spark, Mongo, published data sources) has no samples and stays refused without `--experimental` |
+| WP5 `template check`, `show --markdown`; WP19 tokens | done |
+| WP6 libraries of calculated fields and parameters | first slice done; GUI Libraries view done |
+| WP7 colour palettes | slice 1 done (`style show/export/import/check`); GUI Styles view done; fonts and formatting not started |
+| WP8 writer fidelity | minimum done (`diff-xml`, `template apply --xml-diff`) |
+| WP9 GUI Templates view | done |
+| WP10 audit (A001-A011), WP10b `prune`, WP11 data dictionary | done at the basic level; GUI Audit view done |
+| WP12 `sanitize` | done (fake data from an SQL-type schema is not) |
+| WP16 dashboard scaffolds | first slice done (16a, 16b: zone resolver, `scaffold make/show/apply`) |
+| WP17 17b, 17c many files as one source, `template drift` | done |
+| WP18 JUnit, SARIF and GitHub output | done |
+| WP13, WP14, WP15, rest of WP16 | not started |
 
-For anything newer than this table, use `git log`, `gh pr list` and `gh issue list`. The old state notes of
-2026-10-04 (PR #21 as a draft with conflicts, the findings as open issues, the commit `6acd292` that a second session
-made and that holds an unrelated Custom SQL validator fix) are history: all of it merged through #18 to #21, and
-`git log` has the details.
-
-History (before #18 merged). Tests at the tip of `wp3-template-update`: that session's note in `docs/next-steps.md` says the whole non-browser suite
-gave **519 passed, 155 skipped after WP4** (503 at the WP2 commit + 15 new batch tests + 1 corpus test); I ran
-subsets (179 passed) and the WP4 corpus smoke test myself, not the whole suite again. The browser suites were
-**never run on this stack**. Before a PR that touches `webgui.py` or the page, run
-`./scripts/setup-browser-libs.sh` once and `pytest -q tests/test_gui_*.py` one Chromium at a time.
+Version 0.5.3 is released (`v0.5.3`). Open at this date: issue #39 (WP4b leftovers) and #76 to #84. The old test counts
+and the "browser suites were never run on this stack" notes of 2026-10-04 are gone; run the suites yourself (see
+`docs/development.md`).
 
 What exists now, in one line each (details in `docs/templates.md` and `AGENTS.md`):
 `make_template` (+`revision_of`), `read_data` (CSV, Excel sheet, workbook, `.tds`), `suggest_mapping`,
@@ -114,13 +107,13 @@ template tokens (`tokens.py`, WP19), `check_template` and `template_markdown` (W
 
 | # | Package | Version | Needs from the owner first |
 |---|---|---|---|
-| A | **WP4b connection targets, part 1**: the SQL-type schema reader + database classes that the corpus proves (Postgres, MySQL, SQL Server, Snowflake): **merged as #21**, unreleased; findings #31 to #33 closed, leftovers in issue #39 | 0.5.x | nothing |
-| B | **WP4b part 2**: classes the corpus does not contain (Oracle, Spark SQL / Databricks, MongoDB route) and **published data sources** | patch | no samples will come (answered): `evidence="docs"` and refused without `--experimental`, or skipped |
-| C | **WP19 template tokens**: **merged as #20**, unreleased; findings #24 to #27 fixed in #40 | 0.5.x | question 5 (more token places) |
-| D | **WP5 template check + `show --markdown`** (also builds the shared findings engine): **merged as #23**, unreleased; findings #28 to #30 fixed and T009 (the token rule) built in #42 | 0.5.x | nothing |
-| E | **WP12 sanitize** + fake data from an SQL-type schema | 0.5.x | nothing (reuses A's schema reader) |
-| F | **WP10 audit + WP11 data dictionary, basic** (issue #37) | 0.5.x | nothing |
-| later | WP18 CI formats, WP13 localization, WP14, WP17, WP16 | 0.5.x | his pick |
+| A (done) | **WP4b connection targets, part 1**: the SQL-type schema reader + database classes that the corpus proves (Postgres, MySQL, SQL Server, Snowflake): **merged as #21**, unreleased; findings #31 to #33 closed, leftovers in issue #39 | 0.5.x | nothing |
+| B (waiting) | **WP4b part 2**: classes the corpus does not contain (Oracle, Spark SQL / Databricks, MongoDB route) and **published data sources** | patch | no samples will come (answered): `evidence="docs"` and refused without `--experimental`, or skipped |
+| C (done) | **WP19 template tokens**: **merged as #20**, unreleased; findings #24 to #27 fixed in #40 | 0.5.x | question 5 (more token places) |
+| D (done) | **WP5 template check + `show --markdown`** (also builds the shared findings engine): **merged as #23**, unreleased; findings #28 to #30 fixed and T009 (the token rule) built in #42 | 0.5.x | nothing |
+| E (done, #91) | **WP12 sanitize** + fake data from an SQL-type schema | 0.5.x | nothing (reuses A's schema reader) |
+| F (done, #75) | **WP10 audit + WP11 data dictionary, basic** (issue #37) | 0.5.x | nothing |
+| later | WP18 CI formats (done, #88), WP17 17b/17c (done, #93), WP16 first slice (done, #95), WP13 localization, WP14 | 0.5.x | his pick |
 
 The Version column is "the next templating release line" per "Versioning" in `AGENTS.md`: the first one is 0.5.0, on the
 owner's word; which package goes into which release is not decided.
@@ -161,10 +154,10 @@ tokens. D before F because F reuses D's engine. Packages C, D, E, F do not depen
 done while waiting for the owner's samples; if the samples have not arrived when A is done, do C next.
 
 Each package (and each fix PR): a branch off `origin/main` (names used so far: `wp4b-targets`, `wp19-tokens`,
-`wp5-check`; next `wp10-audit`, `wp12-sanitize`), test-first, with a corpus smoke test, docs (`docs/templates.md` or a new doc), CLI help, `AGENTS.md`,
+`wp5-check`, `wp10-audit`, `wp12-sanitize`), test-first, with a corpus smoke test, docs (`docs/templates.md` or a new doc), CLI help, `AGENTS.md`,
 commit, and stop. Push and PR on the owner's word.
 
-## 4. Package A and B: connection targets
+## 4. Package A and B: connection targets (A merged as #21, B waits for samples)
 
 ### 4.1 What the owner wants, restated
 
@@ -346,7 +339,7 @@ shapes".
 
 ## 5. The other packages, in detail
 
-### 5.1 Package C: WP19 template tokens (`wp19-tokens`)
+### 5.1 Package C: WP19 template tokens (`wp19-tokens`) (merged as #20)
 
 **Goal.** A template author writes `{{customer}}` as plain text in a dashboard title, caption, text box or default;
 every output gets its own value. With the WP4 sidecar this gives per-customer dashboards ("Sales for ACME").
@@ -391,7 +384,7 @@ answers byte-identical re-apply; **corpus**: no workbook contains `{{` today (as
 that does is noticed), tokens are absent and the apply is byte-identical to before for all 200; then inject a token
 into a title of each corpus workbook that has one and check it is found and replaced.
 
-### 5.2 Package D: WP5 `template check` and `show --markdown` (`wp5-check`)
+### 5.2 Package D: WP5 `template check` and `show --markdown` (`wp5-check`) (merged as #23)
 
 **Build the shared findings engine here; WP10 reuses it.** New module `py_tbparse/findings.py`:
 `FINDING_COLUMNS = ["rule", "severity", "object", "detail", "fix"]`, severities `error|warning|info` (same ordering
@@ -426,7 +419,7 @@ sheets and dashboards). Build it with the renderer package F also uses (`py_tbpa
 small renderer (headings, tables with escaped pipes, deterministic order) in this package and keep it generic.
 Do not build a registry, thumbnails or a sharing service.
 
-### 5.3 Package E: WP12 sanitize and fake data (`wp12-sanitize`)
+### 5.3 Package E: WP12 sanitize and fake data (`wp12-sanitize`) (sanitize merged as #91; fake data from a schema not built)
 
 **Goal.** Make a workbook safe to share (forum question, a bug report, a public repo) and, when asked, runnable.
 
@@ -463,7 +456,7 @@ and then the 200 corpus workbooks; any hit fails. Plus: schema-valid and referen
 `test_schema.py`); idempotent (sanitizing twice is byte-identical); report contents; the seed makes identical CSVs;
 every type generator and every hint; refusing `--fake-data` without a schema; consistent `--strip-members`.
 
-### 5.4 Package F: WP10 audit and WP11 data dictionary, basic (`wp10-audit`)
+### 5.4 Package F: WP10 audit and WP11 data dictionary, basic (`wp10-audit`) (merged as #75, `prune` as #98)
 
 **Basic level, as agreed**: findings and a readable document. **No prune, no score, no JUnit/SARIF** yet (WP18).
 
