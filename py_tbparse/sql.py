@@ -6,6 +6,7 @@ Port of R/sql.R (`twb_custom_sql`, `twb_initial_sql`).
 from __future__ import annotations
 
 import re
+from typing import Iterator
 
 import pandas as pd
 
@@ -15,43 +16,44 @@ _CUSTOM_SQL_COLUMNS = ["relation_name", "relation_type", "custom_sql", "is_custo
 _INITIAL_SQL_COLUMNS = ["connection_id", "initial_sql"]
 
 
+def custom_sql_relations(xml_doc) -> Iterator[tuple]:
+    """`(relation element, SQL text, is_custom_sql)` for every relation that carries a query, in document order.
+
+    Two shapes: `<relation formula="...">` (the R package's only one; custom SQL when the text starts with SELECT
+    or WITH) and `<relation type="text">query</relation>`, where Tableau keeps the query of a "New Custom SQL"
+    table (custom SQL by its type; one with no text is skipped). Nothing is merged here: Tableau repeats a
+    relation (in the object model, for instance), and a caller merges by whatever it names the query by."""
+    for r in xml_doc.xpath("//relation[@formula or @type='text']"):
+        formula = r.get("formula")
+        if formula is not None:
+            yield r, formula, r.get("type") == "text" or bool(_SELECT_OR_WITH_RE.match(formula))
+        else:
+            text = "".join(r.itertext()).strip()
+            if text:
+                yield r, text, True
+
+
 def extract_custom_sql(xml_doc) -> pd.DataFrame:
-    """Port of `twb_custom_sql()`, plus the shape Tableau writes for custom SQL.
+    """Port of `twb_custom_sql()`, plus the shape Tableau writes for custom SQL (see `custom_sql_relations`).
 
-    Finds every `<relation formula="...">` node (the R package's only shape; `is_custom_sql` says whether
-    it starts with SELECT or WITH) and every `<relation type="text">node text</relation>`, which is where
-    Tableau keeps the query of a "New Custom SQL" table. A text relation is custom SQL by its type, so
-    `is_custom_sql` is True. A text relation that the workbook repeats (the same name and query, for
-    instance in the object model) is listed once; one with no text is left out.
-    """
-    rels = xml_doc.xpath("//relation[@formula or @type='text']")
-    if not rels:
-        return pd.DataFrame(columns=_CUSTOM_SQL_COLUMNS)
-
+    One row per relation that carries a query; a `type="text"` relation that the workbook repeats with the same
+    name and query is listed once."""
     rows = []
     seen = set()
-    for r in rels:
-        custom_sql = r.get("formula")
-        if custom_sql is not None:
-            is_custom = bool(_SELECT_OR_WITH_RE.match(custom_sql))
-        else:
-            custom_sql = "".join(r.itertext()).strip()
-            key = (r.get("name"), custom_sql)
-            if not custom_sql or key in seen:
+    for r, sql, is_custom in custom_sql_relations(xml_doc):
+        if r.get("formula") is None:
+            key = (r.get("name"), sql)
+            if key in seen:
                 continue
             seen.add(key)
-            is_custom = True
         rows.append(
             {
                 "relation_name": r.get("name"),
                 "relation_type": r.get("type"),
-                "custom_sql": custom_sql,
+                "custom_sql": sql,
                 "is_custom_sql": is_custom,
             }
         )
-
-    if not rows:
-        return pd.DataFrame(columns=_CUSTOM_SQL_COLUMNS)
     return pd.DataFrame(rows, columns=_CUSTOM_SQL_COLUMNS)
 
 
