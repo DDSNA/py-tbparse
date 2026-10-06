@@ -206,3 +206,40 @@ def test_template_check_and_markdown_on_every_workbook(tmp_path):
         for secret in ("password=", "username="):
             assert secret not in page, path.name
     assert {"T001", "T010"} <= seen        # the rules that must fire on real workbooks did
+
+
+def test_library_self_import():
+    """Export every datasource's calculations and parameters, import them into the same workbook: nothing
+    may be added or fail. Export must never raise."""
+    from py_tbparse import export_library, plan_import, build_imported_workbook
+    checked = 0
+    for path in FILES:
+        parser = TwbParser(str(path))
+        for ds in parser.xml_doc.xpath("/workbook/datasources/datasource[@name!='Parameters']"):
+            rep = {}
+            try:
+                lib = export_library(parser, datasource=ds.get("name"), report=rep)
+            except Exception as e:   # noqa: BLE001 - the point is that nothing may raise
+                pytest.fail(f"{path.name} / {ds.get('name')}: export raised {e!r}")
+            # calculations that refer to another datasource are not exported: counted, and named here
+            assert rep["unsupported_names"] == KNOWN_UNSUPPORTED.get((path.name, ds.get("name")), []), \
+                f"{path.name} / {ds.get('name')}: {rep['unsupported_names']} not exported (a new known issue?)"
+            if not lib["entries"]:
+                continue
+            checked += 1
+            plan = plan_import(parser, lib, datasource=ds.get("name"))
+            rows = plan[plan["uid"] != ""]
+            assert set(rows["action"]) == {"skip-identical"}, f"{path.name} / {ds.get('name')}: {rows[rows['action'] != 'skip-identical'][['name', 'action', 'reason']].to_dict('records')}"
+            report = {}
+            build_imported_workbook(parser, lib, datasource=ds.get("name"), report=report)
+            assert report["failed"] == 0 and report["added"] == 0
+    assert checked > 100
+
+
+# Calculations that refer to another datasource (`[other].[Field]`) are not exported: the first slice of
+# libraries does not handle them (docs/wp6-library-design.md, section 2). Known issues, by (workbook,
+# datasource): the corpus has two such calculations (the design doc counted three, including a worksheet copy).
+KNOWN_UNSUPPORTED = {
+    ("PacktPublishing__Advanced-Analytics-with-R-and-Tableau__Chapter_4.twb", "csv.41596.059997384262"):
+        ["Calculation_3521122022654976", "Calculation_7061121072343255"],
+}

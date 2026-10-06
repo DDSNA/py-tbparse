@@ -558,6 +558,20 @@ def applicable_renames(renames: pd.DataFrame) -> pd.DataFrame:
     return renames[keep]
 
 
+def _insert_column(ds_el, col) -> None:
+    """Put a new `<column>` after the datasource's last column (else after its aliases, else its connection)."""
+    anchor = None
+    for tag in ("column", "aliases", "connection"):
+        found = ds_el.findall(tag)
+        if found:
+            anchor = found[-1]
+            break
+    if anchor is None:
+        ds_el.append(col)
+    else:
+        anchor.addnext(col)
+
+
 def _new_column(ds_el, name: str, caption: str):
     """Add a Tableau column for a field that so far only exists as a physical
     column, so it can carry a caption. Mirrors what Tableau writes for a
@@ -573,16 +587,7 @@ def _new_column(ds_el, name: str, caption: str):
         role="measure" if numeric else "dimension",
         type="quantitative" if numeric else "nominal",
     )
-    anchor = None
-    for tag in ("column", "aliases", "connection"):
-        found = ds_el.findall(tag)
-        if found:
-            anchor = found[-1]
-            break
-    if anchor is None:
-        ds_el.append(col)
-    else:
-        anchor.addnext(col)
+    _insert_column(ds_el, col)
     return col
 
 
@@ -710,6 +715,12 @@ def build_renamed_workbook(parser: TwbParser, renames: pd.DataFrame, report: Opt
     _rename_sheet_references(doc, sheet_map)
     if report is not None:
         report.update(applied=applied, skipped=skipped, by_kind=by_kind)
+    return _serialize_workbook(parser, doc)
+
+
+def _serialize_workbook(parser: TwbParser, doc) -> bytes:
+    """Bytes of `doc` in the source's format: `.twb` bytes, or a `.twbx` with every other member copied
+    across untouched."""
     twb = etree.tostring(doc, xml_declaration=True, encoding="utf-8")
 
     if not parser.twbx_path:
