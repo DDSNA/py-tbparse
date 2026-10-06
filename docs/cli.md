@@ -51,7 +51,7 @@ py-tbparse template drift sales.template.twbx 'data/sales_*.csv' --fail-on warni
 
 Notes from `--help`:
 
-- `template apply` writes nothing without `--write`. `--explain`, `--check` and `--deep` add reports about what the apply changes and about the new data. `--datasource` and `--data-datasource` pick one datasource when there are several, `--cutoff` sets how close a name must be, `--allow-missing` writes even when a required field has no column, `--format` takes `table`, `csv` or `json`.
+- `template apply` writes nothing without `--write`. `--explain`, `--xml-diff`, `--check` and `--deep` add reports about what the apply changes, the normalised XML diff of the template and the output (see [diff-xml.md](diff-xml.md); the workbook is built in a temporary folder), and the new data. `--datasource` and `--data-datasource` pick one datasource when there are several, `--cutoff` sets how close a name must be, `--allow-missing` writes even when a required field has no column, `--format` takes `table`, `csv` or `json`.
 - `--experimental` (on `apply`, `update`, `apply-folder` and `target-make`) allows a connection class that was never checked against a workbook Tableau wrote; see `template targets`.
 - `template update` takes `--old` (the revision the workbook was made from, when its answers do not keep it), `--data`, `--sheet`, `--mapping`, `--allow-missing` and `--token`.
 - `template apply-folder` also takes `--pattern`, `--answers`, `--profile`, `--mapping`, `-p`, `--sheet`, `--on-error {skip,stop}`, `--workers` and `--overwrite`. Without `-o` the workbooks and `summary.csv` go to `DIR/out`. It exits 1 if any file was not written.

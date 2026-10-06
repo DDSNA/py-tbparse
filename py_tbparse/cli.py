@@ -473,6 +473,9 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
     ap_.add_argument("--explain", action="store_true",
                      help="also list what this changes besides the connection: new field types, dropped "
                           "fields and what they break (to stderr)")
+    ap_.add_argument("--xml-diff", action="store_true",
+                     help="also show the normalised XML diff of the template's workbook and the one this would "
+                          "write (to stderr; see 'diff-xml'); builds the workbook in a temporary folder")
     ap_.add_argument("--check", action="store_true",
                      help="also check the new data: missing dimensions, empty columns, repeated keys (to stderr)")
     ap_.add_argument("--deep", action="store_true", help="with --check, read the whole CSV, not its first 2000 rows")
@@ -781,6 +784,19 @@ def _run_template(argv: list[str]) -> int:
         if args.explain:
             print("\nWhat applying changes:", file=sys.stderr)
             _write(_df_text(explain(t, data, mapping, datasource=datasource), args.format), None, stream=sys.stderr)
+        if args.xml_diff:
+            import tempfile
+
+            print("\nXML changes (normalised diff, template -> output):", file=sys.stderr)
+            with tempfile.TemporaryDirectory() as tmp:
+                try:
+                    probe = apply_template(t, data, mapping=mapping, params=plan.params,
+                                           output_path=str(Path(tmp) / "probe.twbx"), datasource=datasource,
+                                           allow_missing=args.allow_missing, tokens=plan.tokens)
+                    text = normalised_diff(t.path, probe, name_a=Path(t.path).name, name_b="(output)")
+                    sys.stderr.write(text or "no difference\n")
+                except TemplateError as e:
+                    print(f"not built: {e}", file=sys.stderr)
         if args.check:
             found = check_data(t, data, mapping, datasource=datasource, deep=args.deep)
             print("\nData checks:" + ("" if len(found) else " nothing found"), file=sys.stderr)

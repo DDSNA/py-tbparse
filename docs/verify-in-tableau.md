@@ -35,7 +35,7 @@ python scripts/make_verification_pack.py ~/tbparse-pack            # from tests/
 python scripts/make_verification_pack.py ~/tbparse-pack2 --workbook my.twbx   # or any workbook Tableau wrote
 ```
 
-It refuses a folder that is not empty and prints the schema and reference result for each file.
+It refuses a folder that is not empty and prints the schema and reference result for each file, plus the size of its normalised XML diff ([diff-xml.md](diff-xml.md)): file 1 against file 0, files 2 to 5 against the template. The diffs are saved in `diffs/`, so you can see exactly what py-tbparse changed before you open anything.
 
 | File | What it is |
 |---|---|
