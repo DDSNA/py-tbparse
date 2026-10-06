@@ -3,18 +3,20 @@
 Not part of the R package. The renderer (`escape_cell`, `inline_code`, `heading`, `code_block`,
 `md_table`, `render`) knows nothing about Tableau: it escapes what breaks a table (pipes,
 newlines, `<`), keeps the order it is given and never adds a timestamp, so the same input gives the
-same text and a page can live in git and be reviewed as a diff. The workbook data dictionary
-(WP11) is meant to be written with the same functions.
+same text and a page can live in git and be reviewed as a diff.
 
-`template_markdown` is the page `py-tbparse template show --markdown` prints.
+`template_markdown` is the page `py-tbparse template show --markdown` prints; `workbook_markdown` is the
+workbook data dictionary (`py-tbparse docs`, WP11 basic). Both are built from the functions above and share
+`_connection_text`, so a connection is shown (and its secrets left out) the same way on both pages.
 """
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Iterable, Optional, Sequence
 
-from .templates import Template, safe_connection
+from .templates import Template, _connections, safe_connection
 from .dashboards import dashboard_targets
 
 _CELL_ESCAPES = {"\\": "\\\\", "|": "\\|", "*": "\\*", "_": "\\_", "<": "&lt;", ">": "&gt;",
@@ -118,6 +120,12 @@ def _short_list(values: Sequence[str]) -> str:
     return shown + (f"; ... and {len(values) - _MAX_LIST} more" if len(values) > _MAX_LIST else "")
 
 
+def _connection_text(conn: dict) -> str:
+    """A connection as `class=...; server=...`, through the `safe_connection` allowlist: where the data lives,
+    never who is logged in, and a file by its name only."""
+    return "; ".join(f"{k}={v}" for k, v in safe_connection(conn).items())
+
+
 def _label(name: str) -> str:
     return name.strip("[]")
 
@@ -184,7 +192,7 @@ def template_markdown(template: Template) -> str:
     rows = []
     for ds in m.get("datasources", []):
         for c in ds.get("connections") or [{}]:
-            shown = "; ".join(f"{k}={v}" for k, v in safe_connection(c).items())
+            shown = _connection_text(c)
             rows.append([ds.get("caption") or ds["name"], Code(shown) if shown else "(none)"])
     blocks.append(md_table(["Datasource", "Connection"], rows))
 
@@ -205,4 +213,167 @@ def template_markdown(template: Template) -> str:
     names = sorted(m.get("dashboards", []))
     rows = [[d, "; ".join(sorted(shown_by.get(d, ())))] for d in names]
     blocks.append(md_table(["Dashboard", "Worksheets"], rows) if rows else "None.")
+    return render(*blocks)
+
+
+# --------------------------------------------------------- workbook dictionary --
+
+_FORMULA_CELL = 120      # characters of a formula shown in the fields table; the rest is in a collapsible block
+
+
+def _html(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _used_by(row) -> str:
+    parts = []
+    for label, key in (("Sheets", "sheets"), ("Dashboards", "dashboards"), ("Calculations", "calculations")):
+        if row[key]:
+            parts.append(f"{label}: {_short_list(list(row[key]))}")
+    return " / ".join(parts) if parts else "(nothing)"
+
+
+def _formula_cell(formula: str) -> Code:
+    flat = formula.strip()
+    if len(flat) <= _FORMULA_CELL:
+        return Code(flat)
+    return Code(f"{flat[:_FORMULA_CELL]}... (truncated, {len(flat)} characters; in full below)")
+
+
+def _details(summary: str, body: str) -> str:
+    return f"<details>\n<summary>{_html(summary)}</summary>\n\n{body}\n\n</details>"
+
+
+def _tables_of(ds) -> list[list[str]]:
+    seen, rows = set(), []
+    for rel in ds.xpath("./connection//relation[@name][@type='table' or @type='text']"):
+        kind = "custom SQL" if rel.get("type") == "text" else "table"
+        key = (rel.get("name"), kind, rel.get("table"))
+        if key not in seen:
+            seen.add(key)
+            rows.append([Code(rel.get("name")), kind, Code(rel.get("table")) if kind == "table" and rel.get("table") else ""])
+    return sorted(rows, key=lambda r: (str(r[0]), r[1]))
+
+
+def workbook_markdown(parser, graph: bool = False) -> str:
+    """The data dictionary of a workbook (a `TwbParser`) as Markdown: an overview, each datasource with its
+    connections (never a user name or password, a file by its name only) and tables, a table of its fields with
+    caption, type, role, formula and what uses them, the parameters, the worksheets with the fields they use and
+    the dashboards that show them, and the dashboards. A formula longer than 120 characters is cut in the
+    table and given in full in a collapsible block below it. `graph=True` adds the relationship graph as a
+    fenced DOT block. The order is fixed and there is no timestamp, so the same workbook gives the same text.
+
+    Formulas, captions and parameter values are printed as the workbook has them (escaped for Markdown), so
+    review the page before you share it. Nothing was opened in Tableau."""
+    from .usage import _sheet_uses, field_usage
+
+    doc = parser.xml_doc
+    root = doc.getroot()
+    usage = field_usage(doc)
+    usage = usage.astype(object).where(usage.notna(), None)    # a missing caption is None, not NaN
+    file_name = os.path.basename(parser.twbx_path or parser.path)
+    if parser.twbx_path:
+        file_name = os.path.basename(parser.twbx_path)
+    sources = sorted((ds for ds in doc.xpath("/workbook/datasources/datasource[@name]") if ds.get("name") != "Parameters"),
+                     key=lambda ds: ((ds.get("caption") or ds.get("name")).casefold(), ds.get("name")))
+    dashboards = sorted(doc.xpath("/workbook/dashboards/dashboard[@name]"), key=lambda d: d.get("name"))
+    sheets = sorted(doc.xpath("/workbook/worksheets/worksheet/@name"))
+    non_param = usage[usage["kind"] != "parameter"]
+    params = usage[usage["kind"] == "parameter"]
+
+    blocks = [heading(1, "Data dictionary: " + escape_cell(os.path.splitext(file_name)[0]))]
+    props = [["File", Code(file_name)],
+             ["Tableau file version", Code(root.get("version") or "")],
+             ["Saved by", Code(root.get("source-build") or "")],
+             ["Datasources", len(sources)],
+             ["Fields", len(non_param)],
+             ["Calculated fields", int((non_param["kind"] == "calculated").sum())],
+             ["Parameters", len(params)],
+             ["Worksheets", len(sheets)],
+             ["Dashboards", len(dashboards)]]
+    blocks.append(md_table(["Property", "Value"], [p for p in props if p[1] not in (None, "")]))
+    blocks.append("This page was read from the workbook file by py-tbparse. Nothing was opened in Tableau, and "
+                  "\"used by\" follows worksheets, dashboards and calculations only (see `docs/audit.md`).")
+
+    labels: dict[tuple, str] = {}
+    blocks.append(heading(2, "Datasources"))
+    if not sources:
+        blocks.append("None.")
+    for ds in sources:
+        name = ds.get("name")
+        label = ds.get("caption") or name
+        cols = {c.get("name"): c for c in ds.xpath("./column[@name]")}
+        blocks.append(heading(3, "Datasource: " + escape_cell(label)))
+        conns = _connections(ds)
+        if conns:
+            blocks.append(md_table(["Connection"], [[Code(_connection_text(c))] for c in conns]))
+        tables = _tables_of(ds)
+        if tables:
+            blocks.append(md_table(["Table", "Kind", "Source name"], tables))
+        rows, long_formulas = [], []
+        mine = usage[usage["datasource"] == name]
+        mine = mine.assign(_k=mine.apply(lambda r: ((r["caption"] or str(r["field"]).strip("[]")).casefold(), r["field"]), axis=1))
+        for _, r in mine.sort_values("_k", kind="stable").iterrows():
+            col = cols.get(r["field"])
+            labels[(name, r["field"])] = r["caption"] or str(r["field"]).strip("[]")
+            calc = col.find("calculation") if col is not None else None
+            formula = (calc.get("formula") or "") if calc is not None else ""
+            kind = r["kind"] + (" (hidden)" if col is not None and col.get("hidden") == "true" else "")
+            rows.append([Code(str(r["field"]).strip("[]")), r["caption"] or "", r["datatype"] or "",
+                         (col.get("role") if col is not None else None) or "", kind,
+                         _formula_cell(formula) if formula.strip() else "", _used_by(r)])
+            if len(formula.strip()) > _FORMULA_CELL:
+                long_formulas.append((labels[(name, r["field"])], formula.strip()))
+        blocks.append(heading(4, f"Fields ({len(rows)})"))
+        blocks.append(md_table(["Field", "Caption", "Type", "Role", "Kind", "Formula", "Used by"], rows) if rows else "None.")
+        for fname, formula in long_formulas:
+            blocks.append(_details(f"Formula of {fname} ({len(formula)} characters)", code_block(formula)))
+
+    blocks.append(heading(2, "Parameters"))
+    if params.empty:
+        blocks.append("None.")
+    else:
+        pcols = {c.get("name"): c for c in doc.xpath("/workbook/datasources/datasource[@name='Parameters']/column[@name]")}
+        rows = []
+        for _, r in params.sort_values("field", kind="stable").iterrows():
+            labels[("Parameters", r["field"])] = r["caption"] or str(r["field"]).strip("[]")
+            col = pcols.get(r["field"])
+            allowed = ""
+            if col is not None:
+                members = [m.get("value") or "" for m in col.xpath("./members/member")]
+                rng = col.find("range")
+                if members:
+                    allowed = _short_list(members)
+                elif rng is not None:
+                    allowed = "; ".join(f"{k} {rng.get(k)}" for k in ("min", "max", "granularity") if rng.get(k) is not None)
+            rows.append([r["caption"] or str(r["field"]).strip("[]"), r["datatype"] or "",
+                         Code(clip((col.get("value") if col is not None else "") or "")),
+                         (col.get("param-domain-type") if col is not None else "") or "", allowed, _used_by(r)])
+        rows.sort(key=lambda x: str(x[0]).casefold())
+        blocks.append(md_table(["Parameter", "Type", "Current value", "Domain", "Allowed values", "Used by"], rows))
+
+    shown_on: dict[str, set] = {}
+    on_dashboard: dict[str, list] = {}
+    for db in dashboards:
+        targets = sorted(set(dashboard_targets(db)))
+        on_dashboard[db.get("name")] = targets
+        for t in targets:
+            shown_on.setdefault(t, set()).add(db.get("name"))
+    hidden = set(doc.xpath("/workbook/windows/window[@class='worksheet'][@hidden='true']/@name"))
+    direct = _sheet_uses(doc)
+
+    blocks.append(heading(2, "Worksheets (where fields are used)"))
+    rows = []
+    for sheet in sheets:
+        used = sorted({labels.get((ds, n), str(n).strip("[]")) for ds, names in direct.get(sheet, {}).items() for n in names if n})
+        rows.append([sheet, "yes" if sheet in hidden else "", "; ".join(sorted(shown_on.get(sheet, ()))), _short_list(used)])
+    blocks.append(md_table(["Worksheet", "Hidden", "On dashboards", "Fields it uses directly"], rows) if rows else "None.")
+
+    blocks.append(heading(2, "Dashboards"))
+    rows = [[d, "; ".join(on_dashboard[d])] for d in sorted(on_dashboard)]
+    blocks.append(md_table(["Dashboard", "Worksheets"], rows) if rows else "None.")
+
+    if graph:
+        blocks.append(heading(2, "Relationship graph"))
+        blocks.append(code_block(parser.get_relationship_graph_dot(), "dot"))
     return render(*blocks)
