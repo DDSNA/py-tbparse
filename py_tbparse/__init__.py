@@ -6,7 +6,7 @@ from https://github.com/PrigasG/twbparser (MIT licensed).
 
 from .batch import scan_folder
 from .calculated_fields import extract_calculated_fields, extract_raw_fields
-from .dashboards import dashboard_sheets, list_dashboards
+from .dashboards import dashboard_sheets, integrity_check, list_dashboards, zone_kind
 from .datasources import extract_datasource_details, extract_named_connections, extract_parameters
 from .diff import diff_tables, diff_workbooks
 from .xmldiff import normalised_diff
@@ -24,6 +24,13 @@ from .library import (
     save_library,
 )
 from .parser import TwbParser
+from .scaffold import (
+    ScaffoldError,
+    apply_scaffold,
+    load_scaffold,
+    make_scaffold,
+    save_scaffold,
+)
 from .style import (
     StyleError,
     build_with_palettes,
@@ -81,6 +88,13 @@ __all__ = [
     "extract_raw_fields",
     "dashboard_sheets",
     "list_dashboards",
+    "zone_kind",
+    "integrity_check",
+    "ScaffoldError",
+    "make_scaffold",
+    "apply_scaffold",
+    "save_scaffold",
+    "load_scaffold",
     "extract_datasource_details",
     "extract_named_connections",
     "extract_parameters",

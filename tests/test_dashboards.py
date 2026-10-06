@@ -223,3 +223,100 @@ def test_dashboards_table_uses_the_summary():
     assert df["worksheets"].tolist() == [2, 2]
     assert df["sheets"].tolist() == ["Sales by Region; Top Products", "Profit Trend; Sales by Region"]
     assert p.get_dashboards().columns.tolist() == ["name"]  # the name list others rely on is unchanged
+
+
+# --- zone kinds and the integrity check (WP16a) ---
+
+from py_tbparse import integrity_check, zone_kind  # noqa: E402
+from py_tbparse.dashboards import dashboard_summary  # noqa: E402
+
+_FCP_T = "_.fcp.SetMembershipControl.true...type-v2"
+_FCP_F = "_.fcp.SetMembershipControl.false...type"
+
+_KINDS_XML = f"""
+<workbook>
+  <worksheets><worksheet name="S1"/><worksheet name="S2"/></worksheets>
+  <dashboards>
+    <dashboard name="D">
+      <size minwidth="800" maxwidth="800" minheight="600" maxheight="600"/>
+      <zones>
+        <zone id="1" type-v2="layout-basic">
+          <zone id="2" name="S1"/>
+          <zone id="3" name="S1" type-v2="filter" param="[ds].[f]"/>
+          <zone id="4" name="S2" type="color" param="[ds].[c]"/>
+          <zone id="5" name="S2" {_FCP_T}="color" {_FCP_F}="color" param="[ds].[c]"/>
+          <zone id="6" {_FCP_T}="layout-flow" {_FCP_F}="layout-flow" param="horz"/>
+          <zone id="7" type="worksheet" name="S2"/>
+          <zone id="8" param="[p]" type-v2="paramctrl"/>
+          <zone id="9"/>
+        </zone>
+      </zones>
+      <devicelayouts><devicelayout name="Phone"><zones>
+        <zone id="1" type-v2="layout-flow"><zone id="3" name="S1" type-v2="filter" param="[ds].[f]"/></zone>
+      </zones></devicelayout></devicelayouts>
+    </dashboard>
+  </dashboards>
+</workbook>
+"""
+
+
+def test_zone_kind_reads_type_v2_type_and_feature_flag_attributes():
+    doc = xml_from_string(_KINDS_XML)
+    kinds = {z.get("id"): zone_kind(z) for z in doc.xpath("//dashboard/zones//zone")}
+    assert kinds == {"1": "layout-basic", "2": "sheet", "3": "filter", "4": "color", "5": "color",
+                     "6": "layout-flow", "7": "sheet", "8": "paramctrl", "9": "unknown"}
+
+
+def test_summary_counts_with_the_resolved_kinds_in_the_main_layout_only():
+    row = dashboard_summary(xml_from_string(_KINDS_XML)).iloc[0]
+    assert (row["filters"], row["parameters"]) == (1, 1)     # the Phone layout's filter is not counted again
+    assert row["sheets"] == "S1; S2"
+
+
+def test_sheet_listing_leaves_out_feature_flag_containers_and_keeps_flagged_legends():
+    from py_tbparse.dashboards import dashboard_targets
+    db = xml_from_string(_KINDS_XML).xpath("//dashboard")[0]
+    assert sorted(set(dashboard_targets(db))) == ["S1", "S2"]
+
+
+_GOOD = """
+<workbook>
+  <worksheets><worksheet name="S1"/></worksheets>
+  <dashboards>
+    <dashboard name="D"><zones><zone id="1" type-v2="layout-basic"><zone id="2" name="S1"/></zone></zones>
+      <devicelayouts><devicelayout name="Phone"><zones><zone id="2" name="S1"/></zones></devicelayout></devicelayouts>
+      <simple-id uuid="{A}"/></dashboard>
+  </dashboards>
+  <windows><window class="dashboard" name="D"><viewpoints><viewpoint name="S1"/></viewpoints>
+    <active id="2"/><simple-id uuid="{B}"/></window></windows>
+</workbook>
+"""
+
+
+def _checks(xml, **kw):
+    return sorted(p["check"] for p in integrity_check(xml_from_string(xml), **kw))
+
+
+def test_integrity_check_passes_a_sound_dashboard_and_a_reused_leaf_id_in_a_device_layout():
+    assert _checks(_GOOD) == []
+
+
+def test_integrity_check_finds_each_kind_of_problem():
+    assert _checks(_GOOD.replace('<zone id="2" name="S1"/></zone></zones>',
+                                 '<zone id="2" name="S1"/><zone id="2" type-v2="empty"/></zone></zones>', 1)) == [
+        "zone-id-duplicate"]
+    assert _checks(_GOOD.replace('<zone id="2" name="S1"/></zone></zones>\n', '<zone id="2" name="Gone"/></zone></zones>\n', 1)
+                   ) == ["sheet-unresolved"]
+    assert _checks(_GOOD.replace('viewpoint name="S1"', 'viewpoint name="Gone"')) == ["viewpoint-unresolved"]
+    assert _checks(_GOOD.replace('active id="2"', 'active id="9"')) == ["active-zone-missing"]
+    assert _checks(_GOOD.replace("{B}", "{A}")) == ["simple-id-shared", "uuid-duplicate"]
+    assert _checks(_GOOD.replace('<simple-id uuid="{A}"/></dashboard>', '<simple-id uuid="{A}"/></dashboard>'
+                                 '<dashboard name="E"><zones/><simple-id uuid="{B}"/></dashboard>')) == [
+        "uuid-duplicate", "uuid-duplicate"]
+
+
+def test_integrity_check_window_is_optional_unless_asked_for():
+    no_window = _GOOD.split("<windows>")[0] + "</workbook>"
+    assert _checks(no_window) == []
+    assert _checks(no_window, require_window=True) == ["window-missing"]
+    assert _checks(_GOOD, dashboard="Nope") == []
