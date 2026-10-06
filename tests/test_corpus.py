@@ -243,3 +243,47 @@ KNOWN_UNSUPPORTED = {
     ("PacktPublishing__Advanced-Analytics-with-R-and-Tableau__Chapter_4.twb", "csv.41596.059997384262"):
         ["Calculation_3521122022654976", "Calculation_7061121072343255"],
 }
+
+
+# Workbooks whose palette handling is a known issue. Empty: none were found.
+KNOWN_STYLE_ISSUES: dict[str, str] = {}
+
+
+def test_style_palettes_on_every_workbook(tmp_path):
+    """read_palettes never raises; a self-import changes nothing; the workbooks with a named palette export to
+    a .tps that checks clean and re-reads the same; importing those palettes into every workbook adds no
+    schema error that the workbook did not already have."""
+    from lxml import etree
+    from py_tbparse import build_with_palettes, check_style_file, export_palettes, plan_palette_import, read_palettes
+    from tests.schema_check import new_schema_errors
+
+    with_palettes = {}
+    for path in FILES:
+        if path.name in KNOWN_STYLE_ISSUES:
+            continue
+        parser = TwbParser(str(path))
+        try:
+            rep = {}
+            palettes = read_palettes(parser, rep)
+        except Exception as e:   # noqa: BLE001 - the point is that nothing may raise
+            pytest.fail(f"{path.name}: read_palettes raised {e!r}")
+        assert rep["invalid"] == [], f"{path.name}: invalid palettes {rep['invalid']}"
+        plan = plan_palette_import(parser, parser)
+        assert set(plan["action"]) <= {"skip-identical"}, path.name
+        assert len(plan) == len(palettes)
+        assert etree.tostring(etree.fromstring(build_with_palettes(parser, parser))) == \
+            etree.tostring(parser.xml_doc.getroot()), path.name
+        if palettes:
+            with_palettes[path.name] = palettes
+    assert len(with_palettes) == 3, sorted(with_palettes)         # the census: 3 of 200
+    merged = []
+    for name, palettes in with_palettes.items():
+        out = export_palettes([str(CORPUS / "files" / name)], tmp_path / f"{name}.tps")
+        assert check_style_file(out) == [], name
+        assert read_palettes(out) == palettes, name
+        merged += palettes
+    for path in FILES:
+        if path.name in KNOWN_STYLE_ISSUES:
+            continue
+        data = build_with_palettes(str(path), merged, on_clash="skip")
+        assert new_schema_errors(str(path), data) == [] or path.name in KNOWN_STYLE_ISSUES, path.name

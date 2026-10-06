@@ -74,3 +74,11 @@ this has been done; the automated checks above do not close it.
 
 Tableau Cloud 2026.2 and Server also offer a *Validate Workbook* REST call (syntactic and semantic); it needs a
 site and credentials, so it is not part of the tests.
+
+## Colour palettes (style import/export)
+
+Palettes written by `py-tbparse style` have not been opened in Tableau. A five-minute check, on a machine with a backup of `Preferences.tps`:
+
+1. `py-tbparse style export brand.twb -o Preferences_new.tps`, copy it to `My Tableau Repository/Preferences.tps`, restart Tableau Desktop. Do the palettes appear in Edit Colors (at most 20 colours show)? Do the names and order match the file?
+2. `py-tbparse style import brand.twb other.twb --write`, open `other_palettes.twb` on a machine whose `Preferences.tps` lacks the palette. Is it offered in Edit Colors? Do the marks that were already coloured keep their colours?
+3. Note any repair or "unsupported feature" message, and what happens when a workbook palette and a `.tps` palette have the same name.

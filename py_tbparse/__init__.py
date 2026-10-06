@@ -23,6 +23,20 @@ from .library import (
     save_library,
 )
 from .parser import TwbParser
+from .style import (
+    StyleError,
+    build_with_palettes,
+    check_style_file,
+    export_palettes,
+    import_palettes,
+    load_style,
+    make_style,
+    palettes_table,
+    plan_palette_import,
+    read_palettes,
+    save_style,
+    tps_bytes,
+)
 from .published import extract_published_refs
 from .relationships import extract_relations, extract_relationships
 from .rename import (
@@ -50,7 +64,8 @@ from .templates import (
     suggest_mapping,
 )
 from .template_batch import apply_template_folder
-from .docgen import template_markdown
+from .workbook_audit import audit
+from .docgen import template_markdown, workbook_markdown
 from .findings import format_findings, run_rules
 from .template_check import check_template
 from .template_update import diff_template_revisions, template_update_report, update_from_answers
@@ -107,6 +122,8 @@ __all__ = [
     "update_from_answers",
     "check_template",
     "template_markdown",
+    "workbook_markdown",
+    "audit",
     "run_rules",
     "format_findings",
     "resolve_apply",
@@ -122,6 +139,18 @@ __all__ = [
     "plan_import",
     "build_imported_workbook",
     "import_library",
+    "StyleError",
+    "read_palettes",
+    "palettes_table",
+    "make_style",
+    "save_style",
+    "load_style",
+    "tps_bytes",
+    "check_style_file",
+    "plan_palette_import",
+    "build_with_palettes",
+    "import_palettes",
+    "export_palettes",
 ]
 
 try:
