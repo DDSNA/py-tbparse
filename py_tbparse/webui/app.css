@@ -61,7 +61,7 @@ body { font: var(--text-md)/var(--leading) var(--font); background: var(--bg); c
 .rename-tools { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .rename-tools input[type=text] { width: 260px; font-family: var(--mono); font-size: var(--text-sm); }
 .rename-select { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-.btn.disabled, .btn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
+.btn[aria-disabled="true"] { color: var(--muted); border-style: dashed; cursor: not-allowed; }
 .tbl th.sel, .tbl td.sel { text-align: center; padding: 0 8px; }
 .tbl td.sel input { width: 20px; height: 20px; margin: 0; cursor: pointer; accent-color: var(--primary); }
 .tbl tr.left-out td:not(.sel) { color: var(--muted); }

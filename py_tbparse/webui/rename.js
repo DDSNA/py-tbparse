@@ -41,7 +41,6 @@
     const none = review && kept() === 0;
     create.disabled = none;
     download.setAttribute('aria-disabled', none ? 'true' : 'false');
-    download.classList.toggle('disabled', none);
     note.textContent = !review ? '' : none ? 'Nothing is selected. Tick at least one rename.'
       : kept() === total ? 'All ' + total + ' selected' : kept() + ' of ' + total + ' selected';
   }

@@ -29,7 +29,9 @@ def _everything(page, path):
     else:   # a narrow window has the dropdown instead of the sidebar
         page.select_option("#tableSel", "field-renames")
     page.select_option("#renameKinds", "all")
-    page.wait_for_function("() => document.getElementById('createBtn').textContent.includes(' of ')", timeout=10_000)
+    # the wider table has a kind column first; until it is there the fields-only rows are still showing
+    page.wait_for_function("() => [...document.querySelectorAll('#tableWrap th .th-label')].some(e => e.textContent === 'kind')",
+                           timeout=10_000)
     page.wait_for_selector(BOXES, timeout=10_000)
 
 
