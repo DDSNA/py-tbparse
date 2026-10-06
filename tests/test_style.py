@@ -2,11 +2,15 @@
 the corpus has no Preferences.tps and only three named palettes."""
 
 import json
+import sys
 import zipfile
 from pathlib import Path
 
 import pytest
 from lxml import etree
+
+sys.path.insert(0, str(Path(__file__).parent))
+from schema_check import new_schema_errors   # noqa: E402
 
 from py_tbparse import (
     StyleError,
@@ -23,7 +27,6 @@ from py_tbparse import (
     save_style,
     tps_bytes,
 )
-from tests.schema_check import new_schema_errors
 
 FIX = Path(__file__).parent / "fixtures"
 STYLE = FIX / "style"
