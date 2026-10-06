@@ -36,10 +36,18 @@ python3 -m venv .venv
 ## Build / test / lint commands
 
 ```bash
-.venv/bin/python -m pytest -q          # run the full test suite
-.venv/bin/python -m pytest -q tests/test_joins.py   # single file
+scripts/ci-like-tests.sh               # full suite the way CI runs it (see below)
+scripts/ci-like-tests.sh tests/test_joins.py        # single file
 .venv/bin/python -m py_compile py_tbparse/*.py     # syntax check
 ```
+
+**Run tests the CI way.** CI runs plain `pytest -q`, not `python -m pytest`. Use `scripts/ci-like-tests.sh`
+(plain `pytest` with `PYTHONPATH` set to the checkout; `PYTEST=<venv>/bin/pytest` picks the binary). In a
+git worktree this matters twice: `python -m pytest` hides `from tests.x import` mistakes, and a shared venv
+whose editable install points at the main checkout would import the main checkout's `py_tbparse` instead of
+the worktree's (`tests/conftest.py` now fails fast on that). Test helpers are imported with
+`sys.path.insert(0, str(Path(__file__).parent))` and `from schema_check import ...`, never `from tests.x`;
+file URLs come from `Path.as_uri()` so they are valid on Windows. Details in `docs/development.md`.
 
 Browser (GUI) tests need a one-time setup; without it they skip and the
 rest of the suite still runs:
@@ -48,7 +56,7 @@ rest of the suite still runs:
 .venv/bin/pip install -e ".[browser]"
 .venv/bin/playwright install chromium
 ./scripts/setup-browser-libs.sh        # only on a machine without root
-.venv/bin/python -m pytest -q tests/test_gui_browser.py
+.venv/bin/pytest -q tests/test_gui_browser.py
 ```
 
 There is no linter/formatter configured yet — match existing style
@@ -292,7 +300,9 @@ beyond the R package's scope:
 - `tests/conftest.py` provides `wenjie_xml`, `wenjie_path`,
   `zip_twbx_path` fixtures and an `xml_from_string()` helper. Tests import
   it with `from conftest import xml_from_string` (no `tests/__init__.py`,
-  so it's a plain top-level import, not a relative one).
+  so it's a plain top-level import, not a relative one). Other helpers
+  (`schema_check.py`) go through `sys.path.insert(0, str(Path(__file__).parent))`;
+  never `from tests.x import`, which fails under CI's plain `pytest`.
 - **Anything that writes a workbook** (rename, template, whatever comes next) must pass the differential checks in `tests/test_schema.py`: no schema error and no `validate_workbook` finding that the input did not already have. `tests/schema_check.py` validates against Tableau's published XSD (`tests/schemas/`, Apache-2.0, 2026.2, with two small stubs for the namespaces it imports without a location); real workbooks mostly fail that schema already, so never assert "valid", only "nothing new". The corpus run in that file found three bugs the hand-made fixtures could not. `scripts/make_verification_pack.py` makes the files for the manual Tableau check.
 - Every new extractor function needs: one test against a real fixture (if
   it exercises fixture data) and/or one synthetic-XML test for edge
