@@ -40,6 +40,28 @@ def test_no_rule_crashes_and_the_counts_are_reported(runs, record_property):
         assert counts[rule_id] > 0, rule_id
 
 
+def _hits(runs, rule, fragment):
+    return [(p.name, o) for p, df in runs.items() if fragment in p.name for o in df[df["rule"] == rule]["object"]]
+
+
+def test_corpus_false_positives_found_while_tuning_stay_fixed(runs):
+    # A001: Tableau's own `Number of Records` (34 workbooks had it as the only reason)
+    assert not [o for df in runs.values() for o in df[df["rule"] == "A001"]["object"] if o.endswith(": Number of Records")]
+    # A003: columns named only in the connection's column map, and a blended field the primary declares
+    assert not _hits(runs, "A003", "Tableau-Creating-Interactive-Data-Visualizations__Chapter_7")
+    assert not [o for _, o in _hits(runs, "A003", "Advanced-Analytics-with-R-and-Tableau__Chapter_4") if "SalesAmount]" in o]
+    # A005: parameters shown as a control, or used by a set or a bin that a sheet uses
+    assert not _hits(runs, "A005", "Kishorekannann82__Capstone-Power-Bi-Tableau__Book1")
+    # A006: sheets that dashboards place through `type='sheet'` or `type-v2='worksheet'` zones, a tooltip sheet
+    assert not _hits(runs, "A006", "COZYkrish__TableauGen-AI__Test_Dashboard")
+    assert not _hits(runs, "A006", "ayushgupta-15__customer-intelligence-pla")
+    assert not _hits(runs, "A006", "Kyligence__zen-ml-toolkit__twb6")
+    # A006: a workbook with no dashboard has none to be missing from
+    for path, df in runs.items():
+        if "<dashboard " not in path.read_text(encoding="utf-8", errors="replace"):
+            assert df[df["rule"] == "A006"].empty, path.name
+
+
 def test_ordering_is_deterministic(runs):
     for path, df in list(runs.items())[::4]:
         again = audit(TwbParser(str(path)))

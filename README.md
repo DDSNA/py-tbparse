@@ -20,7 +20,7 @@ It began as a port of PrigasG's R package [twbparser](https://github.com/PrigasG
 - Turns a finished workbook into a template you can fill with other data: a CSV, an Excel sheet (`.xlsx`, `.xlsm`), another workbook, or a database table described in a target file. The database is never contacted. Supported: MySQL, PostgreSQL, SQL Server and Snowflake.
 - Fills `{{token}}` placeholders in titles, text and captions, so one template gives each customer its own dashboard.
 - Makes one workbook per file in a folder (`template apply-folder`), brings a workbook up to a newer template revision (`template update`) and lints a template (`template check`).
-- Audits a workbook (`audit`: unused or duplicate calculations, missing references, custom SQL, extract leftovers) and writes a Markdown data dictionary of it (`docs`). Read-only; never opened in Tableau.
+- Audits a workbook (`audit`: unused or duplicate calculations, missing references, custom SQL, absolute-path leftovers) and writes a Markdown data dictionary of it (`docs`). Read-only; never opened in Tableau.
 - Takes calculated fields and parameters out of one workbook into a library file and adds them to another (`library export`, `library import`). The output follows what Tableau writes but has not been opened in Tableau.
 - Takes named colour palettes out of workbooks and `Preferences.tps` files and writes them into a new `Preferences.tps`, a JSON file or a copy of a workbook (`style show`, `export`, `import`, `check`). Palettes only: it adds them to the colour picker and recolours nothing, and it has not been opened in Tableau.
 - Runs as a Docker image behind a TLS proxy. From the next release, the image is also published to the GitHub Container Registry (`ghcr.io/ddsna/py-tbparse`).

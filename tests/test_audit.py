@@ -265,9 +265,24 @@ def test_a008_extract_and_absolute_paths(tmp_path):
                     ds_extra="<extract enabled='true'><connection class='hyper' dbname='/home/alice/x.hyper'/></extract>")
     df = found(path, "A008")
     text = " ".join(df["detail"])
-    assert len(df) == 2 and df.iloc[0]["severity"] == "info"
-    assert "keeps an extract" in text and "absolute filename (sales.xlsx)" in text
+    assert len(df) == 1 and df.iloc[0]["severity"] == "info"       # one finding per datasource
+    assert "extract is a file at an absolute local path" in text and "absolute filename (sales.xlsx)" in text
     assert "alice" not in text and "Desktop" not in text      # the folder is never printed
+
+
+def test_a008_an_extract_alone_or_with_a_relative_path_is_quiet(tmp_path):
+    # every extract workbook has an extract; only a path on one machine is a leftover
+    plain = workbook(tmp_path, ds_extra="<extract enabled='true'><connection class='hyper' dbname='Data/Extracts/x.hyper'/></extract>")
+    assert found(plain, "A008").empty
+    bare = workbook(tmp_path, name="b.twb", ds_extra="<extract enabled='true'/>")
+    assert found(bare, "A008").empty
+
+
+def test_a008_a_temporary_extract_file_is_named_as_such(tmp_path):
+    path = workbook(tmp_path, ds_extra="<extract enabled='true'><connection class='hyper' "
+                                       "dbname='C:/Users/bob/AppData/Local/Temp/TableauTemp/#t.hyper'/></extract>")
+    df = found(path, "A008")
+    assert len(df) == 1 and "temporary file" in df.iloc[0]["detail"] and "bob" not in df.iloc[0]["detail"]
 
 
 def test_a008_relative_paths_are_quiet(tmp_path):
@@ -419,3 +434,86 @@ def test_a005_parameter_only_an_unused_calculation_uses_is_reported(tmp_path):
                     calcs=[("[Calculation_1]", "Scaled", "[Sales] * [Parameters].[Parameter 1]")])
     df = found(path, "A005")
     assert objects(df) == ["Parameters: Top N"] and "Scaled" in df.iloc[0]["detail"]
+
+
+# tuning: false positives found in the corpus -------------------------------------------------------------------
+
+def test_a001_the_number_of_records_tableau_adds_is_not_reported(tmp_path):
+    auto = ("<column datatype='integer' name='[Number of Records]' role='measure' type='quantitative' "
+            "xmlns:user='http://www.tableausoftware.com/xml/user' user:auto-column='numrec'>"
+            "<calculation class='tableau' formula='1'/></column>")
+    stripped = ("<column datatype='integer' name='[Number of Records]' role='measure' type='quantitative'>"
+                "<calculation class='tableau' formula='1'/></column>")
+    for n, extra in enumerate((auto, stripped)):
+        path = workbook(tmp_path, name=f"n{n}.twb", ds_extra=extra)
+        assert found(path, "A001").empty
+    # a calculation the author wrote with the same shape is still reported
+    path = workbook(tmp_path, name="own.twb", calcs=[("[Calculation_9]", "Number of Rows", "1")])
+    assert objects(found(path, "A001")) == ["Orders: Number of Rows"]
+
+
+def test_a001_and_a005_say_nothing_about_a_workbook_with_no_worksheets(tmp_path):
+    path = workbook(tmp_path, calcs=[("[Calculation_1]", "Margin", "[Sales] - [Profit]")], params=[("[Parameter 1]", "Cut")],
+                    sheets={}, dashboards={})
+    assert found(path, "A001").empty and found(path, "A005").empty
+
+
+def test_a005_a_parameter_a_bin_a_set_or_a_shown_control_uses(tmp_path):
+    shown = workbook(tmp_path, name="s.twb", params=[("[Parameter 1]", "Top N")])
+    assert objects(found(shown, "A005")) == ["Parameters: Top N"]
+    shown_xml = Path(shown).read_text(encoding="utf-8").replace(
+        "<windows>", "<windows><window class='worksheet' name='Sheet 1'><viewpoint><card mode='slider' "
+                     "param='[Parameters].[Parameter 1]' type='parameter'/></viewpoint></window>")
+    Path(shown).write_text(shown_xml, encoding="utf-8")
+    assert found(shown, "A005").empty                              # the control is on a sheet
+
+    bin_col = ("<column datatype='integer' name='[Sales (bin)]' role='dimension' type='ordinal'>"
+               "<calculation class='bin' formula='[Sales]' size-parameter='[Parameters].[Parameter 1]'/></column>")
+    unused_bin = workbook(tmp_path, name="b.twb", params=[("[Parameter 1]", "Bin size")], ds_extra=bin_col)
+    df = found(unused_bin, "A005")
+    assert len(df) == 1 and "Sales (bin)" in df.iloc[0]["detail"]   # only an unused bin uses it: still reported
+    used_bin = workbook(tmp_path, name="ub.twb", params=[("[Parameter 1]", "Bin size")], ds_extra=bin_col,
+                        sheets={"Sheet 1": ["[Sales (bin)]"]})
+    assert found(used_bin, "A005").empty
+
+    top_set = ("<group name='[Top Sales]' name-style='unqualified'><groupfilter count='[Parameters].[Parameter 1]' "
+               "end='top' function='end' units='records'/></group>")
+    used_set = workbook(tmp_path, name="us.twb", params=[("[Parameter 1]", "Top N")], ds_extra=top_set,
+                        sheets={"Sheet 1": ["[Top Sales]"]})
+    assert found(used_set, "A005").empty
+
+
+def test_a003_names_only_the_connection_or_a_blend_declares_are_known(tmp_path):
+    cols = ("<cols><map key='[SalesAmount]' value='[Extract].[SalesAmount]'/></cols>")
+    path = workbook(tmp_path, calcs=[("[Calculation_1]", "Total", "SUM([SalesAmount])")],
+                    conn=f"<connection class='csv'>{cols}</connection>")
+    assert found(path, "A003").empty
+    missing = workbook(tmp_path, name="m.twb", calcs=[("[Calculation_1]", "Total", "SUM([Gone])")])
+    assert len(found(missing, "A003")) == 1
+    # a field of a secondary datasource that the primary's own dependencies declare
+    blend = Path(workbook(tmp_path, name="bl.twb", calcs=[("[Calculation_1]", "Diff", "SUM([ds2].[Quote])")]))
+    blend.write_text(blend.read_text(encoding="utf-8").replace(
+        "</datasources>", "<datasource name='ds2' caption='Targets'/></datasources>").replace(
+        "<datasource name='ds1' caption='Orders'>", "<datasource name='ds1' caption='Orders'><datasource-dependencies "
+        "datasource='ds2'><column datatype='integer' name='[Quote]'/></datasource-dependencies>"), encoding="utf-8")
+    assert found(str(blend), "A003").empty
+
+
+def test_a006_a_workbook_of_plain_sheets_has_no_dashboard_to_miss(tmp_path):
+    path = workbook(tmp_path, sheets={"A": ["[Sales]"], "B": ["[Sales]"]}, dashboards={})
+    assert found(path, "A006").empty
+
+
+def test_a006_tooltip_sheets_typed_zones_and_named_leaf_zones_count_as_shown(tmp_path):
+    tip = ("<customized-tooltip><formatted-text><run><![CDATA[<Sheet name=\"Tip\" maxwidth=\"100\" "
+           "maxheight=\"100\" filter=\"<All Fields>\">]]></run></formatted-text></customized-tooltip>")
+    path = workbook(tmp_path, sheets={"Sheet 1": ["[Sales]"], "Tip": ["[Sales]"], "Lonely": ["[Sales]"]},
+                    texts=[tip], dashboards={"Dash": ["Sheet 1"]})
+    assert objects(found(path, "A006")) == ["Lonely"]                # Tip is embedded in a tooltip
+
+    typed = Path(workbook(tmp_path, name="t.twb", sheets={"S1": ["[Sales]"], "S2": ["[Sales]"], "S3": ["[Sales]"]},
+                          dashboards={"Dash": []}))
+    typed.write_text(typed.read_text(encoding="utf-8").replace(
+        "<zones></zones>", "<zones><zone id='1' name='S1' type='sheet'/><zone id='2' name='S2' type-v2='worksheet'/>"
+                           "<zone id='3' name='S3' type-v2='layout-basic'/></zones>"), encoding="utf-8")
+    assert found(str(typed), "A006").empty
