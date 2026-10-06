@@ -20,13 +20,13 @@ def custom_sql_relations(xml_doc) -> Iterator[tuple]:
     """`(relation element, SQL text, is_custom_sql)` for every relation that carries a query, in document order.
 
     Two shapes: `<relation formula="...">` (the R package's only one; custom SQL when the text starts with SELECT
-    or WITH) and `<relation type="text">query</relation>`, where Tableau keeps the query of a "New Custom SQL"
+    or WITH, whatever the type) and `<relation type="text">query</relation>`, where Tableau keeps the query of a "New Custom SQL"
     table (custom SQL by its type; one with no text is skipped). Nothing is merged here: Tableau repeats a
     relation (in the object model, for instance), and a caller merges by whatever it names the query by."""
     for r in xml_doc.xpath("//relation[@formula or @type='text']"):
         formula = r.get("formula")
         if formula is not None:
-            yield r, formula, r.get("type") == "text" or bool(_SELECT_OR_WITH_RE.match(formula))
+            yield r, formula, bool(_SELECT_OR_WITH_RE.match(formula))
         else:
             text = "".join(r.itertext()).strip()
             if text:

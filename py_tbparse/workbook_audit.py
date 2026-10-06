@@ -456,7 +456,7 @@ def custom_sql(s: Subject):
     seen = set()
     for rel, text, is_custom in custom_sql_relations(doc):
         text = text.strip()
-        if not text or not is_custom:
+        if not text or not (is_custom or rel.get("type") == "text"):   # a text relation is custom SQL whatever it says
             continue
         ds = next(iter(rel.xpath("ancestor::datasource[1]")), None)
         label = _ds_label(ds) if ds is not None else ""
