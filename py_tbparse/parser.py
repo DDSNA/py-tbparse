@@ -14,7 +14,8 @@ from lxml import etree
 from ._clean import internal_last
 from ._xml import read_twb_from_twbx
 from .calculated_fields import _CALC_COLUMNS, _RAW_COLUMNS, extract_calculated_fields, extract_raw_fields
-from .dashboards import _DASHBOARD_COLUMNS, _SHEETS_COLUMNS, dashboard_sheets, list_dashboards
+from .dashboards import (_DASHBOARD_COLUMNS, _SHEETS_COLUMNS, _SUMMARY_COLUMNS, dashboard_sheets,
+                         dashboard_summary, list_dashboards)
 from .datasources import (
     _DATASOURCE_COLUMNS,
     _PARAMETER_COLUMNS,
@@ -185,6 +186,10 @@ class TwbParser:
 
     def get_dashboards(self) -> pd.DataFrame:
         return _safe_call(list_dashboards, pd.DataFrame(columns=_DASHBOARD_COLUMNS), self.xml_doc)
+
+    def get_dashboard_summary(self) -> pd.DataFrame:
+        """One row per dashboard with its sheet count, size, filters, parameter controls and actions."""
+        return internal_last(_safe_call(dashboard_summary, pd.DataFrame(columns=_SUMMARY_COLUMNS), self.xml_doc))
 
     def get_dashboard_sheets(self, dashboard: Optional[str] = None) -> pd.DataFrame:
         return internal_last(_safe_call(

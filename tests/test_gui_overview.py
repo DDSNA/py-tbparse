@@ -165,3 +165,20 @@ def test_the_card_is_readable_in_light_and_dark(browser, gui_server, rich_path, 
         finally:
             pg.ctx.close()
     assert not found, found[:8]
+
+
+def test_dashboards_view_says_what_is_on_each_dashboard(page):
+    import os
+    demo = os.path.join(os.path.dirname(__file__), "..", "docs", "demo", "coffee-shop.twb")
+    _load(page, os.path.abspath(demo))
+    _open(page, "dashboards")
+    _wait_meta(page, "2 row(s)")
+    for col in ("name", "worksheets", "sheets", "size", "filters", "parameters", "actions"):
+        assert _header_present(page, col), col
+    text = page.inner_text("#tableWrap")
+    assert "Weekly Overview" in text and "Profit Trend" in text and "Sales by Region" in text
+    assert page.js_errors == []
+
+
+def _header_present(page, column):
+    return page.locator("#tableWrap th .th-label", has_text=re.compile(rf"^{column}$")).count() > 0

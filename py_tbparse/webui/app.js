@@ -25,7 +25,7 @@ const INFO = {
   'relations': ['Relations', 'Physical tables, custom SQL relations, the joins that combine them and collections (the group of tables under one logical model, listed by member).'],
   'relationships': ['Relationships', 'Logical-layer relationships (Tableau 2020.2+).'],
   'inferred-relationships': ['Inferred relationships', 'Likely links guessed from matching field names.'],
-  'dashboards': ['Dashboards', 'Dashboards defined in the workbook.'],
+  'dashboards': ['Dashboards', 'One row per dashboard: its worksheets, size, quick filters, parameter controls and actions.'],
   'dashboard-sheets': ['Dashboard sheets', 'Sheets placed on each dashboard, with positions.'],
   'custom-sql': ['Custom SQL', 'Relations defined by custom SQL.'],
   'initial-sql': ['Initial SQL', 'SQL run when a connection opens.'],
