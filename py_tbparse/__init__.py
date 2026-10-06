@@ -60,6 +60,7 @@ from .rename import (
     suggest_renames,
 )
 from .prune import PruneError, prune, prune_doc
+from .slicer import SliceError, slice_doc, slice_workbook
 from .sanitize import SanitizeError, sanitize
 from .sql import extract_custom_sql, extract_initial_sql
 from .templates import (
@@ -152,6 +153,9 @@ __all__ = [
     "audit",
     "prune",
     "prune_doc",
+    "slice_doc",
+    "slice_workbook",
+    "SliceError",
     "PruneError",
     "sanitize",
     "SanitizeError",

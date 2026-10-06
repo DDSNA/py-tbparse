@@ -53,6 +53,7 @@ from .templates import (
 from .template_batch import DEFAULT_PATTERNS as DEFAULT_BATCH_PATTERNS, apply_template_folder
 from .template_update import template_update_report, update_from_answers
 from .prune import PruneError, format_report as prune_report, prune
+from .slicer import SliceError, format_report as slice_report, slice_workbook
 from .sanitize import CATEGORIES as SANITIZE_CATEGORIES, SanitizeError, format_report as sanitize_report, sanitize
 from .workbook_audit import audit, rules_help as audit_rules_help
 from .docgen import template_markdown, workbook_markdown
@@ -1268,6 +1269,47 @@ def _run_prune(argv: list[str]) -> int:
     return 0
 
 
+def _run_slice(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(
+        prog="py-tbparse slice",
+        description="Keep the selected dashboards of a workbook and drop the rest: the other dashboards, the "
+                    "worksheets no kept dashboard (or tooltip, or story) uses, their windows, and then, by prune, the "
+                    "calculations, parameters and datasources only they used. Actions that depend on something not "
+                    "kept are dropped and reported (--strict refuses instead). An unknown dashboard name fails and "
+                    "lists the valid names. A dry run by default; --write -o OUT writes a NEW file (the input is "
+                    "never written). Nothing is opened in Tableau, so open the result before you rely on it.",
+    )
+    ap.add_argument("workbook", help="the .twb or .twbx to read")
+    ap.add_argument("--dashboards", "-d", action="append", required=True, metavar="A,B",
+                    help="dashboards to keep, comma-separated (may be repeated)")
+    ap.add_argument("--write", action="store_true", help="write the sliced copy to -o OUT (otherwise a dry run)")
+    ap.add_argument("--output", "-o", help="the .twb or .twbx to write, same format as the input (needs --write)")
+    ap.add_argument("--strict", action="store_true",
+                    help="refuse instead of dropping actions (and their filters) that depend on removed sheets")
+    ap.add_argument("--no-prune", action="store_true",
+                    help="do not prune calculations, parameters and datasources left unused after the slice")
+    ap.add_argument("--overwrite", action="store_true", help="replace an existing OUT (never the input)")
+    ap.add_argument("--format", "-f", choices=["table", "json"], default="table", help="the report as text or JSON")
+    args = ap.parse_args(argv)
+    if args.write and not args.output:
+        ap.error("--write needs -o OUT")
+    if args.output and not args.write:
+        ap.error("-o OUT is only used with --write (without it slice is a dry run)")
+    if args.overwrite and not args.write:
+        ap.error("--overwrite is only used with --write")
+    try:
+        report = slice_workbook(args.workbook, args.dashboards, args.output if args.write else None,
+                                strict=args.strict, prune=not args.no_prune, overwrite=args.overwrite)
+    except (SliceError, FileExistsError, *_WORKBOOK_ERRORS) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    if args.format == "json":
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print(slice_report(report))
+    return 0
+
+
 def _run_docs(argv: list[str], prog: str = "py-tbparse docs") -> int:
     ap = argparse.ArgumentParser(
         prog=prog,
@@ -1344,6 +1386,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_sanitize(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "prune"):
         return _run_prune(raw_argv[1:])
+    if _is_reserved_subcommand(raw_argv, "slice"):
+        return _run_slice(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "docs"):
         return _run_docs(raw_argv[1:])
     if _is_reserved_subcommand(raw_argv, "dictionary"):
