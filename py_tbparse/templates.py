@@ -75,6 +75,14 @@ class TemplateError(ValueError):
     """The template cannot be made or applied as asked."""
 
 
+class SheetMissing(TemplateError):
+    """The Excel file has no worksheet of the name asked for (`multifile` reports it as drift)."""
+
+
+class SheetEmpty(TemplateError):
+    """The Excel worksheet has no cell with a value."""
+
+
 # ---------------------------------------------------------------- helpers --
 
 def _now() -> str:
@@ -625,12 +633,12 @@ def _read_excel(p: Path, sheet: Union[str, int, None]) -> DataSource:
             chosen = visible[0]
         elif isinstance(sheet, int):
             if not -len(names) <= sheet < len(names):
-                raise TemplateError(f"{p.name} has {len(names)} sheet(s), none at index {sheet}")
+                raise SheetMissing(f"{p.name} has {len(names)} sheet(s), none at index {sheet}")
             chosen = names[sheet]
         elif sheet in sheets:
             chosen = sheet
         else:
-            raise TemplateError(f"{p.name} has no sheet {sheet!r}; it has: {', '.join(names)}")
+            raise SheetMissing(f"{p.name} has no sheet {sheet!r}; it has: {', '.join(names)}")
         ws = sheets[chosen]
         header = None
         rows: list = []
@@ -649,7 +657,7 @@ def _read_excel(p: Path, sheet: Union[str, int, None]) -> DataSource:
             if filled:
                 last = number
         if header is None:
-            raise TemplateError(f"{p.name}: sheet {chosen!r} is empty")
+            raise SheetEmpty(f"{p.name}: sheet {chosen!r} is empty")
         top, cells = header
         used = [i for i, v in enumerate(cells) if v is not None and (not isinstance(v, str) or v.strip())]
         first, end = used[0], used[-1] + 1
@@ -1501,6 +1509,9 @@ def resolve_apply(
     prior = _answers_entry(saved, entry["name"]) if saved is not None else {}
     if data is None:
         file = chosen_profile.get("data") or (prior.get("data") or {}).get("file")
+        if not file and (prior.get("data") or {}).get("kind") == "union":
+            raise TemplateError("the answers' data is a set of files (kind 'union'); applying a template to many files "
+                                "as one source is not built yet: pass data= (see `template drift` for the check)")
         if not file:
             raise TemplateError("no data: pass data=, or answers/profile that name a data file")
         if not Path(file).is_absolute() and saved and saved.get("_base_dir"):

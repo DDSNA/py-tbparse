@@ -62,7 +62,7 @@ def _message(row) -> str:
 
 def catalog(scope: Optional[str]) -> list[dict]:
     """The rules of a scope as `{id, title, severity, fix}`, by id. `validate` has two fixed rules;
-    `template` and `workbook` come from the findings registry (the rule modules are imported on demand)."""
+    `template`, `workbook` and `drift` come from the findings registry (the rule modules are imported on demand)."""
     if scope == "validate":
         from .validators import VALIDATE_RULES
         return [dict(r) for r in VALIDATE_RULES]
@@ -70,6 +70,8 @@ def catalog(scope: Optional[str]) -> list[dict]:
         from . import template_check  # noqa: F401 -- registers the rules
     elif scope == "workbook":
         from . import workbook_audit  # noqa: F401
+    elif scope == "drift":
+        from . import template_drift  # noqa: F401
     from .findings import rules
     try:
         return [{"id": r.id, "title": r.title, "severity": r.severity, "fix": r.fix} for r in rules(scope or "")]
@@ -86,7 +88,7 @@ def _clean(text: str) -> str:
 def junit(df: pd.DataFrame, path: Optional[str] = None, scope: Optional[str] = None) -> str:
     """JUnit XML (`<testsuites><testsuite><testcase>`), well-formed for the standard library and CI test reporters."""
     crashed = set(df.attrs.get("crashed") or [])
-    suite_name = "py-tbparse " + {"validate": "validate", "template": "template check", "workbook": "audit"}.get(scope or "", "findings")
+    suite_name = "py-tbparse " + {"validate": "validate", "template": "template check", "workbook": "audit", "drift": "template drift"}.get(scope or "", "findings")
     cases = []
     failures = errors = skipped = 0
     for _, row in df.iterrows():
