@@ -15,10 +15,10 @@ def test_public_fixtures_present():
 
 
 @pytest.mark.parametrize("path", PUBLIC, ids=lambda p: p.name)
-def test_every_table_extracts(path):
+def test_every_table_extracts(path, strict_extractors):
     parser = TwbParser(str(path))
     for name, spec in TABLE_SPECS.items():
-        spec(parser)  # must not raise
+        spec(parser)  # must not raise: strict_extractors makes an extractor's exception reach the test
 
 
 @pytest.mark.parametrize("path", PUBLIC, ids=lambda p: p.name)

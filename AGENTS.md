@@ -149,6 +149,31 @@ The owner's policy (2026-10-05); older statements in other docs are superseded b
   `pyproject.toml` as text (not tried end to end). Cut it only on the owner's explicit word. The next normal release
   (0.5.3) goes on top, never from the hotfix branch. Fixes merged to `main` that are not released are not hotfixes:
   they ship in the next normal release unless the owner asks for a hotfix.
+- **Every release gets its hotfix branch at release creation** (owner, 2026-10-07). Right after the GitHub Release
+  `vX.Y.Z` is published, create and push `hotfix/X.Y.Z` from the release tag
+  (`git branch hotfix/X.Y.Z vX.Y.Z && git push origin hotfix/X.Y.Z`), so a hotfix never has to be cut from a `main`
+  that has moved on. Releases before 0.5.4 have none: create one from the old tag only if a hotfix for that version
+  is asked for. The release routine ends with this step, after the read-only
+  checks of the publish workflows.
+- **Hotfix procedure** (for a fix to released `X.Y.Z`; see #125, #126):
+  1. `hotfix/X.Y.Z` exists, cut from the tag `vX.Y.Z`. The branch is never merged into `main`, never force-pushed and
+     never deleted.
+  2. Merge the fix to `main` first (normal PR). Then open a second PR into `hotfix/X.Y.Z` that carries the same
+     change (`git cherry-pick -x <sha>` on a branch cut from `hotfix/X.Y.Z`). If the code on the hotfix branch
+     differs so that the pick does not apply, say so in the PR.
+  3. Open a version PR into `hotfix/X.Y.Z` that changes only `pyproject.toml` to `X.Y.Z.postN`.
+  4. CI must be green on the exact release commit: `ci.yml` runs on every push to `hotfix/**` (and on PRs into any
+     branch), so look at the push run for the head commit of the hotfix branch after the version PR is merged, not at
+     the PR run.
+  5. Tag `vX.Y.Z.postN` on that commit and publish only on the owner's word. When the hotfix is not the highest
+     version, create the release with `gh release create vX.Y.Z.postN --target hotfix/X.Y.Z --latest=false ...`
+     (or untick "Set as latest release"), so GitHub's "Latest" badge stays on the newest release.
+     `docker-publish.yml` tags the image `latest` only when the version is the highest published release
+     (`scripts/is_highest_release.py`), so a hotfix of an older version never moves `latest` back.
+  - `.postN` and pins (owner choice, 2026-10-06; keep it unless the owner changes it): `pip install py-tbparse==0.5.2`
+    does not install `0.5.2.post1`, since `==0.5.2` matches only that exact version. Users get the hotfix with no
+    pin, with `~=0.5.2`, or with `==0.5.2.post1`. PEP 440 meant `.postN` for non-code changes; the owner chose it
+    anyway. Say this in the hotfix release notes.
 
 ### Release rules
 

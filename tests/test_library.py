@@ -300,6 +300,18 @@ def test_identical_under_other_name(source, library):
     assert any(c.find("calculation").get("formula") == "[Calculation_7777] - 0.2" for c in gap)
 
 
+def test_identical_calc_is_skipped_even_when_it_names_a_field_the_target_lacks(source, library):
+    # self-import of a workbook whose metadata no longer lists [Profit]: the calculations are the
+    # target's own, so they are identical, not "unmapped" (a regression from comparing rewritten formulas late)
+    doc = source.xml_doc
+    for rec in doc.xpath("//metadata-record[local-name='[Profit]']"):
+        rec.getparent().remove(rec)
+    t = TwbParser_from_bytes(etree.tostring(doc))
+    rows = plan_import(t, library)
+    rows = rows[rows["uid"] != ""]
+    assert set(rows["action"]) == {"skip-identical"}
+
+
 def test_unmapped_chain_skipped(library):
     # a target without Profit: everything that uses it fails, and what depends on those is skipped
     doc = TwbParser(str(FIX / "target.twb")).xml_doc
@@ -479,3 +491,13 @@ def test_library_table(library):
     assert gap["depends_on"] == "Profit Ratio"
     assert "Margin Gap" in t[t["caption"] == "Profit Ratio"].iloc[0]["required_by"]
     assert "Profit Ratio" in t[t["name"] == "[Sales]"].iloc[0]["required_by"]
+
+
+def test_dependent_of_a_renamed_calc_is_not_skipped_as_identical(tmp_path):
+    from test_sheetcopy import write
+    from test_sheetcopy_core import datasource, workbook
+    src = TwbParser(write(tmp_path, workbook(), "s.twb"))
+    tgt = TwbParser(write(tmp_path, workbook(ds=datasource(calc_formula="[Sales] * 3")), "t.twb"))
+    plan = plan_import(tgt, export_library(src, datasource="federated.aaa"), on_clash="rename")
+    acts = dict(zip(plan["name"], plan["action"]))
+    assert acts["[Double]"] == "add-renamed" and acts["[Ratio]"] == "add-renamed"

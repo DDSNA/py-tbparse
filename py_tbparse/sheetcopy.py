@@ -159,13 +159,21 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
         if cmp["missing"]:
             refuse(s, "the target datasource lacks: " + ", ".join(cmp["missing"]))
             continue
-        bins = [n for n in cmp["clash"] if n in c.bins]
+        groups = [n for n in cmp["clash"] if n in c.groups]
+        if groups and on_clash == "fail":
+            raise SheetCopyAbort(f"{s!r}: a group or set is already in the target with other members (on_clash='fail'): "
+                                 + ", ".join(groups))
+        bins = [n for n in cmp["clash"] if n in c.bins or n in c.groups]
         if bins:
-            refuse(s, "a bin of the same name differs in the target: " + ", ".join(bins))
+            refuse(s, "a bin, group or set of the same name differs in the target: " + ", ".join(bins))
             continue
         if cmp["clash"] and on_clash == "fail":
             raise SheetCopyAbort(f"{s!r}: already in the target with another definition (on_clash='fail'): "
                                  + ", ".join(cmp["clash"]))
+        if cmp["blocked"] and on_clash == "skip":
+            refuse(s, "keeping the target's version of " + ", ".join(cmp["clash"])
+                      + " would change what these calculations show: " + ", ".join(cmp["blocked"]))
+            continue
         closures[s] = c
 
     # 2. sheet names
@@ -207,6 +215,30 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
         except LibraryError as e:
             raise SheetCopyAbort(str(e)) from e
         rows = plan[plan["uid"] != ""].to_dict("records")
+        failed = {_entry_key(r): r for r in rows if r["action"].startswith("fail")}
+        all_failed[ds] = failed
+        refused_here = False
+        for s in group:
+            hit = [k for k in closures[s].calcs + [("[Parameters]." + p) for p in closures[s].parameters]
+                   if k in failed]
+            if hit:
+                refuse(s, "not importable: " + "; ".join(f"{k} ({failed[k]['reason']})" for k in hit))
+                refused_here = True
+        if refused_here:
+            # nothing has been written yet: plan again for the sheets that stay, so the refused ones leave no calculation behind
+            keep = [s for s in group if results[s]["status"] == "copy"]
+            select = list(dict.fromkeys([n for s in keep for n in closures[s].calcs + closures[s].parameters]
+                                        + list((extra or {}).get(ds, []))))
+            if select:
+                lib = _lib.export_library(src, datasource=ds, select=select, include_parameters=True)
+                try:
+                    plan, actions, T = _lib._plan(tparser, lib, ds, None, on_clash)
+                except LibraryError as e:
+                    raise SheetCopyAbort(str(e)) from e
+                rows = [r for r in plan[plan["uid"] != ""].to_dict("records")]
+            else:
+                actions, rows = [], []
+            rows = list(failed.values()) + [r for r in rows if not r["action"].startswith("fail")]
         plan_rows += [dict(r, datasource=ds) for r in rows]
         pds = _lib._parameters_ds(doc)
         for a in actions:
@@ -216,8 +248,6 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
                 _insert_column(pds, _lib._build_param(a))
             else:
                 _insert_column(doc.xpath("/workbook/datasources/datasource[@name=$n]", n=ds)[0], _lib._build_calc(a))
-        failed = {_entry_key(r): r for r in rows if r["action"].startswith("fail")}
-        all_failed[ds] = failed
         for r in rows:
             if r["action"].startswith("fail") or not r["target_name"]:
                 continue
@@ -226,11 +256,6 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
                 mp[r["name"]] = r["target_name"]
             if r["action"] == "add-renamed" and r.get("target_caption"):
                 caps[(ds, r["kind"] == "parameter", r["target_name"])] = r["target_caption"]
-        for s in group:
-            hit = [k for k in closures[s].calcs + [("[Parameters]." + p) for p in closures[s].parameters]
-                   if k in failed]
-            if hit:
-                refuse(s, "not importable: " + "; ".join(f"{k} ({failed[k]['reason']})" for k in hit))
 
     # 4. copy the sheets
     taken = set(doc.xpath("//simple-id/@uuid"))
@@ -239,6 +264,8 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
     if tws is None:
         tws = etree.Element("worksheets")
         anchor = doc.find("datasources")
+        if anchor is None:
+            raise SheetCopyAbort("target has neither worksheets nor datasources")
         anchor.addnext(tws)
     for s, new in copied.items():
         res = results[s]

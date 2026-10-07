@@ -24,6 +24,7 @@ import pandas as pd
 from lxml import etree
 
 from ._clean import is_missing
+from ._xml import check_package, read_member
 from .parser import TwbParser
 
 STYLES = ("title", "snake", "lower", "keep")
@@ -781,8 +782,9 @@ def _serialize_workbook(parser: TwbParser, doc) -> bytes:
         return twb
     out = io.BytesIO()
     with zipfile.ZipFile(parser.twbx_path) as src, zipfile.ZipFile(out, "w") as dst:
+        check_package(src)
         for info in src.infolist():
-            data = twb if info.filename == parser.twb_name else src.read(info.filename)
+            data = twb if info.filename == parser.twb_name else read_member(src, info)
             dst.writestr(info, data, compress_type=info.compress_type)
     return out.getvalue()
 

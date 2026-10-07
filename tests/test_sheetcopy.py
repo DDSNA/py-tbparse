@@ -102,6 +102,75 @@ def test_calc_clash_fails_by_default_and_renames_on_request(tmp_path, src):
     assert new[1:-1] in etree.tostring(ws).decode()          # the sheet now points at the renamed calculation
 
 
+def test_refused_sheet_leaves_none_of_its_new_calculations_behind(tmp_path, monkeypatch):
+    # No real input reaches the planner's "fail" rows for a sheet that passed the checks before it, so the planner
+    # is made to refuse [Bad] here, as it does for a field it cannot map.
+    from py_tbparse import library as lib_mod
+    extra = ("<column name='[Other]' datatype='real' role='measure'><calculation class='tableau' formula='[Sales] * 7'/></column>"
+             "<column name='[Bad]' datatype='real' role='measure'><calculation class='tableau' formula='[Sales] * 8'/></column>")
+    ds = datasource().replace("<column name='[Size]'", extra + "<column name='[Size]'")
+    sheet2 = (SHEET.replace("Sheet 1", "Sheet 2").replace("[Ratio]", "[Other]").replace(":Ratio:", ":Other:")
+              .replace("11111111-1111", "99999999-9999")
+              .replace("</datasource-dependencies>", "<column-instance column='[Bad]' derivation='Sum' "
+                       "name='[sum:Bad:qk]' pivot='key' type='quantitative'/></datasource-dependencies>", 1)
+              .replace("<rows>", "<rows>[" + DS + "].[sum:Bad:qk] ", 1))
+    s = write(tmp_path, workbook(ds=ds, sheet=SHEET + sheet2), "two.twb")
+    t = write(tmp_path, target_text(ds=datasource(calcs=False)), "tgt.twb")
+    real = lib_mod._plan
+
+    def plan(*a, **kw):
+        table, actions, T = real(*a, **kw)
+        table = table.copy()
+        bad = table["name"] == "[Bad]"
+        table.loc[bad, "action"] = "fail-unmapped"
+        return table, [x for x in actions if x["entry"]["name"] != "[Bad]"], T
+
+    monkeypatch.setattr(lib_mod, "_plan", plan)
+    data, rep = build_sheet_copy(s, t, ["Sheet 1", "Sheet 2"])
+    status = {r["sheet"]: r["status"] for r in rep["sheets"]}
+    assert status == {"Sheet 1": "copy", "Sheet 2": "refused"}
+    cols = out_doc(data).xpath(f"/workbook/datasources/datasource[@name='{DS}']/column/@name")
+    assert "[Double]" in cols and "[Ratio]" in cols
+    assert "[Other]" not in cols and "[Bad]" not in cols
+    assert {a["name"] for a in rep["added"]} == {"[Double]", "[Ratio]"}
+
+def test_group_with_other_members_is_a_clash_under_every_policy(tmp_path):
+    top = SHEET.replace("<rows>", f"<rows>[{DS}].[none:Top:nk]")
+    s = write(tmp_path, workbook(sheet=top), "gsrc.twb")
+    same = write(tmp_path, target_text(ds=datasource()), "gsame.twb")
+    assert plan_sheet_copy(s, same, ["Sheet 1"], on_clash="fail")["copied"] == 1
+    west = datasource().replace("&quot;East&quot;", "&quot;West&quot;")
+    t = write(tmp_path, target_text(ds=west), "gwest.twb")
+    with pytest.raises(SheetCopyAbort, match=r"on_clash='fail'.*\[Top\]"):
+        plan_sheet_copy(s, t, ["Sheet 1"], on_clash="fail")
+    for policy in ("rename", "skip"):
+        rep = plan_sheet_copy(s, t, ["Sheet 1"], on_clash=policy)
+        assert rep["copied"] == 0 and rep["refused"] == 1
+        assert "[Top]" in rep["sheets"][0]["reason"]
+
+def test_dependent_of_a_clashing_calc_is_renamed_too_not_taken_as_identical(tmp_path, src):
+    # the target's [Double] is x3 and its [Ratio] has the source's text; [Ratio] would use the other [Double]
+    clash = write(tmp_path, target_text(ds=datasource(calc_formula="[Sales] * 3")), "dep.twb")
+    with pytest.raises(SheetCopyAbort, match="on_clash='fail'"):
+        plan_sheet_copy(src, clash, ["Sheet 1"])
+    data, rep = build_sheet_copy(src, clash, ["Sheet 1"], on_clash="rename")
+    acts = {r["name"]: r for r in rep["library"]}
+    assert acts["[Double]"]["action"] == "add-renamed" and acts["[Ratio]"]["action"] == "add-renamed"
+    doc = out_doc(data)
+    ws = etree.tostring(doc.xpath("/workbook/worksheets/worksheet[@name='Sheet 1']")[0]).decode()
+    assert acts["[Ratio]"]["target_name"][1:-1] in ws       # the sheet uses the new Ratio, not the target's
+    cols = {c.get("name"): c.find("calculation").get("formula")
+            for c in doc.xpath(f"/workbook/datasources/datasource[@name='{DS}']/column[calculation]")}
+    assert cols[acts["[Ratio]"]["target_name"]].startswith(acts["[Double]"]["target_name"])
+
+
+def test_dependent_of_a_clashing_calc_refuses_the_sheet_under_skip(tmp_path, src):
+    clash = write(tmp_path, target_text(ds=datasource(calc_formula="[Sales] * 3")), "dep.twb")
+    rep = plan_sheet_copy(src, clash, ["Sheet 1"], on_clash="skip")
+    assert rep["copied"] == 0 and rep["refused"] == 1
+    assert "[Ratio]" in rep["sheets"][0]["reason"]
+
+
 def test_parameter_clash_renames_internal_name(tmp_path, src):
     params = PARAMS.replace("value='2'", "value='5'").replace("formula='2'", "formula='5'")
     wb = target_text().replace(PARAMS, params)
@@ -149,6 +218,12 @@ def test_other_connection_blend_and_missing_field_are_refused(tmp_path, src):
     blend = SHEET.replace("</datasources>", "<datasource name='federated.bbb'/></datasources>")
     b = write(tmp_path, workbook(sheet=blend), "b.twb")
     assert "blend" in plan_sheet_copy(b, src, ["Sheet 1"])["sheets"][0]["reason"]
+
+
+def test_target_without_worksheets_and_datasources_aborts_cleanly(tmp_path, src):
+    empty = write(tmp_path, "<?xml version='1.0' encoding='utf-8' ?><workbook version='18.1'/>", "empty.twb")
+    with pytest.raises(SheetCopyAbort, match="neither worksheets nor datasources"):
+        plan_sheet_copy(src, empty, ["Sheet 1"])
 
 
 def test_unknown_sheet_and_no_sheets_abort(src, dst):
