@@ -102,6 +102,21 @@ def test_calc_clash_fails_by_default_and_renames_on_request(tmp_path, src):
     assert new[1:-1] in etree.tostring(ws).decode()          # the sheet now points at the renamed calculation
 
 
+def test_group_with_other_members_is_a_clash_under_every_policy(tmp_path):
+    top = SHEET.replace("<rows>", f"<rows>[{DS}].[none:Top:nk]")
+    s = write(tmp_path, workbook(sheet=top), "gsrc.twb")
+    same = write(tmp_path, target_text(ds=datasource()), "gsame.twb")
+    assert plan_sheet_copy(s, same, ["Sheet 1"], on_clash="fail")["copied"] == 1
+    west = datasource().replace("&quot;East&quot;", "&quot;West&quot;")
+    t = write(tmp_path, target_text(ds=west), "gwest.twb")
+    with pytest.raises(SheetCopyAbort, match=r"on_clash='fail'.*\[Top\]"):
+        plan_sheet_copy(s, t, ["Sheet 1"], on_clash="fail")
+    for policy in ("rename", "skip"):
+        rep = plan_sheet_copy(s, t, ["Sheet 1"], on_clash=policy)
+        assert rep["copied"] == 0 and rep["refused"] == 1
+        assert "[Top]" in rep["sheets"][0]["reason"]
+
+
 def test_parameter_clash_renames_internal_name(tmp_path, src):
     params = PARAMS.replace("value='2'", "value='5'").replace("formula='2'", "formula='5'")
     wb = target_text().replace(PARAMS, params)
