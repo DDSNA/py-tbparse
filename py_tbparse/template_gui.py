@@ -19,6 +19,7 @@ import pandas as pd
 from lxml import etree
 
 from . import templates as _t
+from ._xml import check_package, parse_file
 from .template_check import check_template
 from .templates import DataSource, Template, TemplateError
 
@@ -84,6 +85,8 @@ def excel_sheets(path: str) -> list[str]:
     except ImportError:
         raise TemplateError("reading Excel files needs openpyxl: pip install 'py-tbparse[excel]'") from None
     try:
+        with zipfile.ZipFile(path) as z:
+            check_package(z)
         book = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
     except (zipfile.BadZipFile, KeyError, openpyxl.utils.exceptions.InvalidFileException) as e:
         raise TemplateError(f"{Path(path).name} is not a readable Excel file: {e}") from None
@@ -98,7 +101,7 @@ def tableau_datasources(path: str) -> list[str]:
     can offer a picker instead of parsing `read_data`'s error message."""
     p = Path(path)
     if p.suffix.lower() == ".tds":
-        root = etree.parse(str(p)).getroot()
+        root = parse_file(p).getroot()
         candidates = [root] if root.tag == "datasource" else root.xpath("//datasource[@name]")
     elif p.suffix.lower() in (".twb", ".twbx"):
         from .parser import TwbParser

@@ -159,13 +159,21 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
         if cmp["missing"]:
             refuse(s, "the target datasource lacks: " + ", ".join(cmp["missing"]))
             continue
-        bins = [n for n in cmp["clash"] if n in c.bins]
+        groups = [n for n in cmp["clash"] if n in c.groups]
+        if groups and on_clash == "fail":
+            raise SheetCopyAbort(f"{s!r}: a group or set is already in the target with other members (on_clash='fail'): "
+                                 + ", ".join(groups))
+        bins = [n for n in cmp["clash"] if n in c.bins or n in c.groups]
         if bins:
-            refuse(s, "a bin of the same name differs in the target: " + ", ".join(bins))
+            refuse(s, "a bin, group or set of the same name differs in the target: " + ", ".join(bins))
             continue
         if cmp["clash"] and on_clash == "fail":
             raise SheetCopyAbort(f"{s!r}: already in the target with another definition (on_clash='fail'): "
                                  + ", ".join(cmp["clash"]))
+        if cmp["blocked"] and on_clash == "skip":
+            refuse(s, "keeping the target's version of " + ", ".join(cmp["clash"])
+                      + " would change what these calculations show: " + ", ".join(cmp["blocked"]))
+            continue
         closures[s] = c
 
     # 2. sheet names
@@ -256,6 +264,8 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
     if tws is None:
         tws = etree.Element("worksheets")
         anchor = doc.find("datasources")
+        if anchor is None:
+            raise SheetCopyAbort("target has neither worksheets nor datasources")
         anchor.addnext(tws)
     for s, new in copied.items():
         res = results[s]

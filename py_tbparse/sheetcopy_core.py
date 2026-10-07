@@ -363,7 +363,8 @@ def compare_to_target(src_doc, closure: Closure, dst_doc, target: Optional[str] 
     src_ds, dst_ds = _datasource(src_doc, closure.datasource), _datasource(dst_doc, target)
     dst_fields = _datasource_fields(dst_ds)
     dst_cols = {c.get("name"): c for c in dst_ds.xpath("./column[@name]")}
-    dst_groups = {g.get("name") for g in dst_ds.xpath("./group[@name]")}
+    dst_groups = {g.get("name"): g for g in dst_ds.xpath("./group[@name]")}
+    src_groups = {g.get("name"): g for g in src_ds.xpath("./group[@name]")}
     src_cols = {c.get("name"): c for c in src_ds.xpath("./column[@name]")}
     dst_p = dst_doc.xpath("/workbook/datasources/datasource[@name=$n]/column[@name]", n=_PARAMETERS)
     dst_pcols = {c.get("name"): c for c in dst_p}
@@ -374,7 +375,12 @@ def compare_to_target(src_doc, closure: Closure, dst_doc, target: Optional[str] 
     for n in closure.fields:
         (res["present"] if dst_fields.get(n, {}).get("kind") == "physical" else res["missing"]).append(n)
     for n in closure.groups:
-        (res["identical"] if n in dst_groups else res["missing"]).append(n)
+        if n not in dst_groups:
+            res["missing"].append(n)
+        elif _group_sig(dst_groups[n]) == _group_sig(src_groups[n]):
+            res["identical"].append(n)
+        else:
+            res["clash"].append(n)
     for n in closure.bins:
         dc, sc = dst_cols.get(n), src_cols[n]
         if dc is None:
@@ -413,6 +419,19 @@ def compare_to_target(src_doc, closure: Closure, dst_doc, target: Optional[str] 
 def _calc_sig(col) -> tuple:
     calc = col.find("calculation")
     return (col.get("datatype"), tuple(sorted(calc.attrib.items())) if calc is not None else ())
+
+
+def _filter_sig(gf) -> tuple:
+    kids = [_filter_sig(k) for k in gf.findall("groupfilter")]
+    if gf.get("function") in ("union", "intersection"):
+        kids.sort()
+    return (tuple(sorted(gf.attrib.items())), tuple(kids))
+
+
+def _group_sig(group) -> tuple:
+    """A group or set as its canonical `groupfilter` tree: attributes sorted, the operands of a union or an
+    intersection sorted, so the same members in another order compare equal."""
+    return tuple(_filter_sig(gf) for gf in group.findall("groupfilter"))
 
 
 def _param_sig(col) -> tuple:

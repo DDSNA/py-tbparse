@@ -8,7 +8,8 @@ FROM python:3.12-slim AS build
 WORKDIR /src
 COPY pyproject.toml MANIFEST.in README.md LICENSE ./
 COPY py_tbparse ./py_tbparse
-RUN pip wheel --no-cache-dir --wheel-dir /wheels .
+# The [excel] extra: the Templates view reads .xlsx data with openpyxl, and a server user cannot pip install it.
+RUN pip wheel --no-cache-dir --wheel-dir /wheels ".[excel]"
 
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \

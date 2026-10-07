@@ -29,6 +29,70 @@ _TEXT_EXT = {"csv", "txt", "tsv"}
 _EXCEL_EXT = {"xlsx", "xls"}
 
 
+def xml_parser() -> etree.XMLParser:
+    """The one parser every workbook, template and fragment goes through. Entities are not expanded and nothing
+    is fetched, whatever the installed lxml's default (lxml below 5 resolves a SYSTEM file entity), so an
+    uploaded file cannot pull server files or URLs into the tree. A new parser per call: parsers are not
+    meant to be shared across threads."""
+    return etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=False)
+
+
+def parse_file(path) -> "etree._ElementTree":
+    """`etree.parse(path)` with the shared parser."""
+    return etree.parse(str(path), xml_parser())
+
+
+def parse_bytes(data: "bytes | str") -> "etree._Element":
+    """`etree.fromstring(data)` with the shared parser."""
+    return etree.fromstring(data, xml_parser())
+
+
+# Limits on what a package may unpack to. The upload cap is on the compressed size, and deflate reaches ~1000:1.
+MAX_MEMBER_BYTES = 512 * 1024 * 1024
+MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+MAX_RATIO = 1000
+_RATIO_FLOOR = 8 * 1024 * 1024  # small members are never judged by ratio (tiny XML compresses well)
+
+
+class PackageTooLargeError(ValueError):
+    """A zip package would unpack to more than the limits allow."""
+
+
+_TOO_LARGE = "package is too large when unpacked"
+
+
+def check_package(zf: zipfile.ZipFile) -> None:
+    """Refuse a package whose declared sizes are over the limits (a zip bomb), before anything is read."""
+    total = 0
+    for info in zf.infolist():
+        if info.is_dir():
+            continue
+        total += info.file_size
+        if info.file_size > MAX_MEMBER_BYTES:
+            raise PackageTooLargeError(f"{_TOO_LARGE}: '{info.filename}' is {info.file_size // (1024 * 1024)} MB")
+        if info.file_size > _RATIO_FLOOR and info.file_size > MAX_RATIO * max(info.compress_size, 1):
+            raise PackageTooLargeError(f"{_TOO_LARGE}: '{info.filename}' is compressed more than {MAX_RATIO}:1")
+    if total > MAX_TOTAL_BYTES:
+        raise PackageTooLargeError(f"{_TOO_LARGE}: {total // (1024 * 1024)} MB in all")
+
+
+def read_member(zf: zipfile.ZipFile, name: "str | zipfile.ZipInfo") -> bytes:
+    """`zf.read(name)` with a byte counter, so a header that understates the size cannot get past the cap."""
+    info = zf.getinfo(name) if isinstance(name, str) else name
+    if info.file_size > MAX_MEMBER_BYTES:
+        raise PackageTooLargeError(f"{_TOO_LARGE}: '{info.filename}' is {info.file_size // (1024 * 1024)} MB")
+    out = bytearray()
+    with zf.open(info) as fh:
+        while True:
+            chunk = fh.read(1024 * 1024)
+            if not chunk:
+                break
+            out += chunk
+            if len(out) > MAX_MEMBER_BYTES:
+                raise PackageTooLargeError(f"{_TOO_LARGE}: '{info.filename}' is over {MAX_MEMBER_BYTES // (1024 * 1024)} MB")
+    return bytes(out)
+
+
 def _classify(name: str) -> str:
     """Port of `.twbx_classify`."""
     ext = Path(name).suffix.lower().lstrip(".")
@@ -89,11 +153,12 @@ def read_twb_from_twbx(twbx_path: str) -> dict:
     manifest = twbx_list(twbx_path)
     twb_rel = _largest_twb_member(manifest)
     with zipfile.ZipFile(twbx_path) as zf:
-        data = zf.read(twb_rel)
+        check_package(zf)
+        data = read_member(zf, twb_rel)
 
     return {
         "twb_name": twb_rel,
-        "xml_doc": etree.parse(io.BytesIO(data)),
+        "xml_doc": etree.parse(io.BytesIO(data), xml_parser()),
         "twbx_path": os.path.abspath(twbx_path),
         "manifest": manifest,
     }
@@ -123,6 +188,7 @@ def extract_twb_from_twbx(
 
     os.makedirs(extract_dir, exist_ok=True)
     with zipfile.ZipFile(twbx_path) as zf:
+        check_package(zf)
         if extract_all:
             zf.extractall(extract_dir)
         # extract() sanitizes '..'/absolute segments out of `name` before
@@ -173,6 +239,7 @@ def twbx_extract_files(
     os.makedirs(exdir, exist_ok=True)
 
     with zipfile.ZipFile(twbx_path) as zf:
+        check_package(zf)
         # extract() returns the sanitized destination path -- see the
         # comment in extract_twb_from_twbx() for why os.path.join(exdir, n)
         # would diverge from it for a member name containing '..'.
@@ -200,4 +267,4 @@ def load_workbook_xml(path: str) -> etree._ElementTree:
     if not os.path.exists(twb_path):
         raise FileNotFoundError(f"File not found: {twb_path}")
 
-    return etree.parse(str(twb_path))
+    return parse_file(twb_path)

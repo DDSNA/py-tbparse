@@ -139,3 +139,16 @@ def test_cli_help_mentions_exit_codes(capsys):
     with pytest.raises(SystemExit):
         main(["diff-xml", "--help"])
     assert "no differences" in " ".join(capsys.readouterr().out.split())
+
+
+def test_a_multi_line_formula_is_one_line_per_line():
+    a = "<workbook><f>IF [A] > 1\nTHEN 1\nELSE 0 END</f></workbook>"
+    b = a.replace("THEN 1", "THEN 2")
+    assert canonical_lines(a) == ["<workbook>", "  <f>IF [A] &gt; 1", "  THEN 1", "  ELSE 0 END</f>", "</workbook>"]
+    assert all("\n" not in line for line in canonical_lines(b))
+    assert diff_line_count(a, b) == 2
+    out = normalised_diff(a, b)
+    assert "-  THEN 1\n" in out and "+  THEN 2\n" in out
+    assert all(len(line.splitlines()) == 1 for line in out.splitlines())
+    longer = a.replace("ELSE 0 END", "ELSE 0\nEND")
+    assert diff_line_count(a, longer) == 3    # one line gone, two added
