@@ -23,7 +23,7 @@
     'replace': 'Replace existing', 'fail': 'Clash, stops the import', 'invalid': 'Cannot use',
   };
 
-  let D = null;                      // helpers from app.js: $, el, fetchJSON, fail, setStatus, plural
+  let D = null;                      // helpers from app.js: $, el, fetchJSON, fail, setStatus, plural, labelCells
   let q = fresh();
   let req = 0;
   let planReq = 0;
@@ -413,6 +413,7 @@
     const caret = active === 'styText' ? document.activeElement.selectionStart : null;
     const panel = D.el('div', 'lib');
     panel.append(sectionOne(), sectionTwo());
+    D.labelCells(panel);
     wrap.innerHTML = '';
     wrap.appendChild(panel);
     if (active) {

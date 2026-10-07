@@ -449,6 +449,12 @@ button.stat:hover { border-color: var(--primary); transform: translateY(-2px); b
   .audit-table td { border: 0; padding: 2px 0; }
   .audit-msg { min-width: 0; }
 }
+/* phone-width cards of the audit, libraries, styles and copy tables: each cell shows its column name (labelCells in app.js) */
+@media (max-width: 760px) {
+  .lib-table td[data-label]::before, .audit-table td[data-label]::before {
+    content: attr(data-label) ": "; color: var(--muted); font-size: var(--text-sm); }
+  .lib-table td.lib-name { font-weight: 600; }
+}
 /* end audit view */
 
 /* libraries view */
