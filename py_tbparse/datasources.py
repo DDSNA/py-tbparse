@@ -195,13 +195,17 @@ def _own_connection(ds) -> dict:
     }
 
 
-def _owner(rel, real, by_table):
+def _owner(rel, real, by_table, by_conn=None):
     """The datasource a logical table belongs to: the `<datasource>` the object graph sits in,
-    else the one whose own relations name the table, else the only real datasource."""
+    else the one whose own relations name the table, else the only datasource that declares
+    the relation's named connection (issue #79), else the only real datasource."""
     for anc in rel.xpath("ancestor::datasource"):
         if any(anc is d for d in real):
             return anc
     owner = by_table.get(rel.get("table"))
+    if owner is not None:
+        return owner
+    owner = (by_conn or {}).get(rel.get("connection"))
     if owner is not None:
         return owner
     return real[0] if len(real) == 1 else None
@@ -245,6 +249,17 @@ def extract_datasource_details(xml_doc) -> dict:
         for r in ds.xpath(".//relation[@type='table']"):
             by_table.setdefault(r.get("table"), ds)
 
+    # named connection -> its datasource, only when exactly one real datasource declares it
+    by_conn, clashes = {}, set()
+    for ds in real:
+        for nc in ds.iterfind(".//named-connection"):
+            n = nc.get("name")
+            if n in by_conn and by_conn[n] is not ds:
+                clashes.add(n)
+            by_conn.setdefault(n, ds)
+    for n in clashes:
+        del by_conn[n]
+
     conn_meta = extract_named_connections(xml_doc)
     conns = (
         {r["connection_id"]: r for r in conn_meta.astype(object).where(conn_meta.notna(), None)
@@ -260,7 +275,7 @@ def extract_datasource_details(xml_doc) -> dict:
     entries = []
     seen = set()
     for r in rels:
-        owner = _owner(r, real, by_table)
+        owner = _owner(r, real, by_table, by_conn)
         key = (id(owner), r.get("name"), r.get("table"), r.get("connection"))
         if key not in seen:
             seen.add(key)
