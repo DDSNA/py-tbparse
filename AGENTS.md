@@ -149,6 +149,15 @@ The owner's policy (2026-10-05); older statements in other docs are superseded b
   `pyproject.toml` as text (not tried end to end). Cut it only on the owner's explicit word. The next normal release
   (0.5.3) goes on top, never from the hotfix branch. Fixes merged to `main` that are not released are not hotfixes:
   they ship in the next normal release unless the owner asks for a hotfix.
+- **Every release gets its hotfix branch at release creation** (owner, 2026-10-07). Right after the GitHub Release
+  `vX.Y.Z` is published, create and push `hotfix/X.Y.Z` from the release tag
+  (`git branch hotfix/X.Y.Z vX.Y.Z && git push origin hotfix/X.Y.Z`), so a hotfix never has to be cut from a `main`
+  that has moved on. A fix for a released version is a PR into `hotfix/X.Y.Z` (cherry-pick the fix from `main` when it
+  exists there too); the hotfix release PR then changes only `pyproject.toml` to `X.Y.Z.postN`, is tagged
+  `vX.Y.Z.postN` on the hotfix branch, and is published only on the owner's explicit word. The branch is never
+  merged into `main`, never force-pushed and never deleted. Releases before 0.5.4 have none: create one from the old
+  tag only if a hotfix for that version is asked for. The release routine ends with this step, after the read-only
+  checks of the publish workflows.
 
 ### Release rules
 
