@@ -479,3 +479,13 @@ def test_library_table(library):
     assert gap["depends_on"] == "Profit Ratio"
     assert "Margin Gap" in t[t["caption"] == "Profit Ratio"].iloc[0]["required_by"]
     assert "Profit Ratio" in t[t["name"] == "[Sales]"].iloc[0]["required_by"]
+
+
+def test_dependent_of_a_renamed_calc_is_not_skipped_as_identical(tmp_path):
+    from test_sheetcopy import write
+    from test_sheetcopy_core import datasource, workbook
+    src = TwbParser(write(tmp_path, workbook(), "s.twb"))
+    tgt = TwbParser(write(tmp_path, workbook(ds=datasource(calc_formula="[Sales] * 3")), "t.twb"))
+    plan = plan_import(tgt, export_library(src, datasource="federated.aaa"), on_clash="rename")
+    acts = dict(zip(plan["name"], plan["action"]))
+    assert acts["[Double]"] == "add-renamed" and acts["[Ratio]"] == "add-renamed"

@@ -202,6 +202,17 @@ def test_unknown_and_no_dashboards_abort(src, dst):
         plan_dashboard_copy(src, dst, [])
 
 
+def test_dependent_of_a_clashing_calc_is_renamed_too(tmp_path, src):
+    t = write(tmp_path, target_text(ds=datasource(calc_formula="[Sales] * 3")), "dep.twb")
+    with pytest.raises(SheetCopyAbort):
+        plan_dashboard_copy(src, t, ["Dash"])
+    data, rep = build_dashboard_copy(src, t, ["Dash"], on_clash="rename")
+    acts = {r["name"]: r["action"] for r in rep["library"]}
+    assert acts["[Double]"] == "add-renamed" and acts["[Ratio]"] == "add-renamed"
+    rep = plan_dashboard_copy(src, t, ["Dash"], on_clash="skip")
+    assert rep["copied"] == 0 and rep["refused"] == 1
+
+
 def test_parameter_clash_rename_reaches_the_dashboard(tmp_path, src):
     params = PARAMS.replace("value='2'", "value='5'").replace("formula='2'", "formula='5'")
     t = write(tmp_path, target_text().replace(PARAMS, params), "p.twb")
