@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT))
 
 CORPUS = ROOT / "tests" / "corpus" / "files" / "1230harry__TeamOne_MSc_Group_Project__Brushing_Superstore_Sales_Map.twb"
 NAME = "superstore-sales-map.twb"
-SHOWN_PATH = "~/Documents/Tableau/" + NAME   # what the path box shows instead of the temporary folder
+SHOWN_PATH = "C:\\Users\\you\\Documents\\Tableau\\" + NAME   # what the path box shows instead of the temporary folder
 SIZE = {"width": 1360, "height": 900}
 
 _FREEZE = ("*,*::before,*::after{caret-color:transparent!important;animation:none!important;"
