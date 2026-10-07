@@ -141,6 +141,24 @@ def test_export_unsupported_cross_datasource(tmp_path):
         export_library(TwbParser(str(path)))
 
 
+def test_report_names_what_an_export_of_everything_leaves_out(tmp_path):
+    # the GUI says why the sidebar counts calculations the library list does not show (#144)
+    doc = etree.parse(str(FIX / "source.twb"))
+    ds = doc.xpath("//datasource[@name='federated.src1']")[0]
+    ds.append(etree.fromstring("<column caption='Region (group)' datatype='string' name='[Region (group)]' role='dimension' "
+                               "type='nominal'><calculation class='categorical-bin' column='[Region]' new-bin='true'/></column>"))
+    path = tmp_path / "groups.twb"
+    doc.write(str(path), encoding="utf-8", xml_declaration=True)
+    rep = {}
+    lib = export_library(TwbParser(str(path)), report=rep)
+    assert rep["auto"] == 1 and rep["auto_names"] == ["Number of Records"]
+    assert rep["not_formula"] == 1 and rep["not_formula_names"] == ["Region (group)"]
+    assert "Number of Records" not in [e["caption"] for e in lib["entries"]]
+    picked = {}
+    export_library(TwbParser(str(path)), select=[lib["entries"][0]["name"]], report=picked)
+    assert picked["auto"] == 0 and picked["not_formula"] == 1
+
+
 def test_export_needs_a_datasource_choice(source):
     with pytest.raises(LibraryError, match="no datasource 'nope'"):
         export_library(source, datasource="nope")

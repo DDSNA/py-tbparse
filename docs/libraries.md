@@ -55,7 +55,9 @@ report = {}
 import_library(target, "kpis.library.json", on_clash="skip", report=report)   # returns the new file's path
 ```
 
-`report` gets a count and a `<name>_names` list for `added`, `skipped_identical`, `renamed`, `skipped`, `failed`, `skipped_dependents` and `renamed_internal`.
+`export_library(..., report=report)` fills `exported`, `required`, `unsupported` (calculations that use another datasource), `auto` (columns Tableau made itself, such as the record count, left out of an export of everything) and `not_formula` (groups and bins), each count with a `<name>_names` list except `exported` and `required`.
+
+For `import_library`, `report` gets a count and a `<name>_names` list for `added`, `skipped_identical`, `renamed`, `skipped`, `failed`, `skipped_dependents` and `renamed_internal`.
 
 ## What nobody has checked in Tableau
 
