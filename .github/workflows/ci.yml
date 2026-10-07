@@ -139,3 +139,16 @@ jobs:
         with:
           name: sbom
           path: sbom.cdx.json
+
+  ci-ok:
+    # The one check to require in branch protection. Real PRs get it from here, after the jobs
+    # above; a PR that only changes prose gets it from ci-docs-only.yml, because paths-ignore
+    # above skips this whole workflow for such a PR (a skipped workflow reports nothing).
+    if: always()
+    needs: [test, gui, docker, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Every job succeeded
+        run: |
+          echo "results: ${{ join(needs.*.result, ' ') }}"
+          test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = false

@@ -1,0 +1,41 @@
+name: CI (docs only)
+
+# ci.yml ignores PRs that only change Markdown or README pictures, so such a PR would get no
+# checks and a required `ci-ok` check would stay "expected" forever. This workflow reports a
+# passing `ci-ok` for exactly that case. The paths here are the same list as the paths-ignore
+# in ci.yml. They match when ANY file matches, so the job below checks that ALL files do.
+on:
+  pull_request:
+    paths:
+      - "**/*.md"
+      - "docs/**/*.png"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  files:
+    runs-on: ubuntu-24.04
+    outputs:
+      docs_only: ${{ steps.check.outputs.docs_only }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          others=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename' | grep -v -E '\.md$|^docs/.*\.png$' || true)
+          if [ -z "$others" ]; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "Not docs-only, ci.yml runs the real checks for:"; echo "$others"
+          fi
+
+  ci-ok:
+    # Same job name as in ci.yml. Skipped (counts as passing) when ci.yml runs for real.
+    needs: files
+    if: needs.files.outputs.docs_only == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Only Markdown or README pictures changed, nothing for the tests to see."
