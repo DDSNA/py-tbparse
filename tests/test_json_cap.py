@@ -61,3 +61,9 @@ def test_a_bad_content_length_is_400(addr, route, length):
 def test_a_normal_body_still_works(addr):
     status, data = _post(addr, "/download-workbook", b"{}")
     assert status == 400 and data["error"] == "No workbook loaded"
+
+
+def test_a_bad_content_length_with_a_body_still_gets_the_400(addr):
+    # The server cannot know how long the body is, so it must not close on unread bytes (Windows resets then).
+    status, data = _post(addr, "/download-workbook", b"{" + b" " * 200_000 + b"}", length="abc")
+    assert status == 400 and "Content-Length" in data["error"]

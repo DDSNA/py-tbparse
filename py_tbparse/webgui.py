@@ -18,6 +18,7 @@ import collections.abc
 import secrets
 import shutil
 import signal
+import socket
 import re
 import tempfile
 import threading
@@ -1638,6 +1639,26 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return -1
 
+    def _linger_close(self, limit: int = 1024 * 1024, wait: float = 2.0) -> None:
+        """Close politely after answering a request whose body could not be drained first (a Content-Length that
+        is not a number or is negative, or one too big to read). Closing a socket that still has unread bytes
+        makes Windows send a reset, and the client then fails with a connection abort instead of reading the
+        error. So: flush the answer, half-close our side (the client sees the end of the response), and read
+        what is still arriving, at most `limit` bytes and `wait` seconds, until the client closes."""
+        self.close_connection = True
+        try:
+            self.wfile.flush()
+            self.connection.shutdown(socket.SHUT_WR)
+            self.connection.settimeout(wait)
+            left = limit
+            while left > 0:
+                chunk = self.connection.recv(min(65536, left))
+                if not chunk:
+                    break
+                left -= len(chunk)
+        except OSError:
+            pass
+
     def _drain(self, left: int) -> None:
         """Read and throw away an unread request body (up to MAX_DRAIN_BYTES) before refusing it. Answering
         first and closing with bytes still arriving makes some systems, Windows in particular, reset the
@@ -2276,11 +2297,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _refuse_post(self, status: int, message: str, *, as_json: bool = True) -> None:
         """Refuse a POST before its body is read: drain the body first (see `_drain`), then answer."""
-        self._drain(self._declared_length())
+        length = self._declared_length()
+        self._drain(length)
         if as_json:
             self._send_json({"error": message}, status)
         else:
             self._send(status, message, "text/plain")
+        if length < 0 or length > MAX_DRAIN_BYTES:
+            self._linger_close()
 
     def _do_post(self) -> None:
         if not _host_allowed(self.headers.get("Host"), self.server.server_address):
