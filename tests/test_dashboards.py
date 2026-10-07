@@ -203,9 +203,12 @@ def test_dashboard_summary_describes_each_dashboard():
     assert sales["filters"] == 2
     assert sales["parameters"] == 1
     assert sales["actions"] == 2
+    assert sales["filter_fields"] == "Region; Year"
+    assert sales["parameter_names"] == "Top N"
     empty = df[df["name"] == "Empty"].iloc[0]
     assert (empty["worksheets"], empty["filters"], empty["parameters"], empty["actions"]) == (0, 0, 0, 0)
     assert empty["sheets"] == "" and empty["size"] == "automatic"
+    assert empty["filter_fields"] == "" and empty["parameter_names"] == ""
 
 
 def test_dashboard_summary_without_dashboards_is_empty_with_columns():
@@ -320,3 +323,35 @@ def test_integrity_check_window_is_optional_unless_asked_for():
     assert _checks(no_window) == []
     assert _checks(no_window, require_window=True) == ["window-missing"]
     assert _checks(_GOOD, dashboard="Nope") == []
+
+
+_NAMES_XML = """
+<workbook>
+  <datasources>
+    <datasource name="Parameters"><column name="[Parameter 1]" caption="Top N" param-domain-type="range"/></datasource>
+    <datasource name="federated.abc"><column name="[Calculation_123]" caption="Margin band"/></datasource>
+  </datasources>
+  <dashboards>
+    <dashboard name="D"><zones><zone id="1" type-v2="layout-basic">
+      <zone id="2" type-v2="filter" param="[federated.abc].[none:Category:nk]"/>
+      <zone id="3" type-v2="filter" param="[federated.abc].[yr:Order Date:ok]"/>
+      <zone id="4" type-v2="filter" param="[federated.abc].[none:Category:nk]"/>
+      <zone id="5" type-v2="filter" param="[federated.abc].[attr:Calculation_123:qk]"/>
+      <zone id="6" type-v2="paramctrl" param="[Parameters].[Parameter 1]"/>
+      <zone id="7" type-v2="filter"/>
+    </zone></zones>
+    <devicelayouts><devicelayout name="Phone"><zones>
+      <zone id="2" type-v2="filter" param="[federated.abc].[none:Region:nk]"/>
+    </zones></devicelayout></devicelayouts></dashboard>
+  </dashboards>
+</workbook>
+"""
+
+
+def test_summary_names_the_filter_fields_and_parameters_once_each_in_layout_order():
+    row = dashboard_summary(xml_from_string(_NAMES_XML)).iloc[0]
+    # instance prefixes and suffixes are dropped, captions win, repeats collapse, the Phone layout is ignored,
+    # and a filter zone with no param adds no name
+    assert row["filter_fields"] == "Category; Order Date; Margin band"
+    assert row["parameter_names"] == "Top N"
+    assert row["filters"] == 5 and row["parameters"] == 1
