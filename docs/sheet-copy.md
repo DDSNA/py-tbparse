@@ -33,7 +33,7 @@ A refused sheet is listed with the reason and the others are copied (exit code 2
 | `rename` | the new one gets a free caption (`X (2)`) and, if its internal name is taken, a new internal name; the copied sheet is pointed at it | the copy is named `Name (2)`, the next free number |
 | `skip` | the target's field is kept and the sheets use it (as in `library import`) | the sheet is not copied |
 
-A bin of the same name with another definition is always a refusal of that sheet.
+A bin, group or set of the same name with another definition is a refusal of that sheet under `rename` and `skip` (a group or set cannot be renamed or replaced here); under `fail` the run stops for a group or set. Groups and sets are compared by their `groupfilter` tree: the members and levels, with the operands of a union or intersection in any order.
 
 A calculation that uses a clashing one counts as clashing too, even when its own formula text matches the target's, because it would show other values there. `rename` renames it and points the sheet at it; `skip` refuses the sheet and names the calculations (keeping the target's version would change the numbers).
 

@@ -143,6 +143,29 @@ def test_compare_to_target(tmp_path):
     assert "[Ratio]" in res["blocked"]      # same formula as the target's, but it would use the target's other [Double]
 
 
+def test_compare_groups_by_members_not_by_name(tmp_path):
+    sheet = SHEET.replace("<rows>", f"<rows>[{DS}].[none:Top:nk]")
+    src = load(tmp_path, workbook(sheet=sheet))
+    c = dependency_closure(src, "Sheet 1")
+    assert "[Top]" in compare_to_target(src, c, src)["identical"]
+    west = datasource().replace("&quot;East&quot;", "&quot;West&quot;")
+    res = compare_to_target(src, c, load(tmp_path, workbook(ds=west, sheet="<worksheet name='O'/>"), "w.twb"))
+    assert "[Top]" in res["clash"] and "[Top]" not in res["identical"]
+    # a union lists its operands in any order
+    union = ("<group name='[Top]' caption='Top'><groupfilter function='union'>"
+             "<groupfilter function='member' level='[Region]' member='&quot;{a}&quot;'/>"
+             "<groupfilter function='member' level='[Region]' member='&quot;{b}&quot;'/></groupfilter></group>")
+    old = datasource().split("<group name='[Top]'")[1].split("</group>")[0]
+    def with_union(a, b):
+        return datasource().replace("<group name='[Top]'" + old + "</group>", union.format(a=a, b=b))
+    u = load(tmp_path, workbook(ds=with_union("East", "West"), sheet=sheet), "u.twb")
+    cu = dependency_closure(u, "Sheet 1")
+    same = load(tmp_path, workbook(ds=with_union("West", "East"), sheet="<worksheet name='O'/>"), "u2.twb")
+    assert "[Top]" in compare_to_target(u, cu, same)["identical"]
+    other = load(tmp_path, workbook(ds=with_union("West", "North"), sheet="<worksheet name='O'/>"), "u3.twb")
+    assert "[Top]" in compare_to_target(u, cu, other)["clash"]
+
+
 def test_compare_missing_field(tmp_path):
     src = load(tmp_path, workbook())
     c = dependency_closure(src, "Sheet 1")
