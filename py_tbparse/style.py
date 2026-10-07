@@ -25,6 +25,7 @@ import pandas as pd
 from lxml import etree
 
 from . import templates as _templates
+from ._xml import parse_bytes, parse_file
 from .parser import TwbParser
 from .rename import _serialize_workbook
 
@@ -104,7 +105,7 @@ def _from_element(el) -> dict:
 
 def _parse_tps(path):
     try:
-        tree = etree.parse(str(path), etree.XMLParser(resolve_entities=False, no_network=True))
+        tree = parse_file(path)
     except etree.XMLSyntaxError as e:
         raise StyleError(f"{path} is not XML: {e}") from e
     if tree.getroot().tag != "workbook":
@@ -174,7 +175,7 @@ def palettes_from_bytes(data: bytes, filename: str) -> list[dict]:
         raw = _check_style(style)["palettes"]
     elif lower.endswith(".tps"):
         try:
-            root = etree.fromstring(data, etree.XMLParser(resolve_entities=False, no_network=True))
+            root = parse_bytes(data)
         except etree.XMLSyntaxError as e:
             raise StyleError(f"{label} is not XML: {e}") from e
         if root.tag != "workbook":
