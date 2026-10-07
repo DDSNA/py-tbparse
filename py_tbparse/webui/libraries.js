@@ -19,7 +19,7 @@
     'fail-unmapped': 'Cannot add', 'fail-dependency': 'Cannot add', 'mapped': 'Found', 'unmapped': 'Missing',
   };
 
-  let D = null;                      // helpers from app.js: $, el, fetchJSON, fail, setStatus, plural
+  let D = null;                      // helpers from app.js: $, el, fetchJSON, fail, setStatus, plural, labelCells
   let q = fresh();
   let req = 0;
   let planReq = 0;
@@ -433,6 +433,7 @@
     const caret = active === 'libText' ? document.activeElement.selectionStart : null;
     const panel = D.el('div', 'lib');
     panel.append(sectionOne(), sectionTwo());
+    D.labelCells(panel);
     wrap.innerHTML = '';
     wrap.appendChild(panel);
     if (active) {

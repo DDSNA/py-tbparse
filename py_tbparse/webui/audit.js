@@ -15,7 +15,7 @@
     3: 'Exit code 3: a rule crashed. That is a bug in py-tbparse, not a finding about the workbook.',
   };
 
-  let D = null;                      // helpers from app.js: $, el, fetchJSON, fail, setStatus, plural
+  let D = null;                      // helpers from app.js: $, el, fetchJSON, fail, setStatus, plural, labelCells
   let q = fresh();                   // what the person chose
   let req = 0;
   let timer = null;
@@ -216,6 +216,7 @@
     const caret = focusId === 'auditText' ? $text().selectionStart : null;
     const panel = D.el('div', 'audit');
     panel.append(summaryBlock(data), filterBar(data), skipBlock(data), table(data), pager(data), downloads());
+    D.labelCells(panel);
     wrap.innerHTML = '';
     wrap.appendChild(panel);
     if (focusId) {

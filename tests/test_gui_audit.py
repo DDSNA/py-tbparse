@@ -153,5 +153,7 @@ def test_the_url_hash_opens_the_audit_and_a_phone_gets_a_readable_list(page, boo
     page.set_viewport_size({"width": 390, "height": 800})
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     assert page.evaluate("() => getComputedStyle(document.querySelector('#auditTable tr')).display") == "block"
+    labels = page.evaluate("() => Array.from(document.querySelector('#auditTable tbody tr').cells, (td) => getComputedStyle(td, '::before').content)")
+    assert labels == ['"Rule: "', '"Severity: "', '"Message: "', '"Object: "']   # #142
     assert page.locator("#tableSel").is_visible()
     assert page.evaluate("document.getElementById('tableSel').value") == "audit"
