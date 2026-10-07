@@ -19,14 +19,10 @@ from typing import Union
 
 from lxml import etree
 
-from ._xml import read_twb_from_twbx
+from ._xml import parse_bytes, parse_file, read_twb_from_twbx
 
 _INDENT = "  "
 _XML_NS = "http://www.w3.org/XML/1998/namespace"
-
-
-def _parser() -> etree.XMLParser:
-    return etree.XMLParser(resolve_entities=False, no_network=True)
 
 
 def _load(src) -> etree._Element:
@@ -36,15 +32,15 @@ def _load(src) -> etree._Element:
     if isinstance(src, etree._Element):
         return src
     if isinstance(src, bytes):
-        return etree.fromstring(src, _parser())
+        return parse_bytes(src)
     if isinstance(src, str) and src.lstrip().startswith("<"):
-        return etree.fromstring(src.encode("utf-8"), _parser())
+        return parse_bytes(src.encode("utf-8"))
     path = Path(src)
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
     if path.suffix.lower() == ".twbx":
         return read_twb_from_twbx(str(path))["xml_doc"].getroot()
-    return etree.parse(str(path), _parser()).getroot()
+    return parse_file(path).getroot()
 
 
 def _is_path(src) -> bool:

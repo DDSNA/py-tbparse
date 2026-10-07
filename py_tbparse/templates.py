@@ -37,7 +37,7 @@ import pandas as pd
 from lxml import etree
 
 from ._clean import is_missing
-from ._xml import check_package, read_member
+from ._xml import check_package, parse_file, read_member
 from .parser import TwbParser
 from .rename import _match_key, _words
 from .usage import field_usage
@@ -720,7 +720,7 @@ def read_data(path: str, datasource: Optional[str] = None, sheet: Union[str, int
         doc = TwbParser(str(p)).xml_doc
         candidates = _non_parameter_datasources(doc)
     elif suffix == ".tds":
-        root = etree.parse(str(p)).getroot()
+        root = parse_file(p).getroot()
         candidates = [root] if root.tag == "datasource" else root.xpath("//datasource[@name]")
     else:
         raise TemplateError(f"unsupported data file {p.name}: use a .csv, .xlsx, .json (a target file), .twb, .twbx or .tds")
