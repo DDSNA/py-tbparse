@@ -117,7 +117,12 @@ the browser GUI tests in real Chromium (`gui` job), and builds+checks the
 distribution on every push/PR. `build` depends on both `test` and `gui`
 — don't drop `gui` from `build`'s `needs`, or a broken-page build can
 succeed and publish an artifact while the one job that would have caught
-it fails off to the side. Release
+it fails off to the side. `ci.yml` skips PRs that
+only change `*.md` or `docs/**/*.png` (`paths-ignore`), so such a PR gets
+no test jobs. For branch protection, require the single check `ci-ok`
+(not `test`/`gui`): `ci.yml` reports it after the real jobs, and
+`ci-docs-only.yml` reports it for a docs-only PR. Keep the two path lists
+in sync. Release
 (`.github/workflows/release.yml`) publishes to PyPI via trusted
 publishing (OIDC, no stored token) when a GitHub Release is published —
 this needs to be configured once on the PyPI project's "Trusted
