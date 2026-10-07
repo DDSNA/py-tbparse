@@ -164,7 +164,7 @@ def _scrub_connections(doc, run: _Run) -> None:
                 continue   # a relative folder names no machine
             if value == new or not value:
                 continue
-            if category != "custom_sql":
+            if category != "custom_sql" and attr != "port":   # a port is a number: every `5432` would be flagged
                 run.secrets.add(value)
             if category in ("databases", "schemas"):
                 run.qualifiers[value] = "database" if category == "databases" else "schema"
