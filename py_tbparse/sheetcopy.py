@@ -243,6 +243,8 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
     if tws is None:
         tws = etree.Element("worksheets")
         anchor = doc.find("datasources")
+        if anchor is None:
+            raise SheetCopyAbort("target has neither worksheets nor datasources")
         anchor.addnext(tws)
     for s, new in copied.items():
         res = results[s]
