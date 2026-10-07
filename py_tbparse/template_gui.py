@@ -19,6 +19,7 @@ import pandas as pd
 from lxml import etree
 
 from . import templates as _t
+from ._xml import check_package
 from .template_check import check_template
 from .templates import DataSource, Template, TemplateError
 
@@ -84,6 +85,8 @@ def excel_sheets(path: str) -> list[str]:
     except ImportError:
         raise TemplateError("reading Excel files needs openpyxl: pip install 'py-tbparse[excel]'") from None
     try:
+        with zipfile.ZipFile(path) as z:
+            check_package(z)
         book = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
     except (zipfile.BadZipFile, KeyError, openpyxl.utils.exceptions.InvalidFileException) as e:
         raise TemplateError(f"{Path(path).name} is not a readable Excel file: {e}") from None
