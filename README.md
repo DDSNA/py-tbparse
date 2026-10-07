@@ -7,761 +7,360 @@
 
 py-tbparse reads Tableau workbooks (`.twb` and `.twbx`) without Tableau. It shows what is inside a workbook, checks it for problems, and makes new copies of it: with cleaner field names, without private details, with only some dashboards, with sheets or calculations from another workbook, or filled with new data from a template. Your original file is never changed.
 
-You can use it in a page in your web browser (no programming), from the command line, or from Python. Tableau and R are not needed. It began as a port of PrigasG's R package [twbparser](https://github.com/PrigasG/twbparser).
+You can use it in a page in your web browser (no programming; see the [user's guide](#users-guide)), from the command line, or from Python. Tableau and R are not needed. It began as a port of PrigasG's R package [twbparser](https://github.com/PrigasG/twbparser).
 
 ![The overview report card for a small demo workbook](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/gui-overview.png)
 
 ## Contents
 
-- [User's guide](#users-guide), for people who work with Tableau but do not program
-  - [Before you start](#before-you-start): words used here, install, first run, a tour of the screens
-  - [I want to...](#i-want-to)
-    - [see what is in a workbook](#see-what-is-in-a-workbook)
-    - [rename fields safely](#rename-fields-safely)
-    - [check a workbook for problems](#check-a-workbook-for-problems)
-    - [share a workbook without private data](#share-a-workbook-without-private-data)
-    - [keep only some dashboards](#keep-only-some-dashboards)
-    - [copy sheets or dashboards between workbooks](#copy-sheets-or-dashboards-between-workbooks)
-    - [reuse calculated fields](#reuse-calculated-fields)
-    - [reuse colour palettes](#reuse-colour-palettes)
-    - [clean out unused things](#clean-out-unused-things)
-    - [apply a template](#apply-a-template)
-  - [Staying safe and private](#staying-safe-and-private)
-  - [Not yet verified in Tableau Desktop](#not-yet-verified-in-tableau-desktop)
-  - [Troubleshooting](#troubleshooting)
-  - [Glossary](#glossary)
-- [For developers and power users](#for-developers-and-power-users): everything it does, Python, the command line, all the guides, development
+- [User's guide](#users-guide): the app in your web browser, for people who work with Tableau but do not program
+  - [Get started](#get-started): install, start the app, open a workbook, find your way around
+  - [The screens](#the-screens): Overview, the tables, Dashboards, the graph, Field renames, Audit, Libraries, Styles, Slice and copy, Templates, Theme
+  - [Good to know](#good-to-know): your files and privacy, what has not been checked in Tableau, when something goes wrong, words used here
+- [For developers and power users](#for-developers-and-power-users): Python, the command line, all the guides, development
 - [Limits](#limits)
 - [Contributing](#contributing), [Credit](#credit), [License](#license)
 
 ## User's guide
 
-This guide is for people who build or look after Tableau workbooks and do not write code. It starts with the app in your web browser. Each task also shows the same thing as commands you can copy and paste, for people who want them.
+This guide is about the app that runs in your web browser. You click; you do not type code. Your workbook is never changed: everything you make is a new file that your browser downloads.
 
-Click a line that starts with a small triangle to open it. Every section opens on its own, so you can jump straight to the task you need.
+Click a line with a small triangle to open it. Each part stands on its own, so jump to the screen you need.
 
-**The example in this guide.** All the pictures and commands use one public workbook: `Brushing_Superstore_Sales_Map.twb` from [github.com/1230harry/TeamOne_MSc_Group_Project](https://github.com/1230harry/TeamOne_MSc_Group_Project) (MIT licence), built on Tableau's "Sample - Superstore" data. It has one dashboard, four worksheets, three tables (Orders, People, Returns), seven calculated fields and four parameters. We first ran it through py-tbparse's own [share-safe copy](#share-a-workbook-without-private-data) to take out a local file path, and saved the result as `superstore-sales-map.twb`. The pictures were taken with version 0.5.4.
+**The example.** Every picture uses one public workbook, `Brushing_Superstore_Sales_Map.twb` from [github.com/1230harry/TeamOne_MSc_Group_Project](https://github.com/1230harry/TeamOne_MSc_Group_Project) (MIT licence), built on Tableau's "Sample - Superstore" data, saved here as `superstore-sales-map.twb`. It has one dashboard, four worksheets, three tables (Orders, People and Returns), seven calculated fields and four parameters. The pictures were taken with version 0.5.4.
 
-### Before you start
-
-<details>
-<summary><b>Words used here</b>: workbook, .twb, .twbx, datasource, field, calculated field, parameter, worksheet, dashboard</summary>
-
-- **Workbook**: the file you save from Tableau Desktop. It holds your sheets, dashboards, calculations and the description of where the data is.
-- **`.twb`**: a workbook on its own. It does not contain the data, only where to find it.
-- **`.twbx`**: a *packaged* workbook. It is a `.twb` plus, often, the data files, extracts and images, zipped into one file.
-- **Datasource**: a connection in the workbook to some data: an Excel file, a CSV file, a database table, or a published Tableau data source. One workbook can have several.
-- **Field**: one column of a datasource, such as `Sales` or `Region`. In Tableau you see fields in the Data pane.
-- **Calculated field** (or *calculation*): a field you made with a formula, such as `SUM([Profit])/SUM([Sales])`.
-- **Parameter**: a value the person viewing the workbook can change, such as "Top N = 10".
-- **Worksheet** (or *sheet*): one chart or table.
-- **Dashboard**: a page that shows several worksheets together, often with filters.
-- **Extract**: a copy of the data that Tableau keeps in a `.hyper` (or older `.tde`) file.
-
-More words (dry run, template, library, palette and so on) are in the [Glossary](#glossary) at the end.
-
-</details>
+### Get started
 
 <details>
 <summary><b>Install it</b> (once, about five minutes)</summary>
 
-py-tbparse is a free Python program. You install Python once, then py-tbparse.
-
-1. **Install Python** (version 3.9 or newer) from [python.org/downloads](https://www.python.org/downloads/). On Windows, tick **Add python.exe to PATH** on the first screen of the installer.
-2. **Open a terminal.** This is a window where you type commands.
-   - Windows: press the Start button, type `cmd` and open **Command Prompt** (or open **Terminal**).
-   - macOS: open **Terminal** (in Applications, Utilities).
-3. **Install py-tbparse.** Copy this line into the terminal and press Enter:
+1. Install **Python** (3.9 or newer) from [python.org/downloads](https://www.python.org/downloads/). On Windows, tick **Add python.exe to PATH** on the first screen of the installer.
+2. Open a terminal: on Windows press Start, type `cmd` and open **Command Prompt**; on a Mac open **Terminal** (Applications, Utilities).
+3. Copy this line into it and press Enter:
 
    ```bash
-   python -m pip install py-tbparse
+   python -m pip install "py-tbparse[excel]"
    ```
 
-   On Windows, if `python` is not found, use `py -m pip install py-tbparse`. On macOS, if it is not found, use `python3 -m pip install py-tbparse`.
-4. For Excel files as new data for a template, also install the Excel add-on: `python -m pip install "py-tbparse[excel]"`.
+   On Windows, if `python` is not found, type `py` in its place; on a Mac, `python3`. Run the same line again later to update.
 
-To update later: `python -m pip install --upgrade py-tbparse`. To see which version you have: `python -m pip show py-tbparse`.
-
-This installs two commands: `py-tbparse-gui` (the app in your browser) and `py-tbparse` (the command line). Nothing else is installed on your computer, and there is no account to create.
+There is no account to create, and nothing is sent anywhere.
 
 </details>
 
 <details>
-<summary><b>First run</b>: start the app and open a workbook</summary>
+<summary><b>Start the app and open a workbook</b></summary>
 
-1. In the terminal, type `py-tbparse-gui` and press Enter. The terminal says `py-tbparse GUI running at http://127.0.0.1:...` and your web browser opens a new tab with the app.
-2. Leave the terminal window open while you work. To stop the app, go back to the terminal and press **Ctrl+C**, or close the window.
-3. Open a workbook in one of three ways:
-   - drag a `.twb` or `.twbx` file from your folder onto the page;
-   - press **Open file...** and choose it;
-   - paste the full path of the file into the box at the top and press **Load**. Paste the path without quotation marks (Windows' **Copy as path** adds them; delete them).
+1. In the terminal, type this and press Enter:
 
-![The start screen: a box for the path, Load, Open file..., Templates and Theme, and the text "Let's open a workbook"](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-start.png)
+   ```bash
+   py-tbparse-gui
+   ```
 
-You can also open a workbook straight away: `py-tbparse-gui "C:\Users\you\Documents\Tableau\superstore-sales-map.twb"`.
+   Your web browser opens a new tab with the app. Leave the terminal window open while you work; closing it stops the app.
+2. Open a workbook (`.twb` or `.twbx`) in one of three ways:
+   - drag the file from your folder onto the page;
+   - press **Open file...** and pick it;
+   - paste the file's full path into the long box at the top and press **Load** (remove the quotation marks Windows adds with **Copy as path**).
 
-**Opened by path or dropped on the page?** It matters in one place. When you open a workbook by its path, the Field renames screen can save the renamed copy in the same folder as the original. When you drop or choose a file, the app works on a private temporary copy, so it offers a download instead. Every other screen gives you a download either way; the file goes to your browser's usual downloads folder.
+![The start screen: the path box, Load, Open file..., Templates and Theme along the top, and "Let's open a workbook" in the middle](docs/guide-start.png)
 
-The start screen also lists the workbooks you opened by path recently. Your browser keeps that list on this computer.
+**Dropped, or opened by path?** It matters in one place. Open a workbook by its path and the Field renames screen can save the renamed copy in the same folder as the original. Drop or pick a file and the app works on a private temporary copy, so it offers a download instead. Every other screen always gives you a download, which goes to your browser's usual downloads folder.
 
-</details>
-
-<details>
-<summary><b>A tour of the screens</b></summary>
-
-After a workbook is open, the list on the left has every screen. The number beside a name is how many rows that table has. The **Workbook** group holds the tools (Overview, Audit, Libraries, Styles, Slice and copy); **Data**, **Data model**, **Dashboards** and **SQL** hold tables you can read and export. **Templates** and **Theme** are buttons at the top.
-
-<details>
-<summary>Overview</summary>
-
-The first screen. One sentence about the workbook, a tile for each count, a **Worth a look** list, and what is on each dashboard. Each item in Worth a look has a **Show** button that opens the table with exactly those rows. Click a tile to open its table.
-
-![Overview of superstore-sales-map.twb: 3 datasources, 4 parameters, 2 relationships, 7 calculated fields, 48 raw fields, 1 dashboard; Worth a look lists 4 calculations no worksheet uses and 20 fields no worksheet uses](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-overview.png)
+The start screen also lists the workbooks you opened by path recently, so you can open them again with one click.
 
 </details>
 
 <details>
-<summary>Tables: Fields, Calculated fields, Parameters, Datasources and the rest</summary>
+<summary><b>Find your way around</b></summary>
 
-Every table works the same way. Click a column name to sort. Type in **Filter rows** to narrow the rows (press `/` to jump there). Click a row to see every column of it in full. The `...` beside a column name sorts, filters, pins, hides or widens that column. **Columns** brings back hidden columns, **Compact rows** fits more on the screen, and **Export CSV** saves the table for Excel.
+- **The top bar** has the path box, **Load**, **Open file...**, **Templates** (make or fill a template, see below) and **Theme** (colours and dark mode).
+- **The list on the left** has every screen. The **Workbook** group holds the tools: Overview, Audit, Libraries, Styles, Slice and copy. The **Data**, **Data model**, **Dashboards** and **SQL** groups hold tables you can read and save. The number beside a name is how many rows that table has.
+- **Every table works the same way.** Click a column name to sort. Type in **Filter rows** to narrow the rows. Click a row to open a panel on the right with every detail of it, in full; **Close** shuts it. The `...` beside a column name sorts, filters, pins, hides or widens that column. **Columns** brings back hidden columns, **Compact rows** fits more rows on the screen, and **Export CSV** saves the table as a file Excel opens.
 
-Useful tables: **Fields** (every column of every datasource), **Calculated fields** (with their formulas), **Field usage** (which sheets, dashboards and calculations use each field), **Missing references** (calculations that name a field the workbook does not have), **Datasources**, **Parameters**, **Relationships**, **Dashboards** and **Dashboard sheets**.
+![The Calculated fields table with the row Profit Ratio clicked: the panel on the right shows its name, type, formula SUM([Profit])/SUM([Sales]) and datasource](docs/guide-tables.png)
 
-![The Fields table: 48 rows with caption, datatype, role and table columns](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-fields.png)
+</details>
+
+### The screens
+
+<details>
+<summary><b>Overview</b>: what is in the workbook, at a glance</summary>
+
+The first screen after you open a workbook. One sentence about it, a tile for each count, a **Worth a look** list and what is on each dashboard.
+
+- Click a tile to open its table.
+- Each line in **Worth a look** has a **Show** button that opens the table with exactly those rows, for example the calculations no worksheet uses.
+
+For the example: "superstore-sales-map.twb has 1 dashboard, 4 worksheets and 3 datasources", tiles for 4 parameters, 2 relationships and 7 calculated fields, and two lines worth a look: 4 calculations and 20 fields that no worksheet uses.
+
+![Overview: the sentence about the workbook, tiles for 3 datasources, 4 parameters, 2 relationships, 7 calculated fields, 48 raw fields and 1 dashboard, and the Worth a look list](docs/guide-overview.png)
 
 </details>
 
 <details>
-<summary>Dashboards</summary>
+<summary><b>The tables</b>: fields, calculations, parameters, datasources and more</summary>
 
-One row per dashboard: how many worksheets it shows and which, its size, and how many filters, parameter controls and actions it has.
+Click a name in the list on the left. The ones most people use:
 
-![The Dashboards table: Dashboard 1 shows 4 worksheets (Sheet 1 to Sheet 4), size automatic, 2 filters](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-dashboards.png)
+- **Calculated fields**: every calculation with its formula (the picture in [Find your way around](#get-started)).
+- **Fields**: every column of every datasource, with its type.
+- **Field usage**: which worksheets, dashboards and calculations use each field. Handy before you delete or rename one.
+- **Missing references**: calculations that name a field the workbook does not have. In Tableau these show as broken.
+- **Parameters**, **Datasources**, **Relationships**, **Dashboard sheets**, **Custom SQL**.
 
-</details>
-
-<details>
-<summary>Relationship graph</summary>
-
-The tables of the data model and how they connect, as a picture. Drag to move it, scroll or use **+** and **-** to zoom, and point at a table to see its connections and their keys. **View as list** shows the same as a table; **Save as SVG** saves the picture.
-
-![The relationship graph: Orders connects to People on Region = Region (People) and to Returns on Order ID = Order ID (Returns)](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-graph.png)
+The app shows what the workbook *describes*, not your data itself, and it does not draw your charts.
 
 </details>
 
 <details>
-<summary>Field renames, Audit, Libraries, Styles, Slice and copy, Templates</summary>
+<summary><b>Dashboards</b>: what each dashboard holds</summary>
 
-These are the tools. Each one has its own task below, with a picture:
+One row per dashboard: how many worksheets it shows and which, its size, and how many filters, parameter controls and actions it has. For the example, Dashboard 1 shows Sheet 1 to Sheet 4, has an automatic size and 2 filters.
 
-- Field renames: [rename fields safely](#rename-fields-safely)
-- Audit: [check a workbook for problems](#check-a-workbook-for-problems)
-- Slice and copy: [keep only some dashboards](#keep-only-some-dashboards) and [copy sheets between workbooks](#copy-sheets-or-dashboards-between-workbooks)
-- Libraries: [reuse calculated fields](#reuse-calculated-fields)
-- Styles: [reuse colour palettes](#reuse-colour-palettes)
-- Templates: [apply a template](#apply-a-template)
+![The Dashboards table: Dashboard 1, 4 worksheets, Sheet 1; Sheet 2; Sheet 3; Sheet 4, size automatic, 2 filters, 0 parameters](docs/guide-dashboards.png)
 
 </details>
 
 <details>
-<summary>Theme and dark mode</summary>
+<summary><b>Relationship graph</b>: how the tables connect</summary>
 
-**Theme** at the top right changes the colours (34 themes) and switches between Light, Dark and **Auto (follow my system)**.
+Open **Relationship graph** (in the Data model group). The tables are boxes and the connections are lines, labelled with the fields they match on.
 
-![The Calculated fields table in dark mode, with the formula of each calculation](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-dark.png)
+- Drag to move the picture; scroll, or press **+** and **-**, to zoom; **Fit** brings it all back on screen.
+- Point at a table to highlight its connections. Click a line to see its fields.
+- **View as list** shows the same connections as a table. **Save as SVG** saves the picture.
 
-</details>
+For the example: Orders connects to People on Region and to Returns on Order ID.
+
+![The relationship graph: Orders linked to People by Region = Region (People) and to Returns by Order ID = Order ID (Returns)](docs/guide-graph.png)
 
 </details>
 
 <details>
-<summary><b>Using the commands</b> (optional): how to run the copy-paste lines in this guide</summary>
+<summary><b>Field renames</b>: tidy field names in a new copy</summary>
 
-Every task below has a "Same thing with commands" part. You type these into the terminal from [Install it](#before-you-start).
+It suggests tidy names (`SalesLOD` becomes `Sales LOD`) and makes a copy of the workbook with them. Only the name people see in Tableau changes, so sheets and formulas keep working.
 
-- Go to the folder that holds your workbook first, so you can use its plain file name: `cd "C:\Users\you\Documents\Tableau"` (Windows) or `cd ~/Documents/Tableau` (macOS). Or type the full path of the file each time.
-- Put a name in double quotes when it has spaces: `--dashboards "Dashboard 1"`.
-- A command that would change something first shows a plan and writes nothing. You add `--write` when the plan looks right. The task says when a command works differently.
-- `py-tbparse --help` lists the basic options; `py-tbparse audit --help` (and so on for each command) explains one command.
-
-</details>
-
-### I want to...
-
-#### See what is in a workbook
-
-It lists everything in a workbook: datasources, fields, calculations with their formulas, parameters, relationships, dashboards and which sheets use which field. It only reads the file.
-
-<details>
-<summary>Steps, what you will see, and the commands</summary>
-
-**In the app**
-
-1. Start the app and open the workbook ([First run](#before-you-start)).
-2. Read the **Overview**: the counts, the **Worth a look** list and the dashboards.
-3. Click a table on the left, for example **Calculated fields** to see every formula, or **Field usage** to see where a field is used.
-4. To keep a table, press **Export CSV** and open the file in Excel.
-5. For a full written description of the workbook, open **Audit** and press **Data dictionary (Markdown)**. You get a text page with every datasource, field, formula, parameter, worksheet and dashboard.
-
-**What you will see.** For the example: "superstore-sales-map.twb has 1 dashboard, 4 worksheets and 3 datasources", with tiles for 4 parameters, 2 relationships and 7 calculated fields. See the [Overview picture](#before-you-start) in the tour.
-
-**What it will not do.** It does not show your data (only its description), does not draw your charts, and does not change the workbook.
-
-<details>
-<summary>Same thing with commands</summary>
-
-```bash
-py-tbparse superstore-sales-map.twb                       # the counts
-py-tbparse superstore-sales-map.twb tables                # the names of all tables
-py-tbparse superstore-sales-map.twb calculated-fields     # every calculation and its formula
-py-tbparse superstore-sales-map.twb fields --format csv -o fields.csv    # a table as a CSV file
-py-tbparse docs superstore-sales-map.twb -o superstore-sales-map.md      # the data dictionary page
-```
-
-Other tables: `datasources`, `parameters`, `field-usage`, `missing-references`, `relationships`, `dashboards`, `dashboard-sheets`, `custom-sql`. The data dictionary is explained in [docs/audit.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/audit.md#data-dictionary).
-
-</details>
-
-**Good to know.** The data dictionary prints formulas and captions as the workbook has them. If someone typed a password or a folder into a formula, it will be on the page, so read it before you share it.
-
-</details>
-
-#### Rename fields safely
-
-It suggests tidy names (`SalesLOD` becomes `Sales LOD`) and writes a new copy of the workbook with them. Your sheets and formulas keep working, because only the name people see (the caption) changes.
-
-<details>
-<summary>Steps, what you will see, and the commands</summary>
-
-**In the app**
-
-1. Open the workbook and click **Field renames** (in the Data group).
-2. Pick a style (**Title Case** is the default), a datasource or **(all datasources)**, and **Fields only** or everything in the workbook (sheets, dashboards, datasources, parameters, folders too).
-3. Optional: type the path of an older workbook in **Reference workbook path**. Fields that match take that workbook's spelling. This helps after switching a workbook to a new datasource.
+1. Click **Field renames** (in the Data group).
+2. Pick a style (**Title Case** to start with), a datasource or **(all datasources)**, and **Fields only** or everything (sheets, dashboards and the rest too).
+3. Optional: in **Reference workbook path**, type the path of an older workbook. Fields that match take that workbook's spelling. This helps after you moved a workbook to a new datasource.
 4. Untick any rename you do not want. **Select all** and **Select none** act on the whole list.
-5. Press **Create with N of N renames** (saves `<name>_renamed.twb` next to the original; only when you opened the workbook by its path) or **Download fixed workbook**.
+5. Press **Create with 3 of 3 renames** (the numbers follow your ticks) to save `superstore-sales-map_renamed.twb` beside the original, or **Download fixed workbook** to download it. Create only appears when you opened the workbook by its path. If the renamed file is already there, the app says so and does not replace it.
 
-**What you will see.** For the example, three suggestions: `Sub-Category` to `Sub Category`, `SalesLOD` to `Sales LOD`, `SalesLOD%` to `Sales LOD%`.
+For the example there are three suggestions: `Sub-Category` to `Sub Category`, `SalesLOD` to `Sales LOD` and `SalesLOD%` to `Sales LOD%`.
 
-![Field renames: Title Case, all datasources, Fields only; three ticked suggestions and the button Create with 3 of 3 renames](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-renames.png)
+![Field renames: Title Case, all datasources, Fields only; three ticked suggestions and the button Create with 3 of 3 renames](docs/guide-renames.png)
 
-**What it will not do.** It does not change the internal names that formulas use, does not edit the suggested names on screen (use the CSV route below for that), and does not reconnect a datasource for you. Sheets that already point at a missing field stay broken.
-
-**Staying safe.** The original is not changed. The copy is a new file; if it already exists, the app says so and does not replace it. To undo, delete the copy.
-
-<details>
-<summary>Same thing with commands</summary>
-
-```bash
-py-tbparse rename superstore-sales-map.twb --only-changed          # show the suggestions; writes nothing
-py-tbparse rename superstore-sales-map.twb --all --only-changed    # also sheets, dashboards, datasources...
-py-tbparse rename superstore-sales-map.twb --write-workbook        # writes superstore-sales-map_renamed.twb
-```
-
-To choose the names yourself: save the suggestions with `py-tbparse rename superstore-sales-map.twb -f csv -o mapping.csv`, change the `suggested` column in Excel (leave a cell empty to keep that name), save as CSV, then `py-tbparse rename superstore-sales-map.twb --apply mapping.csv`. More in [docs/renaming.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/renaming.md).
+You cannot type your own names on this screen; a suggestion is either taken or left. The app does not reconnect a datasource for you, and a sheet that already points at a missing field stays broken.
 
 </details>
 
 <details>
-<summary>Common messages</summary>
+<summary><b>Audit</b>: things the author probably did not mean</summary>
 
-- `error: refusing to overwrite existing file: superstore-sales-map_renamed.twb`: a renamed copy is already there. Move or rename it, or pick another name with `--write-workbook NEW_NAME.twb`.
-- `reason` = `already clean`: nothing to change for that field. `conflict`: two fields would get the same name, so that one keeps its name.
+Click **Audit**. It lists calculations nobody uses, two calculations with the same formula, formulas that name a field that does not exist, calculations that refer to each other in a circle, unused parameters, worksheets on no dashboard, custom SQL, and data files that only exist on one computer.
 
-</details>
+- The bold line at the top counts the findings by how serious they are: Error, Warning or Info. Info means "worth knowing", not "broken".
+- Each finding has a rule (A001 to A011), a message, a suggested fix in grey, and the thing it is about.
+- Narrow the list with **All severities**, **All rules** or the search box.
+- **Skip rules** opens the list of rules; tick one to leave it out. For example A008 (a data file on one computer) shows up in most workbooks made on a desktop.
+- **Download CSV** and **Download JSON** save every finding. **Data dictionary (Markdown)** downloads a written description of the whole workbook: every datasource, field, formula, parameter, worksheet and dashboard. It prints formulas exactly as they are, so read it before you share it.
 
-</details>
+For the example: "5 info". Three calculations no worksheet uses (Category LOD, Profit (bin) and Profit Ratio) and two parameters that only those use. (The Overview counted 4 unused calculations; it also counts one with no formula, a group, that the audit leaves out.)
 
-#### Check a workbook for problems
+![Audit: 5 info, the severity and rule menus, Skip rules, and the findings A001 and A005 with their fixes](docs/guide-audit.png)
 
-It lists what the author probably did not mean: calculations nobody uses, two calculations with the same formula, formulas that name a field that does not exist, calculations that refer to each other in a circle, unused parameters, worksheets on no dashboard, custom SQL, and data files that only exist on one computer.
-
-<details>
-<summary>Steps, what you will see, and the commands</summary>
-
-**In the app**
-
-1. Open the workbook and click **Audit**.
-2. Read the summary line and the findings. Each finding has a rule (A001 to A011), a severity (Error, Warning or Info), a message with a suggested fix, and the object it is about.
-3. Narrow the list with the severity and rule menus or the search box.
-4. **Skip rules** turns a rule off, for example A008 if you know the workbook only runs on your computer.
-5. **Download CSV** or **Download JSON** saves every finding.
-
-**What you will see.** For the example: "5 info". Three calculations no worksheet uses (Category LOD, Profit (bin), Profit Ratio) and two parameters only those use.
-
-![Audit: 5 info findings, rules A001 and A005, each with a message, a fix and the object](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-audit.png)
-
-**What it will not do.** It does not change anything, does not give a score, and does not open the workbook in Tableau. "Unused" means unused in this workbook: another workbook or a published data source might still use the field. To remove what it finds, see [clean out unused things](#clean-out-unused-things).
-
-<details>
-<summary>Same thing with commands</summary>
-
-```bash
-py-tbparse audit superstore-sales-map.twb                              # a table of findings
-py-tbparse audit superstore-sales-map.twb --format csv -o findings.csv # save them for Excel
-py-tbparse audit superstore-sales-map.twb --skip A008                  # leave one rule out
-```
-
-The rules are listed by `py-tbparse audit --help` and explained in [docs/audit.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/audit.md#rules).
+"Unused" means unused in this workbook. Another workbook or a published data source may still need the field. The audit changes nothing.
 
 </details>
 
 <details>
-<summary>Common messages</summary>
+<summary><b>Libraries</b>: reuse calculated fields in another workbook</summary>
 
-- `Exit code 0: no error finding` (in the app) or a count such as `5 info` (in the terminal): the check ran. Info findings are hints, not errors.
-- A003 `error`: a calculation names a field the workbook does not have. In Tableau that calculation shows as broken.
-- A008: the workbook points at a file by a full path on one computer (such as `C:\Users\...`). It works only where that file exists. It is very common.
+Save calculated fields and parameters from one workbook in a small *library* file, then add them to another workbook, so you do not type your KPIs again.
 
-</details>
+**Save them from this workbook**
 
-</details>
+1. Click **Libraries**. **Export from this workbook** lists the calculations and parameters with their formulas.
+2. Tick the ones you want. Leave **Also take the calculations and parameters the selection uses** ticked so nothing they need is left behind.
+3. Optional: give the library a name. Press **Export library file**. Your browser downloads a `.library.json` file.
 
-#### Share a workbook without private data
+![Libraries: Profit Ratio and Category LOD ticked among 7 calculations and parameters, and the Export library file button](docs/guide-libraries.png)
 
-It writes a copy that is safer to post in a forum or send to a vendor: user names, passwords, server, database and schema names, folders, custom SQL, extracts and packed data files, comments, user filters, author ids and thumbnails are taken out.
+**Add them to another workbook**
 
-<details>
-<summary>Steps, what you will see, and the commands</summary>
+1. Open the other workbook and click **Libraries**. In **Add a library to this workbook**, press **Choose a library file** and pick the `.library.json`.
+2. Choose what happens when a field with the same name is already there: **Stop** (nothing is made, and the clashes are listed), **Rename** (the new one gets "(2)") or **Skip** (keep the one that is there).
+3. Read the plan: one line per field with what will happen and why.
+4. Press **Download new workbook**. You get `<workbook>_library.twb`.
 
-This is a command-line tool only; the app does not have a screen for it.
-
-1. Open a terminal in the workbook's folder ([Using the commands](#before-you-start)).
-2. Run:
-
-   ```bash
-   py-tbparse sanitize superstore-sales-map.twb superstore-sales-map.shared.twb --report
-   ```
-
-   The first name is your workbook, the second the new file. A `.twb` gives a `.twb`, a `.twbx` gives a `.twbx`.
-3. Read the report. It lists how much it removed of each kind and the **leftovers** it could not judge.
-4. Open the new file in Tableau and look at it before you share it.
-
-**What you will see.** For the original example workbook it removed 10 items (a server entry, a folder path, an extract, a comment, the repository location and 5 thumbnails) and listed 2 leftovers: table names it keeps, and titles, captions, formulas and text it does not read.
-
-**What it will not do.** It is a clean-up, not a guarantee. It does not read titles, captions, field names, formulas or text boxes for personal or company information, and it keeps table names, because sheets need them. A calculation that uses `USERNAME()` is kept and listed. Without the data, Tableau shows the sheets but cannot draw them until you connect to data again.
-
-**Staying safe.** This command writes the new file straight away (there is no plan step), but it never writes over your workbook and refuses a file that already exists unless you add `--overwrite`. Running it again on its own output removes nothing more.
-
-<details>
-<summary>More options</summary>
-
-- `--placeholders` writes stand-in values (`server.example.com`, `database`, `schema`, `user`) instead of empty ones.
-- `--keep comments` leaves one kind alone (the kinds are listed by `py-tbparse sanitize --help`).
-- `--fake-data` (experimental) adds a small made-up CSV for each simple datasource and connects to it, so the sheets can draw. The values are invented, never taken from your data. The output is a `.twbx`.
-
-Details in [docs/sanitize.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/sanitize.md).
+The other workbook needs fields with the same names as the ones the formulas use (`Sales`, `Profit`...). The app does not move sets, groups or bins, and does not replace a field that is already there.
 
 </details>
 
 <details>
-<summary>Common messages</summary>
+<summary><b>Styles</b>: reuse colour palettes</summary>
 
-- `wrote superstore-sales-map.shared.twb: 10 item(s) removed, 2 leftover(s) listed (use --report to see them)`: done; add `--report` to see the list.
-- `error: refusing to overwrite the input workbook`: the two names are the same. Give the new file another name.
-- `error: refusing to overwrite existing file`: a file with the new name is already there.
+Copy your team's named colour palettes into a workbook, so they are in Tableau's colour picker. **This recolours nothing**: every chart keeps its colours until someone picks the palette in Tableau.
 
-</details>
+- **Palettes in this workbook** lists its own palettes with small colour chips. Tick some and press **Export style file** (a `.style.json`) or **Export as Preferences.tps** (the file Tableau Desktop keeps your palettes in).
+- **Add palettes from a file**: press **Choose a palette file** and pick a `.style.json` or a `Preferences.tps`. Choose what happens when a palette with the same name but other colours is already there (**Stop**, **Skip**, **Rename** or **Replace**), read the plan, then press **Download new workbook** (`<workbook>_palettes.twb`).
 
-</details>
+The example workbook has no palettes of its own. Here a small file with two palettes was added, and the plan says **2 to add**:
 
-#### Keep only some dashboards
+![Styles: brand-palettes.tps with 2 palettes, the four choices Stop, Skip, Rename and Replace, and Plan: 2 to add with the colour chips of Superstore Brand](docs/guide-styles.png)
 
-It makes a smaller copy of a workbook with only the dashboards you pick. The other dashboards go, the worksheets only they used go, and then the calculations, parameters and datasources nothing uses any more.
-
-<details>
-<summary>Steps, what you will see, and the commands</summary>
-
-**In the app**
-
-1. Open the workbook and click **Slice and copy**.
-2. In **Slice: keep some dashboards**, tick the dashboards to keep.
-3. Read the **Plan**: what is kept, what is removed, actions that cannot stay, and what was removed as unused afterwards.
-4. Leave **Remove unused calculations, parameters and datasources afterwards** on to clean up, or untick it to keep them. Tick **Stop instead of dropping actions** if you would rather be told than lose an action.
-5. Press **Download sliced workbook**. You get `<name>_sliced.twb` (or `.twbx`).
-
-**What you will see.** The example has only one dashboard, so keeping it keeps all four worksheets, and the clean-up removes 3 calculations and 1 parameter that nothing used.
-
-![Slice plan: keep 1 dashboard and 4 worksheets, remove 0; then removed as unused: 3 calculations, 1 parameter, 0 datasources; the Download sliced workbook button](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-slice.png)
-
-**What it will not do.** It does not change the open workbook. It does not remove extracts, images or thumbnails from inside a `.twbx`. The clean-up also removes calculations that were already unused before; untick the box if you want to keep them.
-
-<details>
-<summary>Same thing with commands</summary>
-
-```bash
-py-tbparse slice superstore-sales-map.twb --dashboards "Dashboard 1"                                 # the plan; writes nothing
-py-tbparse slice superstore-sales-map.twb --dashboards "Dashboard 1" --write -o superstore-sliced.twb # write the new file
-```
-
-Several dashboards: `--dashboards "Overview,KPIs"`. `--strict` stops instead of dropping actions; `--no-prune` skips the clean-up. More in [docs/slice.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/slice.md).
+To use an exported `Preferences.tps` in Tableau Desktop, keep a copy of your own `Preferences.tps` (in My Tableau Repository), put the new one in its place and restart Tableau.
 
 </details>
 
 <details>
-<summary>Common messages</summary>
+<summary><b>Slice and copy, part 1</b>: keep only some dashboards</summary>
 
-- `dry run: nothing was written (use --write -o OUT)`: the plan only. Add `--write -o NEW_NAME.twb`.
-- `error: unknown dashboard(s): 'Overview'; valid dashboards: 'Dashboard 1'`: check the spelling; the message lists the real names.
-- A selection that shows no worksheet is refused: a workbook needs at least one worksheet.
+Make a smaller copy of the workbook with only the dashboards you pick. The other dashboards go, and so do the worksheets only they used.
+
+1. Click **Slice and copy**. In **Slice: keep some dashboards**, tick the dashboards to keep.
+2. Read the **Plan**: what is kept and removed, and actions that cannot stay.
+3. **Remove unused calculations, parameters and datasources afterwards** is ticked to start with. Untick it to keep them. Tick **Stop instead of dropping actions** if you would rather be told than lose an action.
+4. Press **Download sliced workbook** (`<workbook>_sliced.twb`).
+
+The example has only one dashboard, so keeping it keeps all four worksheets; the clean-up then removes 3 calculations and 1 parameter that nothing used.
+
+![Slice plan: keep 1 dashboard and 4 worksheets, remove 0; then removed as unused: 3 calculations, 1 parameter, 0 datasources; the Download sliced workbook button](docs/guide-slice.png)
+
+The clean-up also removes calculations that were unused before you sliced; untick the box to keep them.
 
 </details>
-
-</details>
-
-#### Copy sheets or dashboards between workbooks
-
-It copies worksheets (in the app or with a command) or whole dashboards (command only) from one workbook into a new copy of another. The calculations and parameters they need come along.
 
 <details>
-<summary>Steps, what you will see, and the commands</summary>
+<summary><b>Slice and copy, part 2</b>: copy worksheets into another workbook</summary>
 
-**Before you start.** Both workbooks must use the same datasource: the same connection and the same internal name in Tableau. In practice that means workbooks that started from the same file, for example a copy of a workbook that went its own way. If the target has no such datasource, the sheet is refused with the reason.
+Copy worksheets from the open workbook into a new copy of another workbook. The calculations and parameters they need come along.
 
-**In the app** (worksheets)
+**Before you start.** Both workbooks must use the same datasource, under the same name inside Tableau. In practice: workbooks that started from the same file. If the other workbook does not have it, the sheet is **Refused** and the plan says why.
 
-1. Open the workbook you copy **from**, click **Slice and copy**, and go to **Copy sheets into another workbook**.
-2. Press **Choose the target workbook** and pick the workbook to copy **into**. It is not changed; you get a new copy of it.
+1. Open the workbook you copy **from**, click **Slice and copy**, and go down to **Copy sheets into another workbook**.
+2. Press **Choose the target workbook** and pick the workbook to copy **into**. It is not changed; you get a new copy.
 3. Tick the worksheets to copy.
-4. Choose what happens when a name is already in the target: **Stop** (the default: nothing is made and the clashes are listed), **Rename** (the copy becomes `Name (2)`) or **Skip**.
-5. Read the plan: each sheet is **Copy**, **Skipped** or **Refused** with the reason, then what is dropped and which calculations and parameters are added.
-6. Press **Download new workbook**. You get `<target>_sheetcopy.twb`.
+4. Choose what happens when a name is already in the target: **Stop** (nothing is made and the clashes are listed), **Rename** (the copy becomes `Sheet 1 (2)`) or **Skip**.
+5. Read the plan: each sheet is **Copy**, **Skipped** or **Refused**, then the calculations and parameters it needs (**Already there** or added).
+6. Press **Download new workbook** (`<target>_sheetcopy.twb`).
 
-**What you will see.** Here the target is a second copy of the example, so every name is already there. With **Stop**, the plan says `Stopped: 'Sheet 1' is already a sheet or dashboard of the target` and the download stays off:
+Here the target is a second copy of the example, so every name is taken. With **Stop** the plan says "Stopped: 'Sheet 1' is already a sheet or dashboard of the target" and the download stays off. With **Rename**:
 
-![Copy sheets with Stop: Stopped, Sheet 1 is already a sheet or dashboard of the target; Sheet 1 Not copied (stops)](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-copy-stop.png)
+![Copy sheets with Rename: Plan: 1 sheet to copy; Sheet 1 copied as Sheet 1 (2); Subcategory LOD and SalesLOD already there](docs/guide-copy-rename.png)
 
-With **Rename**, the plan copies `Sheet 1` as `Sheet 1 (2)`, and the calculations it needs are **Already there**:
-
-![Copy sheets with Rename: Plan 1 sheet to copy; Sheet 1 copied as Sheet 1 (2); Subcategory LOD and SalesLOD already there](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-copy-rename.png)
-
-**What it will not do.** It does not copy a sheet that mixes two datasources (a blend), does not add a datasource the target lacks, does not copy thumbnails or images, and drops action filters (listed in the plan). In the app it copies worksheets only; dashboards are copied with the command below.
-
-<details>
-<summary>Same thing with commands</summary>
-
-```bash
-py-tbparse sheet copy superstore-sales-map.twb --sheets "Sheet 1" --to other.twb                     # the plan; writes nothing
-py-tbparse sheet copy superstore-sales-map.twb --sheets "Sheet 1" --to other.twb --on-clash rename --write
-py-tbparse dashboard copy superstore-sales-map.twb --dashboards "Dashboard 1" --to other.twb         # whole dashboards, the plan
-py-tbparse dashboard copy superstore-sales-map.twb --dashboards "Dashboard 1" --to other.twb --on-clash rename --write
-```
-
-With `--write` the new file is `other_sheetcopy.twb` or `other_dashcopy.twb`, or the name you give with `-o`. Dashboard copy also brings the dashboard's filters and the actions that stay inside the copied set; other actions are dropped and listed. More in [docs/sheet-copy.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/sheet-copy.md) and [docs/dashboard-copy.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/dashboard-copy.md).
+The app copies worksheets, not whole dashboards. It does not copy a sheet that mixes two datasources, and drops action filters (the plan lists them).
 
 </details>
 
 <details>
-<summary>Common messages</summary>
+<summary><b>Templates, part 1</b>: make a template from your workbook</summary>
 
-- `plan only, nothing written; add --write to make the workbook`: the plan only.
-- `error: 'Sheet 1' is already a sheet or dashboard of the target (on_clash='fail')`: choose `--on-clash rename` or `skip` (Rename or Skip in the app).
-- `refused ... the target has no datasource with the connection of 'Sample - Superstore'` and `error: no sheet can be copied`: the target does not use the same datasource. See "Before you start" above.
+A template is a finished workbook prepared for reuse: you later fill it with new data and get a new workbook with the same sheets, dashboards and calculations.
 
-</details>
+1. Open the finished workbook, then press **Templates** at the top. You see three steps for filling a template, and below them **Make a template from your open workbook**.
 
-</details>
+   ![The Templates screen: steps 1 Template, 2 New data and 3 Review and create, then Make a template from your open workbook](docs/guide-templates.png)
 
-#### Reuse calculated fields
+2. In **Make a template from your open workbook**, give it a name and, if you like, a line about what it is for.
+3. Press **Make template**. It says how many fields the template needs and shows the **Template check**. Press **Download the template** to keep it (a `.template.twbx` file), or **Use it as the template** to fill it straight away.
 
-It saves calculated fields and parameters from one workbook in a small *library* file, and adds them to another workbook, so you do not type your KPIs again.
+![Made Superstore sales map.template.twbx: 5 required fields, 2 parameters, 0 tokens; Download the template and Use it as the template; Template check: 3 worth knowing](docs/guide-template-make.png)
 
-<details>
-<summary>Steps, what you will see, and the commands</summary>
-
-**In the app**
-
-1. Open the workbook that has the calculations and click **Libraries**.
-2. In **Export from this workbook**, tick the calculations and parameters you want. By default the ones they use come along too.
-3. Press **Export library file**. You get a `*.library.json` file.
-4. Open the workbook you want to add them to, click **Libraries**, and in **Add a library to this workbook** press **Choose a library file**.
-5. Pick what happens when a field with the same name is already there: **Stop** (default), **Rename** or **Skip**.
-6. Read the plan, then press **Download new workbook**. You get `<workbook>_library.twb`.
-
-**What you will see.** For the example, the seven calculations and parameters with their formulas, two of them ticked:
-
-![Libraries: Export from this workbook, 2 selected (Profit Ratio and Category LOD) of 7 calculations and parameters, with their formulas](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-libraries.png)
-
-**What it will not do.** It does not move sets, groups or bins, does not replace a field that already exists, and does not export a calculation that uses another datasource (it says which). The target needs fields that match the ones the calculations use (`Sales`, `Profit`...), by the same or a close name.
-
-<details>
-<summary>Same thing with commands</summary>
-
-```bash
-py-tbparse library export superstore-sales-map.twb -o kpis.library.json --field "Profit Ratio" --field "Category LOD"
-py-tbparse library show kpis.library.json                  # what is inside, with the formulas
-py-tbparse library import other.twb kpis.library.json      # the plan; writes nothing
-py-tbparse library import other.twb kpis.library.json --write   # writes other_library.twb
-```
-
-`library export` writes the library file straight away (it never changes the workbook). More in [docs/libraries.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/libraries.md).
+Passwords and user names are taken out, and extracts and data files are left out. Server names and formulas stay as they are, so read the template check before you share a template.
 
 </details>
 
 <details>
-<summary>Common messages</summary>
+<summary><b>Templates, part 2</b>: fill a template with new data</summary>
 
-- `skip-identical` / "the target has this calculation": it is already there; nothing to add.
-- `fail-unmapped` / "the target has no match for [Profit], [Sales]": the target has no field with that name. Pass a mapping CSV (`--mapping`, columns `field` and `mapped_to`).
-- `add-renamed`: a different field already has that name, and you chose Rename; the new one gets `(2)`.
+1. Press **Templates**. In step **1 Template**, press **Choose template...** and pick the `.template.twbx` (or use the one you just made).
+2. In step **2 New data**, pick your data: a `.csv`, an Excel file, or a Tableau `.twb`, `.twbx` or `.tds`. For a CSV or Excel file, type the folder where the file will live on your computer, so Tableau finds it later.
+3. In step **3 Review and create**, check **Match the fields to your columns**. Each field the template needs gets one of your columns. A **Missing** row needs you to pick a column in its menu.
 
-</details>
+   For the example, a small CSV with the columns `State`, `Region`, `Category`, `Sub_Category`, `Sales Amount` and `Order Date` matches three fields by name; State/Province and Sales are missing:
 
-</details>
+   ![Match the fields to your columns: State/Province missing, Region, Category and Sub-Category matched by name, Sales missing](docs/guide-template-mapping.png)
 
-#### Reuse colour palettes
+4. Fill in **Parameters** and **Text to fill in** if the template has any. Leave a box empty to keep the template's value.
+5. Read **Check before you create**. **Problems to fix** must be empty. After picking `State` and `Sales Amount` it says "Ready to create":
 
-It copies named colour palettes between workbooks, a `Preferences.tps` file and a small `*.style.json` file, so your team's colours are in Tableau's colour picker.
+   ![Check before you create: Ready to create, Problems to fix (0), What would break (0); the Create workbook and Save beside the template buttons](docs/guide-template-create.png)
 
-<details>
-<summary>Steps, what you will see, and the commands</summary>
+6. Press **Create workbook**. The new workbook downloads. (**Save beside the template** saves it in the template's folder instead; that works when you opened the template by typing its path.)
 
-**In the app**
-
-1. Open a workbook and click **Styles**.
-2. **Palettes in this workbook** lists its custom palettes with their colours. Tick some and press **Export style file** or **Export as Preferences.tps**.
-3. To add palettes to the open workbook: in **Add palettes from a file**, press **Choose a palette file** (a `*.style.json` or a `Preferences.tps`).
-4. Pick what happens when a palette with the same name and other colours is already there: **Stop** (default), **Skip**, **Rename** or **Replace**.
-5. Read the plan and press **Download new workbook** (`<workbook>_palettes.twb`).
-
-**What you will see.** The example workbook has no custom palettes. After choosing a small palette file with two palettes, the plan says **2 to add**:
-
-![Styles: Add palettes from a file, brand-palettes.tps with 2 palettes, the four clash choices, and the plan 2 to add with the colour chips of Superstore Brand](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-styles.png)
-
-**What it will not do.** It only adds palettes to the colour picker. **It recolours nothing**: every chart keeps its colours. It does not move fonts, borders or other formatting.
-
-**Staying safe.** It never writes over your workbook or over a file called `Preferences.tps`. For Tableau Desktop to offer a palette from a `.tps` file, you copy the new file over your own `Preferences.tps` in `My Tableau Repository` yourself (keep a backup of the old one) and restart Tableau.
-
-<details>
-<summary>Same thing with commands</summary>
-
-```bash
-py-tbparse style show brand-palettes.tps                                  # the palettes in a file
-py-tbparse style import brand-palettes.tps superstore-sales-map.twb       # the plan; writes nothing
-py-tbparse style import brand-palettes.tps superstore-sales-map.twb --write   # writes superstore-sales-map_palettes.twb
-py-tbparse style export superstore-sales-map_palettes.twb -o brand.style.json
-```
-
-More in [docs/styles.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/styles.md).
+One CSV file or one Excel sheet fills one table. A template whose datasource joins several tables (like the example, with Orders, People and Returns) says so in the template check; use a workbook or `.tds` as the data so its joins come along. If a required field has no column, **Create** stays off unless you tick **Create anyway**, and then the sheets that use that field stay broken. Never type a password as a parameter value: it would be saved inside the new workbook.
 
 </details>
 
 <details>
-<summary>Common messages</summary>
+<summary><b>Theme and dark mode</b></summary>
 
-- `palettes are now in the colour picker; existing marks keep their colours`: done.
-- `plan only, nothing written; add --write to write a new file`: the plan only.
-- A name clash with **Stop** (`--on-clash fail`): nothing is written; choose Skip, Rename or Replace.
-- `invalid`: a palette without a name, colours or a known type. It is left out; the rest is written.
+Press **Theme** at the top right. Pick one of 34 colour themes, and at the end of the list choose **Auto (follow my system)**, **Light** or **Dark**. The app remembers your choice.
 
-</details>
+![The Overview in dark mode with the Theme menu open: Shop, Matcha, Fjord, High contrast, Harbor and more](docs/guide-dark.png)
 
 </details>
 
-#### Clean out unused things
-
-It removes calculated fields and parameters that nothing uses, and on request worksheets that are on no dashboard and datasources nothing uses, into a new copy. It removes something only when nothing that stays refers to it.
+### Good to know
 
 <details>
-<summary>Steps, what you will see, and the commands</summary>
+<summary><b>Your files and privacy</b></summary>
 
-This is a command-line tool. In the app, the [audit](#check-a-workbook-for-problems) shows what is unused, and [Slice and copy](#keep-only-some-dashboards) can clean up after keeping some dashboards.
-
-1. See the plan:
-
-   ```bash
-   py-tbparse prune superstore-sales-map.twb
-   ```
-
-2. Read it. Each line says **would remove** or **kept**, and why.
-3. When it looks right, write a new file:
-
-   ```bash
-   py-tbparse prune superstore-sales-map.twb --write -o superstore-pruned.twb
-   ```
-
-**What you will see.** For the example:
-
-```text
-would remove  calculation Sample - Superstore: Profit Ratio
-would remove  calculation Sample - Superstore: Category LOD
-would remove  calculation Sample - Superstore: Profit (bin)
-would remove  parameter   Parameters: Profit Bin Size
-kept         parameter   Parameters: Top Customers
-            why: still named by <groupfilter> in group [Top Customers by Profit]
-
-would remove: 3 calculation(s), 1 parameter(s), 0 sheet(s); kept 1 finding(s) that something still uses
-dry run: nothing was written (use --write -o OUT)
-```
-
-(The real output also has a `why:` line under each item.)
-
-**What it will not do.** It does not see other workbooks or published data sources that may use a field. It does not remove worksheets unless you add `--sheets`, or datasources unless you add `--datasources`. It does not shrink extracts inside a `.twbx`.
-
-**Staying safe.** Without `--write` nothing is written. With it, a new file is written; your workbook is never changed, and an existing file is refused unless you add `--overwrite`.
-
-<details>
-<summary>Common messages</summary>
-
-- `error: refusing to overwrite existing file: superstore-pruned.twb (use --overwrite)`: pick another name.
-- `-o OUT is only used with --write (without it prune is a dry run)`: add `--write`.
-- `kept ... still named by ...`: something still uses it, so it stays. More in [docs/prune.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/prune.md).
-
-</details>
-
-</details>
-
-#### Apply a template
-
-A template is a workbook prepared for reuse. You fill it with new data (a CSV or Excel file, another workbook, or a database table) and get a new workbook with the same sheets, dashboards and calculations.
-
-<details>
-<summary>Steps, what you will see, and the commands</summary>
-
-**Make a template (in the app)**
-
-1. Open the finished workbook, then press **Templates** at the top.
-2. Scroll to **Make a template from your open workbook**. Give it a name and, if you like, a line about what it is for.
-3. Press **Make template**. It shows how many fields the template needs and what the template check found. Press **Download the template** to keep it (a `.template.twbx` file), or **Use it as the template** to fill it right away.
-
-Passwords and user names are removed from the template, and extracts and data files are left out. Server names, custom SQL and formulas are kept as written, so read the template check before you share it.
-
-![Make a template: name Superstore sales map; Made Superstore sales map.template.twbx, 5 required fields, 2 parameters; template check: 3 worth knowing](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-template-make.png)
-
-**Fill a template with new data (in the app)**
-
-1. Press **Templates**. In step **1 Template**, choose the `.template.twbx` (or use the one you just made).
-2. In step **2 New data**, choose your new data: a `.csv`, an Excel file, or a Tableau `.twb`, `.twbx` or `.tds`. For a CSV or Excel file, you can type the folder where the file will live on your computer, so Tableau finds it.
-3. In step **3 Review and create**, check **Match the fields to your columns**. Each field the template needs gets one of your columns. Fix a **Missing** row by picking a column in its menu.
-4. Fill in **Parameters** and **Text to fill in** if the template has any.
-5. Read **Check before you create**. **Problems to fix** must be empty.
-6. Press **Create workbook**. The new workbook downloads.
-
-**What you will see.** The example template needs 5 fields. A small CSV with the columns `State`, `Region`, `Category`, `Sub_Category`, `Sales Amount`, `Order Date` matches three of them by name; `State/Province` and `Sales` are **Missing** until you pick `State` and `Sales Amount` in their menus:
-
-![Match the fields to your columns: State/Province missing, Region, Category and Sub-Category matched by name, Sales missing](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-template-mapping.png)
-
-**What it will not do.** One CSV or one Excel sheet fills one table. A template whose datasource joins several tables (like the example, with Orders, People and Returns) says so in the check (`the datasource has 3 tables`); use a workbook or `.tds` as the data so its joins come along. It never contacts a database. It does not merge changes you made in Tableau to an earlier output.
-
-**Staying safe.** The template and the data are not changed. In the app the new workbook is a download. A required field without a column blocks **Create** unless you tick **Create anyway**, and then the sheets that use it stay broken. Never type a password as a parameter value: it would be saved inside the new workbook.
-
-<details>
-<summary>Same thing with commands</summary>
-
-```bash
-py-tbparse template make superstore-sales-map.twb --name "Superstore sales map"      # writes superstore-sales-map.template.twbx
-py-tbparse template check superstore-sales-map.template.twbx                         # what to look at before sharing it
-py-tbparse template apply superstore-sales-map.template.twbx --data new-sales.csv    # the matching; writes nothing
-py-tbparse template apply superstore-sales-map.template.twbx --data new-sales.csv --mapping-out map.csv
-#   open map.csv in Excel, fill the mapped_to column for the missing fields (State, Sales Amount), save as CSV
-py-tbparse template apply superstore-sales-map.template.twbx --data new-sales.csv --mapping map.csv --write
-```
-
-The last line writes `superstore-sales-map_new-sales.twbx` beside the template and prints `wrote ... (6 field(s) mapped, 0 missing, ...)`. Set a parameter with `-p "Top Customers=10"`. Excel data needs the Excel add-on from [Install it](#before-you-start) and `--sheet NAME` when the file has several sheets. One template for a whole folder of files, databases, saved answers and updates are in [docs/templates.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/templates.md).
+- **Everything stays on your computer.** The app runs on your own machine at an address only it can reach (`127.0.0.1`). It sends nothing to the internet.
+- **Your workbook is never changed.** Every screen makes a new file or a download, and the app never replaces a file that is already there.
+- **Look before you download.** Every screen that makes a file shows its plan first.
+- **Dropped files** are copied to a private temporary folder (up to 200 MB each) and deleted when you open another workbook or stop the app.
+- **The recent list** on the start screen is kept by your browser, on this computer.
+- **No login.** Use the app on your own computer, not on a shared network. Sharing it with a team needs a server set up by IT (see [Limits](#limits)).
+- **To undo**, delete the new file. Your original is untouched.
 
 </details>
 
 <details>
-<summary>Common messages</summary>
+<summary><b>Not yet checked in Tableau Desktop</b>: read this before you rely on a new file</summary>
 
-- `missing: Sales (breaks: Sheet 1; Sheet 3; Sheet 4; dashboards: Dashboard 1; ...)`: no column was found for that field, and these sheets would break.
-- `required fields are unmapped; edit the mapping (--mapping-out / --mapping) or pass --allow-missing`: fix the mapping, or write anyway with `--allow-missing`.
-- `error: refusing to overwrite existing file`: a workbook with that name is already there.
-- `the datasource has 3 tables`: see "What it will not do" above.
+The files the app makes are checked against Tableau's published file format and for broken links, on 200 real public workbooks. That is not the same as opening them in Tableau. A template filled with a CSV was opened in Tableau once, for one workbook, and drew its sheets. Nothing else here (renamed copies, sliced copies, copied sheets, added libraries and palettes) has been opened in Tableau Desktop.
 
-</details>
-
-</details>
-
-### Staying safe and private
-
-<details>
-<summary>What stays on your computer, and what is never changed</summary>
-
-- **Everything stays on your computer.** The app runs on your own machine at an address only your computer can reach (`127.0.0.1`). It sends nothing to the internet, and the page loads nothing from other websites.
-- **Your files are never changed.** Every tool writes a *new* file or a download. None of them writes over the workbook you opened, and they refuse to replace an existing file unless you ask (`--overwrite` on the command line).
-- **Look before you write.** In the app, every tool shows its plan before you download anything. On the command line, `prune`, `slice`, `sheet copy`, `dashboard copy`, `library import`, `style import` and `template apply` only print a plan until you add `--write`. Commands that write straight away: `sanitize`, `rename --write-workbook`, `library export`, `style export`, `template make`, and anything with `-o` that saves a report.
-- **Dropped files.** A file you drop on the page, or choose with Open file..., is copied to a private temporary folder (up to 200 MB). That copy is deleted when you open another workbook or stop the app.
-- **The recent list.** Paths you open by typing them are listed on the start screen. Your web browser keeps that list on this computer.
-- **No login.** The app has no password. Run it on your own computer only, not on a shared network. Sharing it with a team needs a server set up by IT (see [Limits](#limits)).
-- **Undo** is simple: your original is untouched, so delete the new file and start again. Keep backups of your workbooks anyway, as you would with any tool.
-
-</details>
-
-### Not yet verified in Tableau Desktop
-
-<details>
-<summary>Read this before you rely on a file the tool made</summary>
-
-The workbooks this tool writes are checked against Tableau's published file format and for broken references, on 200 real public workbooks. That is not the same as opening them in Tableau. A template filled with a CSV was opened in Tableau once, for one workbook, and drew its sheets. Nothing else in this guide (renamed copies, sliced and pruned copies, copied sheets and dashboards, added libraries and palettes, share-safe copies) has been opened in Tableau Desktop.
-
-So:
-
-1. Keep a backup of your workbook (the tool never changes it, but backups are good practice).
-2. Open every new file in Tableau Desktop and look at each sheet and dashboard before you use it or share it.
-3. If something looks wrong, tell us at [github.com/DDSNA/py-tbparse/issues](https://github.com/DDSNA/py-tbparse/issues).
-
-The details per feature are in [docs/verify-in-tableau.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/verify-in-tableau.md).
-
-</details>
-
-### Troubleshooting
-
-<details>
-<summary>Problems when installing or starting</summary>
-
-- **`python` is not recognised / command not found.** Python is not installed, or not on the PATH. On Windows try `py` instead of `python`, or install Python again with **Add python.exe to PATH** ticked. On macOS try `python3`.
-- **`py-tbparse-gui` is not recognised / command not found** after installing. The folder pip installs commands into is not on your PATH. Use `python -m py_tbparse.webgui` instead of `py-tbparse-gui`, and `python -m py_tbparse.cli` instead of `py-tbparse` (on Windows, `py -m ...`).
-- **The browser does not open.** Copy the address the terminal prints (`http://127.0.0.1:...`) into your browser.
-- **The page stops working after I closed the terminal.** The terminal window is the app. Start it again with `py-tbparse-gui`.
-- **Excel data is refused.** Install the add-on: `python -m pip install "py-tbparse[excel]"`. Old `.xls` and `.xlsb` files are not read; save them as `.xlsx` first.
+So: open every new file in Tableau Desktop and look at each sheet and dashboard before you use or share it. If something looks wrong, keep using your original and tell us at [github.com/DDSNA/py-tbparse/issues](https://github.com/DDSNA/py-tbparse/issues). Details per feature are in [docs/verify-in-tableau.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/verify-in-tableau.md).
 
 </details>
 
 <details>
-<summary>Problems when opening a workbook</summary>
+<summary><b>When something goes wrong</b></summary>
 
-- **"... Check the path, or drop the file onto the page instead."** The path in the box is wrong. Remove quotation marks around it, check the spelling, or drag the file onto the page.
-- **"that .twbx is damaged or not a zip archive."** The file is not a real packaged workbook. Save it again from Tableau.
-- **"there is no workbook (.twb) inside that .twbx."** The `.twbx` has no workbook inside, for example a packaged data source. Use the `.twbx` that Tableau saved as a workbook.
-- **Create is missing on Field renames; there is only Download.** You opened the file by dropping or choosing it. That is fine: download the copy. To save next to the original, open it by typing its path instead.
-- **The file is larger than 200 MB.** The app takes files up to 200 MB. Use the command line, or a copy without extracts.
+- **`py-tbparse-gui` is "not recognised" or "not found".** Python is not on your computer's PATH. Install Python again with **Add python.exe to PATH** ticked, then install py-tbparse again.
+- **The browser does not open.** The terminal shows an address that starts with `http://127.0.0.1:`. Copy it into your browser.
+- **The page stopped working.** The terminal window was closed, which stops the app. Start it again.
+- **"Check the path, or drop the file onto the page instead."** The path in the box is wrong. Remove the quotation marks, check the spelling, or drag the file onto the page.
+- **"that .twbx is damaged or not a zip archive"** or **"there is no workbook (.twb) inside that .twbx"**. The file is not a packaged workbook (it may be a packaged data source). Save it again from Tableau as a workbook.
+- **Field renames has Download but no Create.** You dropped or picked the file. Download the copy, or open the workbook by its path to save beside it.
+- **The file is larger than 200 MB.** Save a copy without extracts from Tableau and open that.
+- **A plan says "Stopped".** A name is already used. Choose **Rename** or **Skip**.
+- **A sheet is "Refused".** The plan gives the reason, usually that the other workbook does not have the same datasource.
+- **Excel data is refused.** Save old `.xls` and `.xlsb` files as `.xlsx` first.
 
 </details>
 
 <details>
-<summary>Problems with results</summary>
+<summary><b>Words used here</b></summary>
 
-- **A tool says "Stop", "Stopped" or `on_clash='fail'`.** A name is already used in the target. Choose Rename or Skip (`--on-clash rename` or `skip`).
-- **A sheet is "Refused".** The plan gives the reason, usually that the target workbook does not have the same datasource.
-- **A command printed a plan but no file.** That is the plan step. Add `--write` (and `-o NEW_NAME` where the task shows it).
-- **The new workbook looks wrong in Tableau.** Use your original (it is unchanged), and please report it at [github.com/DDSNA/py-tbparse/issues](https://github.com/DDSNA/py-tbparse/issues) with the command or the screen you used.
-
-</details>
-
-### Glossary
-
-<details>
-<summary>The words this tool uses</summary>
-
-- **Terminal** (command prompt): a window where you type commands. See [Install it](#before-you-start).
-- **Command**: one line you type in the terminal, such as `py-tbparse audit superstore-sales-map.twb`.
+- **Workbook**: the file you save from Tableau Desktop. A **`.twb`** holds the sheets and where the data is; a **`.twbx`** (packaged workbook) zips that together with data files and images.
+- **Datasource**: a connection to some data (an Excel or CSV file, a database table, a published data source). **Field**: one column of it, such as `Sales`. **Calculated field**: a field made with a formula. **Parameter**: a value the viewer can change.
+- **Worksheet** (sheet): one chart or table. **Dashboard**: a page that shows several worksheets together.
 - **Path**: where a file is on your computer, such as `C:\Users\you\Documents\Tableau\superstore-sales-map.twb`.
-- **Dry run** or **plan**: the tool shows what it would do and writes nothing.
-- **Caption**: the name of a field that people see in Tableau. Formulas use a separate internal name, which renaming does not change.
-- **Clash**: the target already has something with the same name but a different definition. You choose Stop (fail), Rename or Skip, and for palettes also Replace.
-- **Audit** and **finding**: the check of a workbook and one thing it found. Each has a rule id such as A001.
+- **Plan**: what a screen would do, shown before you download anything.
+- **Clash**: the other workbook already has something with the same name. You choose Stop, Rename or Skip (and for palettes, Replace).
+- **Finding**: one thing the audit found, with a rule such as A001.
 - **Data dictionary**: a written page describing everything in a workbook.
-- **Sanitize** (share-safe copy): a copy with private details taken out.
-- **Slice**: a copy that keeps only some dashboards.
-- **Prune**: a copy with unused calculations, parameters (and, if asked, sheets and datasources) removed.
-- **Library**: a small `*.library.json` file holding calculated fields and parameters to add to other workbooks.
-- **Palette**: a named list of colours for Tableau's colour picker. **`Preferences.tps`**: the file in `My Tableau Repository` where Tableau Desktop keeps your own palettes.
-- **Template**: a `.template.twbx` made from a finished workbook, ready to be filled with new data. **Mapping**: which column of the new data fills which field of the template.
-- **Relationship** and **join**: how the tables of a datasource connect.
-- **Exit code**: a number a command gives back when it ends (0 means fine). Only matters for automation.
+- **Library**: a small `.library.json` file of calculated fields and parameters. **Palette**: a named list of colours for Tableau's colour picker.
+- **Template**: a `.template.twbx` made from a finished workbook, ready to be filled with new data.
 
 </details>
+
+Prefer typing commands or scripting? Everything here, and a few extras that are not in the app (a copy with private details taken out, removing unused calculations, copying whole dashboards), is in the [command-line guide](https://github.com/DDSNA/py-tbparse/blob/main/docs/cli.md).
 
 ## For developers and power users
 
