@@ -35,6 +35,8 @@ A refused sheet is listed with the reason and the others are copied (exit code 2
 
 A bin, group or set of the same name with another definition is a refusal of that sheet under `rename` and `skip` (a group or set cannot be renamed or replaced here); under `fail` the run stops for a group or set. Groups and sets are compared by their `groupfilter` tree: the members and levels, with the operands of a union or intersection in any order.
 
+A calculation that uses a clashing one counts as clashing too, even when its own formula text matches the target's, because it would show other values there. `rename` renames it and points the sheet at it; `skip` refuses the sheet and names the calculations (keeping the target's version would change the numbers).
+
 ## What is dropped
 
 Dropped and reported, never silently:

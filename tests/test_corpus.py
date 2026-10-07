@@ -42,11 +42,11 @@ def test_corpus_is_the_one_in_the_manifest():
             assert hashlib.sha256(present[r["file"]].read_bytes()).hexdigest() == r["sha256"], r["file"]
 
 
-def test_every_table_extracts_from_every_workbook():
+def test_every_table_extracts_from_every_workbook(strict_extractors):
     for path in FILES:
         parser = TwbParser(str(path))
         for name, spec in TABLE_SPECS.items():
-            spec(parser)  # must not raise
+            spec(parser)  # must not raise: strict_extractors makes an extractor's exception reach the test
 
 
 def test_rename_everything_keeps_every_report_consistent(tmp_path):

@@ -170,6 +170,10 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
         if cmp["clash"] and on_clash == "fail":
             raise SheetCopyAbort(f"{s!r}: already in the target with another definition (on_clash='fail'): "
                                  + ", ".join(cmp["clash"]))
+        if cmp["blocked"] and on_clash == "skip":
+            refuse(s, "keeping the target's version of " + ", ".join(cmp["clash"])
+                      + " would change what these calculations show: " + ", ".join(cmp["blocked"]))
+            continue
         closures[s] = c
 
     # 2. sheet names
@@ -243,6 +247,8 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
     if tws is None:
         tws = etree.Element("worksheets")
         anchor = doc.find("datasources")
+        if anchor is None:
+            raise SheetCopyAbort("target has neither worksheets nor datasources")
         anchor.addnext(tws)
     for s, new in copied.items():
         res = results[s]

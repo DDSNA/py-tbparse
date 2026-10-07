@@ -180,3 +180,13 @@ def page(browser, gui_server):
     pg.ctx.close()
 
 
+
+
+@pytest.fixture
+def strict_extractors(monkeypatch):
+    """Make `TwbParser` re-raise what its extractors raise. In production `_safe_call` turns every exception
+    into an empty table, so a smoke test that only calls the accessors cannot fail."""
+    def _raise(fn, fallback, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr("py_tbparse.parser._safe_call", _raise)
