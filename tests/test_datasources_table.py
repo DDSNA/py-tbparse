@@ -201,3 +201,52 @@ def test_field_count_falls_back_to_the_whole_datasource_without_metadata():
     # a table the metadata does not mention keeps the whole count, the other one is counted
     ds = table(xml_from_string(TWO_TABLES % _rec("Orders", "a"))).set_index("datasource")
     assert ds.loc["Orders", "field_count"] == 1 and ds.loc["Returns", "field_count"] == 6
+
+
+# several real datasources (issue #79) --------------------------------------------------------------------------
+
+def _federated(name, conn, relations, extra=""):
+    rels = "".join(f'<relation connection="{conn}" name="{n}" table="[{n}$]" type="table"/>' for n in relations)
+    recs = "".join(_rec(n, c) for n in relations for c in "ab")
+    return f"""
+    <datasource name="{name}" caption="{name}">
+      <connection class="federated">
+        <named-connections><named-connection name="{conn}" caption="{conn}">
+          <connection class="excel-direct" filename="C:/data/{conn}.xlsx"/>
+        </named-connection></named-connections>
+        <relation type="join">{rels}</relation>
+        <metadata-records>{recs}</metadata-records>
+      </connection>
+      <column name="[a]"/><column name="[b]"/>{extra}
+    </datasource>"""
+
+
+def test_two_real_datasources_keep_their_own_tables_counts_and_connections():
+    xml = xml_from_string(f"""<workbook><datasources>
+      <datasource name="Parameters" hasconnection="false"/>
+      {_federated("federated.one", "excel.1", ["Orders", "Returns"])}
+      {_federated("federated.two", "excel.2", ["Stores"])}
+    </datasources></workbook>""")
+    ds = table(xml).set_index("datasource")
+    assert len(ds) == 2  # no object graph: one row per datasource
+    assert set(ds["datasource_name"]) == {"federated.one", "federated.two"}
+    assert NOT_STORED not in set(ds["connection_target"])
+
+
+def test_graph_table_outside_any_datasource_is_tied_to_the_datasource_with_its_connection():
+    # the object graph sits outside every <datasource>, and its table is in no datasource's own
+    # relations: with two real datasources it used to read 'not stored in the workbook'
+    xml = xml_from_string(f"""<workbook><datasources>
+      {_federated("federated.one", "excel.1", ["Orders"])}
+      {_federated("federated.two", "excel.2", ["Stores"])}
+    </datasources>
+    <object-graph><objects>
+      <object id="o1"><properties context=""><relation connection="excel.2" name="Lost" table="[Lost$]" type="table"/></properties></object>
+    </objects></object-graph>
+    </workbook>""")
+    ds = table(xml).set_index("datasource")
+    row = ds.loc["Lost"]
+    assert row["datasource_name"] == "federated.two"
+    assert row["connection_target"] == "C:/data/excel.2.xlsx" or row["connection_target"] != NOT_STORED
+    assert row["connection_class"] != NOT_STORED
+    assert row["field_count"] == 2
