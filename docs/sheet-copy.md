@@ -10,6 +10,8 @@ py-tbparse sheet copy sales.twb --sheet "Sheet 1" --to other.twb --on-clash rena
 
 `--sheets` takes a comma-separated list; `--sheet` is repeatable for a name that contains a comma. Without `--write` nothing is written. The output keeps the target's format (a `.twbx` keeps its members), defaults to `<TARGET>_sheetcopy.<ext>`, and is never the source or the target (`--overwrite` replaces an existing output only). `--format json` prints the report as JSON.
 
+The GUI has a **Slice and copy** view for this (tick, see the plan, download), see [gui.md](gui.md).
+
 ## What a sheet needs
 
 For each sheet:

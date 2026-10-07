@@ -541,3 +541,6 @@ button.stat:hover { border-color: var(--primary); transform: translateY(-2px); b
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: var(--space-3); }
   .toast { bottom: var(--space-3); }
 }
+
+/* slice and copy view (reuses the .lib-* layout of the libraries view) */
+.lib-policy-box, .cpy-list { display: grid; gap: var(--space-2); min-width: 0; }
