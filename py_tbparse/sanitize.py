@@ -25,7 +25,7 @@ from typing import Iterable, Optional, Union
 
 from lxml import etree
 
-from ._xml import ANY_RELATION
+from ._xml import ANY_RELATION, check_package, read_member
 from .parser import TwbParser
 from .templates import (
     DataSource,
@@ -407,6 +407,7 @@ def _write_zip(parser: TwbParser, twb: bytes, extra: dict[str, bytes], run: _Run
     with zipfile.ZipFile(out, "w") as dst:
         if parser.twbx_path:
             with zipfile.ZipFile(parser.twbx_path) as src:
+                check_package(src)
                 for info in src.infolist():
                     if info.filename == twb_name:
                         dst.writestr(info, twb, compress_type=info.compress_type)
@@ -419,7 +420,7 @@ def _write_zip(parser: TwbParser, twb: bytes, extra: dict[str, bytes], run: _Run
                         continue
                     suffix = Path(info.filename).suffix.lower() or "(no extension)"
                     kept_other[suffix] = kept_other.get(suffix, 0) + 1
-                    dst.writestr(info, src.read(info.filename), compress_type=info.compress_type)
+                    dst.writestr(info, read_member(src, info), compress_type=info.compress_type)
         else:
             info = zipfile.ZipInfo(twb_name, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
