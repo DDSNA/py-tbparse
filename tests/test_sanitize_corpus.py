@@ -28,6 +28,8 @@ def test_every_workbook_sanitizes_reparses_and_is_idempotent(tmp_path):
         assert out.read_bytes() == again.read_bytes(), path.name
         assert sum(second["removed"].values()) == 0, path.name
         text = out.read_text(encoding="utf-8")
+        base = TwbParser(str(out)).xml_doc.getroot().get("{http://www.w3.org/XML/1998/namespace}base")
+        assert not base, (path.name, base)
         conns = list(TwbParser(str(path)).xml_doc.iter("connection"))
         classes = {c.get("class", "").lower() for c in conns}
         for conn in conns:
