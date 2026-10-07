@@ -21,7 +21,7 @@
                      'skip-clash': 'Keep the target’s', 'fail-unmapped': 'Cannot be matched', 'fail-dependency': 'Needs a field that is missing' };
   const KIND_TEXT = { 'calc': 'Calculation', 'parameter': 'Parameter' };
 
-  let D = null;                      // helpers from app.js: $, el, fetchJSON, fail, setStatus, plural
+  let D = null;                      // helpers from app.js: $, el, fetchJSON, fail, setStatus, plural, labelCells
   let busy = false;
   let target = null;                 // summary of the uploaded target workbook, or null
   let policy = 'fail';
@@ -431,6 +431,7 @@
     const caret = /Text$/.test(active) && document.activeElement && document.activeElement.id === active ? document.activeElement.selectionStart : null;
     const panel = D.el('div', 'lib');
     panel.append(sliceCard(), copyCard());
+    D.labelCells(panel);
     wrap.innerHTML = '';
     wrap.appendChild(panel);
     if (active) {

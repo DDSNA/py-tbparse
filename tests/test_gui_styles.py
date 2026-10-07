@@ -237,6 +237,8 @@ def test_a_phone_gets_a_readable_page_without_sideways_scroll(browser, gui_serve
         pg.wait_for_selector("#styClashes", timeout=10_000)
         assert pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         assert pg.evaluate("() => getComputedStyle(document.querySelector('#styTable tr')).display") == "block"
+        labels = pg.evaluate("() => Array.from(document.querySelector('#styTable tbody tr').cells, (td) => getComputedStyle(td, '::before').content)")
+        assert labels == ["none", "none", '"Type: "', '"Colours: "', '"Count: "']   # #142
         assert pg.evaluate("() => document.getElementById('tableWrap').scrollWidth <= document.getElementById('tableWrap').clientWidth + 1")
         assert pg.is_visible("#styAdd") and pg.is_visible("#styExport")
         assert pg.js_errors == []
