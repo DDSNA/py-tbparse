@@ -27,6 +27,7 @@ import pandas as pd
 from lxml import etree
 
 from ._clean import is_missing
+from ._xml import parse_bytes
 from .parser import TwbParser
 from .rename import _insert_column, _serialize_workbook
 from .templates import (
@@ -853,7 +854,7 @@ def _build_param(a: dict):
         for item in e["members"]:
             etree.SubElement(mem, "member", item)
     if e.get("comment"):
-        col.append(etree.fromstring(e["comment"]))
+        col.append(parse_bytes(e["comment"]))
     return col
 
 
@@ -863,7 +864,7 @@ def _append_extras(col, e: dict) -> None:
         for item in e["aliases"]:
             etree.SubElement(al, "alias", item)
     if e.get("comment"):
-        col.append(etree.fromstring(e["comment"]))
+        col.append(parse_bytes(e["comment"]))
 
 
 def _new_parameters_ds(doc):

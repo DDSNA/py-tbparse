@@ -23,6 +23,7 @@ import pandas as pd
 from lxml import etree
 
 from .dashboards import CONTAINER_KINDS, _dashboard_xpath, integrity_check, zone_kind
+from ._xml import parse_bytes
 from .parser import TwbParser
 from .rename import _serialize_workbook
 from .sheetcopy_core import add_window, new_uuid as _new_uuid
@@ -261,7 +262,7 @@ def build_scaffold_workbook(parser: TwbParser, scaffold: dict, name: str, sheets
         raise ScaffoldError(f"{name!r} is already the name of a worksheet or dashboard")
     picked = _choose(scaffold, sheets, worksheets, allow_empty)
 
-    layout = etree.fromstring(scaffold["layout"])
+    layout = parse_bytes(scaffold["layout"])
     counter = [0]
     _fill(layout, picked, counter)
     _ordered(layout)
@@ -276,7 +277,7 @@ def build_scaffold_workbook(parser: TwbParser, scaffold: dict, name: str, sheets
     parts = scaffold["dashboard"]
     for tag in ("layout-options", "style", "size"):
         if tag in parts:
-            db.append(etree.fromstring(parts[tag]))
+            db.append(parse_bytes(parts[tag]))
     zones = etree.SubElement(db, "zones")
     zones.append(layout)
     etree.SubElement(db, "simple-id", uuid=db_uuid)

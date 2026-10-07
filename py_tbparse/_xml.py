@@ -29,6 +29,24 @@ _TEXT_EXT = {"csv", "txt", "tsv"}
 _EXCEL_EXT = {"xlsx", "xls"}
 
 
+def xml_parser() -> etree.XMLParser:
+    """The one parser every workbook, template and fragment goes through. Entities are not expanded and nothing
+    is fetched, whatever the installed lxml's default (lxml below 5 resolves a SYSTEM file entity), so an
+    uploaded file cannot pull server files or URLs into the tree. A new parser per call: parsers are not
+    meant to be shared across threads."""
+    return etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=False)
+
+
+def parse_file(path) -> "etree._ElementTree":
+    """`etree.parse(path)` with the shared parser."""
+    return etree.parse(str(path), xml_parser())
+
+
+def parse_bytes(data: "bytes | str") -> "etree._Element":
+    """`etree.fromstring(data)` with the shared parser."""
+    return etree.fromstring(data, xml_parser())
+
+
 def _classify(name: str) -> str:
     """Port of `.twbx_classify`."""
     ext = Path(name).suffix.lower().lstrip(".")
@@ -93,7 +111,7 @@ def read_twb_from_twbx(twbx_path: str) -> dict:
 
     return {
         "twb_name": twb_rel,
-        "xml_doc": etree.parse(io.BytesIO(data)),
+        "xml_doc": etree.parse(io.BytesIO(data), xml_parser()),
         "twbx_path": os.path.abspath(twbx_path),
         "manifest": manifest,
     }
@@ -200,4 +218,4 @@ def load_workbook_xml(path: str) -> etree._ElementTree:
     if not os.path.exists(twb_path):
         raise FileNotFoundError(f"File not found: {twb_path}")
 
-    return etree.parse(str(twb_path))
+    return parse_file(twb_path)
