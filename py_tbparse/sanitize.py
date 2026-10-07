@@ -182,6 +182,23 @@ def _scrub_connections(doc, run: _Run) -> None:
         run.leftover("connection attribute", attr, f"kept, not judged: {n} connection(s) have it")
 
 
+_XML_BASE = "{http://www.w3.org/XML/1998/namespace}base"
+_XML_BASE_NAME = "xml:base"
+
+
+def _scrub_xml_base(doc, run: _Run) -> None:
+    """`xml:base` on the workbook element is the server the workbook was published to."""
+    if not run.active("servers"):
+        return
+    new = "https://example.invalid" if run.placeholders else ""
+    for el in doc.iter():
+        value = el.get(_XML_BASE) if isinstance(el.tag, str) else None
+        if value and value != new:
+            run.secrets.add(value)
+            el.set(_XML_BASE, new)
+            run.removed["servers"] += 1
+
+
 _TABLE_PARTS = re.compile(r"(?<=\])\.(?=\[)")
 
 
@@ -297,7 +314,7 @@ def _find_leftovers(doc, run: _Run) -> None:
     for el in doc.iter():
         if not isinstance(el.tag, str):
             continue
-        texts = [(f"@{k}", v) for k, v in el.attrib.items()] + ([("text", el.text)] if el.text and el.text.strip() else [])
+        texts = [(f"@{_XML_BASE_NAME if k == _XML_BASE else k}", v) for k, v in el.attrib.items()] + ([("text", el.text)] if el.text and el.text.strip() else [])
         for where, text in texts:
             if any(p.search(text) for p in patterns):
                 kind = "removed value still present"
@@ -488,6 +505,7 @@ def sanitize(
     doc = copy.deepcopy(workbook.xml_doc)
     _strip_misc(doc, run)
     _scrub_connections(doc, run)
+    _scrub_xml_base(doc, run)
     _scrub_table_names(doc, run)
     _scrub_sql(doc, run)
     _replace_in_captions(doc, run)

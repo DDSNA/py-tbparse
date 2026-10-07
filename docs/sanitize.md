@@ -19,7 +19,7 @@ From Python: `sanitize(path, out, keep=(), placeholders=False, fake_data=False, 
 | Category | What |
 | --- | --- |
 | `usernames`, `passwords` | `username` and `password` of every connection |
-| `servers` | `server`, `port`, `warehouse`, `service`, `tenant`, `odbc-connect-string-extras` |
+| `servers` | `server`, `port`, `warehouse`, `service`, `tenant`, `odbc-connect-string-extras`, and the `xml:base` of the workbook (the server it was published to) |
 | `databases`, `schemas` | `dbname`, `schema`, and the same names in the qualifier of a relation's `table` (`[acme_dw].[orders]` becomes `[schema].[orders]`) |
 | `paths` | an absolute `directory`; the folder part of a `filename` (the file name stays) |
 | `custom_sql` | custom SQL (replaced by `SELECT 1`), `<initial-sql>`, `one-time-sql`. The report says where, never the text |
