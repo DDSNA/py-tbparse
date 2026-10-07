@@ -2,10 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    # hotfix/** : the commit a hotfix release is cut from needs the full run (AGENTS.md, Versioning).
+    branches: [main, master, "hotfix/**"]
+  # No branches filter: a PR runs for any base branch, including hotfix/**.
   pull_request:
     # A PR that only changes prose or the README pictures has nothing for the tests to see.
-    # Pushes to main always run everything.
+    # Pushes to main and hotfix/** always run everything.
     paths-ignore:
       - "**/*.md"
       - "docs/**/*.png"

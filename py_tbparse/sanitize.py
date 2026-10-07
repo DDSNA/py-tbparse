@@ -25,7 +25,7 @@ from typing import Iterable, Optional, Union
 
 from lxml import etree
 
-from ._xml import ANY_RELATION
+from ._xml import ANY_RELATION, check_package, read_member
 from .parser import TwbParser
 from .templates import (
     DataSource,
@@ -182,6 +182,23 @@ def _scrub_connections(doc, run: _Run) -> None:
         run.leftover("connection attribute", attr, f"kept, not judged: {n} connection(s) have it")
 
 
+_XML_BASE = "{http://www.w3.org/XML/1998/namespace}base"
+_XML_BASE_NAME = "xml:base"
+
+
+def _scrub_xml_base(doc, run: _Run) -> None:
+    """`xml:base` on the workbook element is the server the workbook was published to."""
+    if not run.active("servers"):
+        return
+    new = "https://example.invalid" if run.placeholders else ""
+    for el in doc.iter():
+        value = el.get(_XML_BASE) if isinstance(el.tag, str) else None
+        if value and value != new:
+            run.secrets.add(value)
+            el.set(_XML_BASE, new)
+            run.removed["servers"] += 1
+
+
 _TABLE_PARTS = re.compile(r"(?<=\])\.(?=\[)")
 
 
@@ -297,7 +314,7 @@ def _find_leftovers(doc, run: _Run) -> None:
     for el in doc.iter():
         if not isinstance(el.tag, str):
             continue
-        texts = [(f"@{k}", v) for k, v in el.attrib.items()] + ([("text", el.text)] if el.text and el.text.strip() else [])
+        texts = [(f"@{_XML_BASE_NAME if k == _XML_BASE else k}", v) for k, v in el.attrib.items()] + ([("text", el.text)] if el.text and el.text.strip() else [])
         for where, text in texts:
             if any(p.search(text) for p in patterns):
                 kind = "removed value still present"
@@ -407,6 +424,7 @@ def _write_zip(parser: TwbParser, twb: bytes, extra: dict[str, bytes], run: _Run
     with zipfile.ZipFile(out, "w") as dst:
         if parser.twbx_path:
             with zipfile.ZipFile(parser.twbx_path) as src:
+                check_package(src)
                 for info in src.infolist():
                     if info.filename == twb_name:
                         dst.writestr(info, twb, compress_type=info.compress_type)
@@ -419,7 +437,7 @@ def _write_zip(parser: TwbParser, twb: bytes, extra: dict[str, bytes], run: _Run
                         continue
                     suffix = Path(info.filename).suffix.lower() or "(no extension)"
                     kept_other[suffix] = kept_other.get(suffix, 0) + 1
-                    dst.writestr(info, src.read(info.filename), compress_type=info.compress_type)
+                    dst.writestr(info, read_member(src, info), compress_type=info.compress_type)
         else:
             info = zipfile.ZipInfo(twb_name, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
@@ -488,6 +506,7 @@ def sanitize(
     doc = copy.deepcopy(workbook.xml_doc)
     _strip_misc(doc, run)
     _scrub_connections(doc, run)
+    _scrub_xml_base(doc, run)
     _scrub_table_names(doc, run)
     _scrub_sql(doc, run)
     _replace_in_captions(doc, run)

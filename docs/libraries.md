@@ -36,6 +36,7 @@ Options: `export` takes `--datasource` (needed when several datasources have a c
    - `fail-unmapped`: it needs a field the target has no match for. Whatever depends on it becomes `fail-dependency`. The others are still added.
    - `add`: the formula is rewritten to the target's field names and written after the target's last column. Parameters go into the `Parameters` datasource (created if the workbook has none).
    - `add-renamed` or `skip-clash`: the target already has a different field with that caption. `--on-clash rename` adds `(2)` to the caption, or the next free number; `skip` keeps the target's field and points the new calculations at it; `fail` (the default) stops before anything is written. Until this change the command line defaulted to `rename` while the Libraries view defaulted to `fail`; both are `fail` now. The Python functions (`plan_import`, `import_library`...) still default to `rename`.
+   - `skip-identical` compares the formula after the renames of its dependencies are applied, so a calculation whose dependency was renamed is added (`add-renamed` if its name is taken), not skipped.
 4. An internal name that is taken (parameters are usually all `[Parameter 1]`) is replaced by a free one, and every formula that uses it follows. Nobody sees this in Tableau.
 
 Text in quotes is never rewritten: `"[Sales] is "` stays as it is.

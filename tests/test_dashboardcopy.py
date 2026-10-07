@@ -202,6 +202,17 @@ def test_unknown_and_no_dashboards_abort(src, dst):
         plan_dashboard_copy(src, dst, [])
 
 
+def test_dependent_of_a_clashing_calc_is_renamed_too(tmp_path, src):
+    t = write(tmp_path, target_text(ds=datasource(calc_formula="[Sales] * 3")), "dep.twb")
+    with pytest.raises(SheetCopyAbort):
+        plan_dashboard_copy(src, t, ["Dash"])
+    data, rep = build_dashboard_copy(src, t, ["Dash"], on_clash="rename")
+    acts = {r["name"]: r["action"] for r in rep["library"]}
+    assert acts["[Double]"] == "add-renamed" and acts["[Ratio]"] == "add-renamed"
+    rep = plan_dashboard_copy(src, t, ["Dash"], on_clash="skip")
+    assert rep["copied"] == 0 and rep["refused"] == 1
+
+
 def test_parameter_clash_rename_reaches_the_dashboard(tmp_path, src):
     params = PARAMS.replace("value='2'", "value='5'").replace("formula='2'", "formula='5'")
     t = write(tmp_path, target_text().replace(PARAMS, params), "p.twb")
@@ -330,3 +341,30 @@ def test_dashboard_only_calc_the_target_cannot_take_refuses_the_dashboard(tmp_pa
     rep = plan_dashboard_copy(s, dst, ["Dash"])
     assert rep["refused"] == 1 and "Extra" in rep["dashboards"][0]["reason"]
     assert rep["sheets"] == []
+
+
+TWO_ACTIONS = """<actions>
+<action caption='A one' name='[Action1_AAAA]'><activation type='on-select'/>
+  <source dashboard='Dash' type='sheet' worksheet='Sheet 1'/>
+  <command command='tsc:brush'><param name='target' value='Elsewhere'/></command></action>
+<action caption='A two' name='[Action2_BBBB]'><activation type='on-select'/>
+  <source dashboard='Dash 2' type='sheet' worksheet='Sheet 3'/>
+  <command command='tsc:brush'><param name='target' value='Elsewhere'/></command></action>
+</actions>"""
+
+
+def test_each_dashboard_lists_only_the_dropped_actions_that_touch_it(tmp_path):
+    other = (DASH.replace("name='Dash'", "name='Dash 2'").replace("33333333-3333-3333-3333-333333333333",
+             "77777777-7777-7777-7777-777777777777").replace("name='Sheet 2'", "name='Sheet 4'")
+             .replace("name='Sheet 1'", "name='Sheet 3'"))
+    sheet3 = SHEET.replace("Sheet 1", "Sheet 3").replace("11111111-1111", "88888888-8888")
+    sheet4 = SHEET.replace("Sheet 1", "Sheet 4").replace("11111111-1111", "99999999-9999")
+    wb = source_text(actions=False).replace("</worksheets>", sheet3 + sheet4 + "</worksheets>")
+    wb = wb.replace("</dashboards>", other + "</dashboards>").replace("<worksheets>", TWO_ACTIONS + "<worksheets>", 1)
+    s = write(tmp_path, wb, "two.twb")
+    t = write(tmp_path, target_text().replace(PARAMS, ""), "t.twb")
+    rep = plan_dashboard_copy(s, t, ["Dash", "Dash 2"])
+    got = {d["dashboard"]: [x for x in d["dropped"] if x.startswith("action ")] for d in rep["dashboards"]}
+    assert len(got["Dash"]) == 1 and "A one" in got["Dash"][0]
+    assert len(got["Dash 2"]) == 1 and "A two" in got["Dash 2"][0]
+    assert len(rep["actions"]) == 2

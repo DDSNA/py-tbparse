@@ -303,3 +303,35 @@ def test_port_is_removed_but_not_hunted_for(tmp_path):
     assert "port='5432'" not in out.read_text(encoding="utf-8")
     assert report["removed"]["servers"] >= 2
     assert not [i for i in report["leftovers"] if "column 'Port'" in i["note"]]
+
+XML_BASE_TWB = """<?xml version='1.0' encoding='utf-8' ?>
+<workbook version='18.1' xml:base='https://tableau.internal-corp.example' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources/>
+</workbook>
+"""
+
+
+def test_xml_base_server_is_removed(tmp_path):
+    src = tmp_path / "base.twb"
+    src.write_text(XML_BASE_TWB, encoding="utf-8")
+    out, report = tmp_path / "out.twb", {}
+    sanitize(src, out, report=report)
+    text = out.read_text(encoding="utf-8")
+    assert "internal-corp" not in text
+    assert report["removed"]["servers"] == 1
+    assert not any("XML/1998" in item["where"] for item in report["leftovers"])
+    sanitize(out, tmp_path / "again.twb", report=report)
+    assert report["removed"]["servers"] == 0
+
+
+def test_xml_base_placeholder_and_keep(tmp_path):
+    src = tmp_path / "base.twb"
+    src.write_text(XML_BASE_TWB, encoding="utf-8")
+    sanitize(src, tmp_path / "ph.twb", placeholders=True)
+    text = (tmp_path / "ph.twb").read_text(encoding="utf-8")
+    assert "internal-corp" not in text and "https://example.invalid" in text
+    report = {}
+    sanitize(src, tmp_path / "kept.twb", keep=("servers",), report=report)
+    assert "internal-corp" in (tmp_path / "kept.twb").read_text(encoding="utf-8")
+    where = [item["where"] for item in report["leftovers"] if item["kind"] == "web address"]
+    assert where == ["workbook @xml:base"]
