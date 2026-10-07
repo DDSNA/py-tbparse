@@ -102,6 +102,29 @@ def test_calc_clash_fails_by_default_and_renames_on_request(tmp_path, src):
     assert new[1:-1] in etree.tostring(ws).decode()          # the sheet now points at the renamed calculation
 
 
+def test_dependent_of_a_clashing_calc_is_renamed_too_not_taken_as_identical(tmp_path, src):
+    # the target's [Double] is x3 and its [Ratio] has the source's text; [Ratio] would use the other [Double]
+    clash = write(tmp_path, target_text(ds=datasource(calc_formula="[Sales] * 3")), "dep.twb")
+    with pytest.raises(SheetCopyAbort, match="on_clash='fail'"):
+        plan_sheet_copy(src, clash, ["Sheet 1"])
+    data, rep = build_sheet_copy(src, clash, ["Sheet 1"], on_clash="rename")
+    acts = {r["name"]: r for r in rep["library"]}
+    assert acts["[Double]"]["action"] == "add-renamed" and acts["[Ratio]"]["action"] == "add-renamed"
+    doc = out_doc(data)
+    ws = etree.tostring(doc.xpath("/workbook/worksheets/worksheet[@name='Sheet 1']")[0]).decode()
+    assert acts["[Ratio]"]["target_name"][1:-1] in ws       # the sheet uses the new Ratio, not the target's
+    cols = {c.get("name"): c.find("calculation").get("formula")
+            for c in doc.xpath(f"/workbook/datasources/datasource[@name='{DS}']/column[calculation]")}
+    assert cols[acts["[Ratio]"]["target_name"]].startswith(acts["[Double]"]["target_name"])
+
+
+def test_dependent_of_a_clashing_calc_refuses_the_sheet_under_skip(tmp_path, src):
+    clash = write(tmp_path, target_text(ds=datasource(calc_formula="[Sales] * 3")), "dep.twb")
+    rep = plan_sheet_copy(src, clash, ["Sheet 1"], on_clash="skip")
+    assert rep["copied"] == 0 and rep["refused"] == 1
+    assert "[Ratio]" in rep["sheets"][0]["reason"]
+
+
 def test_parameter_clash_renames_internal_name(tmp_path, src):
     params = PARAMS.replace("value='2'", "value='5'").replace("formula='2'", "formula='5'")
     wb = target_text().replace(PARAMS, params)
@@ -149,6 +172,12 @@ def test_other_connection_blend_and_missing_field_are_refused(tmp_path, src):
     blend = SHEET.replace("</datasources>", "<datasource name='federated.bbb'/></datasources>")
     b = write(tmp_path, workbook(sheet=blend), "b.twb")
     assert "blend" in plan_sheet_copy(b, src, ["Sheet 1"])["sheets"][0]["reason"]
+
+
+def test_target_without_worksheets_and_datasources_aborts_cleanly(tmp_path, src):
+    empty = write(tmp_path, "<?xml version='1.0' encoding='utf-8' ?><workbook version='18.1'/>", "empty.twb")
+    with pytest.raises(SheetCopyAbort, match="neither worksheets nor datasources"):
+        plan_sheet_copy(src, empty, ["Sheet 1"])
 
 
 def test_unknown_sheet_and_no_sheets_abort(src, dst):

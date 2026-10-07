@@ -37,7 +37,7 @@ import pandas as pd
 from lxml import etree
 
 from ._clean import is_missing
-from ._xml import parse_file
+from ._xml import check_package, parse_file, read_member
 from .parser import TwbParser
 from .rename import _match_key, _words
 from .usage import field_usage
@@ -321,13 +321,14 @@ def _package(parser: TwbParser, twb: bytes, extra: dict[str, bytes], keep_data: 
         if parser.twbx_path:
             twb_name = parser.twb_name
             with zipfile.ZipFile(parser.twbx_path) as src:
+                check_package(src)
                 for info in src.infolist():
                     if info.filename == twb_name:
                         dst.writestr(info, twb, compress_type=info.compress_type)
                     elif info.filename in drop or (not keep_data and _is_data_member(info.filename)):
                         continue
                     else:
-                        dst.writestr(info, src.read(info.filename), compress_type=info.compress_type)
+                        dst.writestr(info, read_member(src, info), compress_type=info.compress_type)
         else:
             dst.writestr(_member(Path(parser.path).name), twb)
         for name, data in extra.items():
@@ -507,7 +508,7 @@ def load_template(path: str) -> Template:
     with zipfile.ZipFile(path) as z:
         if MANIFEST_NAME not in z.namelist():
             raise TemplateError(f"{path} has no {MANIFEST_NAME}; make one with `py-tbparse template make`")
-        raw = z.read(MANIFEST_NAME)
+        raw = read_member(z, MANIFEST_NAME)
     manifest = json.loads(raw.decode("utf-8"))
     if not isinstance(manifest, dict):
         raise TemplateError(f"{path}: {MANIFEST_NAME} is not a template manifest (a JSON object was expected)")
@@ -619,6 +620,8 @@ def _read_excel(p: Path, sheet: Union[str, int, None]) -> DataSource:
     except ImportError:
         raise TemplateError(f"reading {p.name} needs openpyxl: pip install 'py-tbparse[excel]'") from None
     try:
+        with zipfile.ZipFile(p) as z:
+            check_package(z)
         book = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
     except (zipfile.BadZipFile, KeyError, openpyxl.utils.exceptions.InvalidFileException) as e:
         raise TemplateError(f"{p.name} is not a readable Excel file: {e}") from None
@@ -1751,4 +1754,4 @@ def read_answers(path: str) -> Optional[dict]:
     with zipfile.ZipFile(path) as z:
         if ANSWERS_NAME not in z.namelist():
             return None
-        return json.loads(z.read(ANSWERS_NAME).decode("utf-8"))
+        return json.loads(read_member(z, ANSWERS_NAME).decode("utf-8"))

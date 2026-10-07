@@ -35,6 +35,8 @@ A refused sheet is listed with the reason and the others are copied (exit code 2
 
 A bin of the same name with another definition is always a refusal of that sheet.
 
+A calculation that uses a clashing one counts as clashing too, even when its own formula text matches the target's, because it would show other values there. `rename` renames it and points the sheet at it; `skip` refuses the sheet and names the calculations (keeping the target's version would change the numbers).
+
 ## What is dropped
 
 Dropped and reported, never silently:

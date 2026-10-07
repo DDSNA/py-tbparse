@@ -711,11 +711,7 @@ def _plan(parser: TwbParser, library: dict, datasource: Optional[str], mapping, 
                 row(e, "skip-identical", e["name"], same.get("caption") or "", "the target has this parameter")
                 continue
         else:
-            same = t_cols.get(e["name"])
-            if same is not None and _identical_calc(same, e.get("caption"), e.get("datatype"), e["formula"]):
-                names[e["name"]] = e["name"]
-                row(e, "skip-identical", e["name"], same.get("caption") or "", "the target has this calculation")
-                continue
+            pass
         if not is_param:
             u = _uses(e, ds_names)
             lacking = [r for r in u["locals"] + u["ordering"] if (False, r) in unmapped]
@@ -725,6 +721,12 @@ def _plan(parser: TwbParser, library: dict, datasource: Optional[str], mapping, 
                 row(e, "fail-unmapped", reason="the target has no match for " + ", ".join(dict.fromkeys(lacking)))
                 continue
             formula = rewrite_formula(e["formula"], names, params, ds_names)
+            same = t_cols.get(e["name"])
+            # compare the rewritten formula: a renamed dependency changes what this calculation computes
+            if same is not None and _identical_calc(same, e.get("caption"), e.get("datatype"), formula):
+                names[e["name"]] = e["name"]
+                row(e, "skip-identical", e["name"], same.get("caption") or "", "the target has this calculation")
+                continue
             if e.get("caption"):
                 twin = next((c for c in t_cols.values() if c.get("caption") == e["caption"]
                              and _identical_calc(c, e["caption"], e.get("datatype"), formula)), None)

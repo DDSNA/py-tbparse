@@ -87,10 +87,17 @@ def _open_tag(el: etree._Element, parent_ns: dict) -> str:
     return " ".join(parts)
 
 
+def _add(out: list[str], pad: str, text: str) -> None:
+    """One list element per line, so that counts and hunks match what a reader sees; a continuation keeps the pad."""
+    first, *rest = text.split("\n")
+    out.append(pad + first)
+    out.extend(pad + line for line in rest)
+
+
 def _emit(el: etree._Element, depth: int, parent_ns: dict, out: list[str]) -> None:
     pad = _INDENT * depth
     if not isinstance(el.tag, str):  # comment or processing instruction
-        out.append(pad + etree.tostring(el, encoding="unicode", with_tail=False).replace("\r\n", "\n"))
+        _add(out, pad, etree.tostring(el, encoding="unicode", with_tail=False).replace("\r\n", "\n"))
         return
     head = _open_tag(el, parent_ns)
     name = _qname(el, el.tag)
@@ -99,15 +106,15 @@ def _emit(el: etree._Element, depth: int, parent_ns: dict, out: list[str]) -> No
     if children and not text.strip():
         text = ""
     if not children:
-        out.append(f"{pad}<{head}>{_text(text)}</{name}>")
+        _add(out, pad, f"<{head}>{_text(text)}</{name}>")
         return
-    out.append(f"{pad}<{head}>{_text(text)}")
+    _add(out, pad, f"<{head}>{_text(text)}")
     ns = {p or "": u for p, u in el.nsmap.items()}
     for child in children:
         _emit(child, depth + 1, ns, out)
         tail = child.tail or ""
         if tail.strip():
-            out.append(_INDENT * (depth + 1) + _text(tail))
+            _add(out, _INDENT * (depth + 1), _text(tail))
     out.append(f"{pad}</{name}>")
 
 

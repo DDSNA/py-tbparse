@@ -2319,16 +2319,15 @@ class Handler(BaseHTTPRequestHandler):
             self._refuse_post(403, "cross-origin request rejected")
             return
 
-        if self.path.startswith(("/template/", "/library/", "/style/", "/copy/")):
-            declared = self._declared_length()
-            if declared < 0:
-                self._refuse_post(400, "bad Content-Length")
-                return
-            if declared > MAX_JSON_BYTES:
-                self._refuse_post(413, f"That request is too big (the limit is {MAX_JSON_BYTES // 1024} KB).")
-                return
+        # Every JSON route is checked here, once, so a new route cannot forget it.
+        length = self._declared_length()
+        if length < 0:
+            self._refuse_post(400, "bad Content-Length")
+            return
+        if length > MAX_JSON_BYTES:
+            self._refuse_post(413, f"That request is too big (the limit is {MAX_JSON_BYTES // 1024} KB).")
+            return
 
-        length = int(self.headers.get("Content-Length", 0) or 0)
         raw = self.rfile.read(length) if length else b"{}"
         try:
             payload = json.loads(raw or b"{}")

@@ -321,11 +321,15 @@ def _run_dashboards(source, target, dashboards: Iterable[str], on_clash: str = "
     # actions internal to the copied set
     dbmap = {d: results[d]["new_name"] for d in live}
     carried, action_rows = _plan_actions(sdoc, set(dbmap), set(sheetmap))
+    named: dict = {}
+    for a in sdoc.xpath("/workbook/actions/action"):
+        sd, sw, targets, _ = _action_sets(a)
+        named.setdefault(a.get("name"), set()).update(x for x in [sd, sw, *targets] if x)
     for row in action_rows:
         if row["status"] == "dropped":
             for d in live:
-                results[d]["dropped"].append(f"action {row['caption'] or row['name']}: {row['reason']}")
-            break
+                if named.get(row["name"], set()) & ({d} | set(info[d]["sheets"])):
+                    results[d]["dropped"].append(f"action {row['caption'] or row['name']}: {row['reason']}")
     if strict and any(results[d]["dropped"] for d in live):
         what = "; ".join(f"{d}: {', '.join(results[d]['dropped'])}" for d in live if results[d]["dropped"])
         raise SheetCopyAbort("--strict: the copy would drop " + what)
