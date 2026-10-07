@@ -116,3 +116,19 @@ py-tbparse sheet copy ${F}lod-expression.twb --sheets "LODRevenue" --to ${F}calc
 `copy1.twb` has the action filter of `line-chart` dropped on purpose; `copy2.twb` and `copy3.twb` each add one calculation to the target. Add `--on-clash rename` if the target already has a sheet of that name.
 
 For each: does it open without an error or repair message? Is the copied sheet in the tabs with the same chart? Are the added calculations and parameters in the data pane with the right values? Did a renamed one (`X (2)`) take the place of the old name in the sheet? Is any field marked with a red `!`? Does a sheet that had an action filter draw all its data (the filter is dropped on purpose)? Then save, close, reopen and note any warning.
+
+## Copied dashboards (`dashboard copy`)
+
+Workbooks written by `py-tbparse dashboard copy` have not been opened in Tableau. The corpus is not in the repository (`python scripts/fetch_corpus.py`). Three copies, each between two workbooks of the corpus that share a datasource (the plan without `--write` shows the sheets, the actions carried and the actions dropped):
+
+```bash
+F=tests/corpus/files/Kilo-Org__kilo-marketplace__
+py-tbparse dashboard copy ${F}action-filter.twb --dashboards "Dashboard 3" --to ${F}calculated-field.twb --write -o dcopy1.twb
+py-tbparse dashboard copy ${F}multi-sheet-layout.twb --dashboards "Dashboard 2" --to ${F}lod-expression.twb --write -o dcopy2.twb
+W=tests/corpus/files/Willie-Conway__Meta-Data-Analyst-Portfolio__
+py-tbparse dashboard copy "${W}Monthly_Analysis_of_Facebook_Ad_Clicks.twb" --dashboards "Dashboard 1" --to "${W}Facebook_Conversions_-_A_line_Chart_Analysis.twb" --on-clash rename --write -o dcopy3.twb
+```
+
+`dcopy1.twb` carries one action and drops the action filter state of one sheet on purpose. `dcopy3.twb` renames what already exists.
+
+For each: does it open without an error or repair message? Is the dashboard in the tabs, with every sheet drawn in its zone and the same layout? Do its quick filters, parameter controls and legends work and show the same values? Does a carried action fire when you select a mark, and does it filter the sheets it should? Are the sheets of the dashboard hidden in the tabs as in the source? Is any field marked with a red `!`? Then save, close, reopen and note any warning.
