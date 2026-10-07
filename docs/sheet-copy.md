@@ -45,6 +45,6 @@ Dropped and reported, never silently:
 
 ## Not covered
 
-Dashboards (the next slice), actions, thumbnails (the copy has none), sets, groups and bins to add, blends, a datasource the target lacks, a different internal name for the same connection, field mapping inside sheets, and images or shapes of a `.twbx`. The result is checked against the schema and the dashboard integrity check relative to both workbooks, and over the corpus (`tests/test_sheetcopy_corpus.py`, skipped when the corpus is not fetched); none of that proves Tableau opens it. See [verify-in-tableau.md](verify-in-tableau.md).
+Dashboards (see [dashboard-copy.md](dashboard-copy.md)), actions, thumbnails (the copy has none), sets, groups and bins to add, blends, a datasource the target lacks, a different internal name for the same connection, field mapping inside sheets, and images or shapes of a `.twbx`. The result is checked against the schema and the dashboard integrity check relative to both workbooks, and over the corpus (`tests/test_sheetcopy_corpus.py`, skipped when the corpus is not fetched); none of that proves Tableau opens it. See [verify-in-tableau.md](verify-in-tableau.md).
 
 Python: `plan_sheet_copy(source, target, sheets, on_clash="fail", strict=False)`, `build_sheet_copy(...)` (bytes and report) and `copy_sheets(..., output_path=None, overwrite=False)` in `py_tbparse.sheetcopy`.
