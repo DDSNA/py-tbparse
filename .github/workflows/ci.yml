@@ -71,6 +71,9 @@ jobs:
       - name: Build image
         run: docker build -t py-tbparse:ci .
 
+      - name: The image can read Excel data (openpyxl)
+        run: docker run --rm --entrypoint python py-tbparse:ci -c "import openpyxl"
+
       - name: Run it read-only, as a proxy would reach it
         run: |
           docker run -d --name tbparse -p 8080:8080 --read-only --tmpfs /tmp:size=64m \
