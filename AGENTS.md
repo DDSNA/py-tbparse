@@ -479,6 +479,10 @@ animations on those tokens.
 (built by `scripts/make_demo_workbook.py`, which is the one place that workbook is defined); run both after a
 visible change.
 
+`scripts/guide_screenshots.py [--out DIR]` retakes the user's guide images in the README (`docs/guide-*.png`) from the
+public corpus workbook `Brushing_Superstore_Sales_Map.twb` (fetch the corpus first), sanitized into a temporary folder;
+never commit the corpus file. The guide text quotes what those screens show, so reread the guide after retaking them.
+
 `scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures the GUI states (start,
 overview and fields in light and dark, renames, graph, phone width, and the Templates view: empty, mapping, review, make) deterministically. Use it for GUI
 refactors: a pure refactor must compare all-identical to the baseline taken before it; a redesign is expected to
