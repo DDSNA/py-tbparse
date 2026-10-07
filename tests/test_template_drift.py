@@ -417,6 +417,29 @@ def test_save_answers_writes_the_union_block_and_never_overwrites(template, mont
     assert again.attrs["saved_fingerprint"] == again.attrs["fingerprint"]
 
 
+def test_save_answers_without_a_matching_entry_writes_nothing(template, monthly, tmp_path):
+    path = _answers(tmp_path, template)
+    data = json.loads(Path(path).read_text())
+    data["datasources"][0]["datasource"] = "other.datasource"
+    data["datasource"] = "other.datasource"
+    Path(path).write_text(json.dumps(data), encoding="utf-8")
+    out = tmp_path / "none.answers.json"
+    name = load_answers_template(template)["datasources"][0]["name"]
+    with pytest.raises(TemplateError, match="nothing to replace"):
+        save_union_answers(template, str(monthly), str(out), answers=path, datasource=name)
+    assert not out.exists()
+
+
+def test_save_answers_refuses_an_output_that_appears_after_the_check(template, monthly, tmp_path, monkeypatch):
+    out = tmp_path / "late.answers.json"
+    real = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda self: False if self == out else real(self))
+    out.write_text("keep me", encoding="utf-8")
+    with pytest.raises(FileExistsError):
+        save_union_answers(template, str(monthly), str(out), answers=_answers(tmp_path, template))
+    assert out.read_text(encoding="utf-8") == "keep me"
+
+
 def test_applying_to_answers_that_hold_many_files_says_so(template, tmp_path, monthly):
     out = tmp_path / "new.answers.json"
     save_union_answers(template, str(monthly), str(out), answers=_answers(tmp_path, template))

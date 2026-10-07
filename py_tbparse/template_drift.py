@@ -433,12 +433,18 @@ def save_union_answers(source, files, output: str, answers=None, datasource: Opt
     block = ctx.multi.block(str(out.resolve().parent))
     saved.pop("_base_dir", None)
     name = ctx.entry["name"]
+    replaced = False
     for e in saved.get("datasources") or []:
         if e.get("datasource") == name:
             e["data"] = block
+            replaced = True
     if saved.get("datasource") == name:
         saved["data"] = block
-    out.write_text(json.dumps(saved, indent=2), encoding="utf-8")
+        replaced = True
+    if not replaced:
+        raise TemplateError(f"the answers have no entry for datasource {name!r}; nothing to replace, nothing written")
+    with open(out, "x", encoding="utf-8") as fh:
+        fh.write(json.dumps(saved, indent=2))
     return str(out)
 
 
