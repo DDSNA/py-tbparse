@@ -151,6 +151,12 @@ def test_other_connection_blend_and_missing_field_are_refused(tmp_path, src):
     assert "blend" in plan_sheet_copy(b, src, ["Sheet 1"])["sheets"][0]["reason"]
 
 
+def test_target_without_worksheets_and_datasources_aborts_cleanly(tmp_path, src):
+    empty = write(tmp_path, "<?xml version='1.0' encoding='utf-8' ?><workbook version='18.1'/>", "empty.twb")
+    with pytest.raises(SheetCopyAbort, match="neither worksheets nor datasources"):
+        plan_sheet_copy(src, empty, ["Sheet 1"])
+
+
 def test_unknown_sheet_and_no_sheets_abort(src, dst):
     with pytest.raises(SheetCopyAbort, match="no worksheet named 'Nope'"):
         plan_sheet_copy(src, dst, ["Nope"])
