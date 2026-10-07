@@ -102,6 +102,38 @@ def test_calc_clash_fails_by_default_and_renames_on_request(tmp_path, src):
     assert new[1:-1] in etree.tostring(ws).decode()          # the sheet now points at the renamed calculation
 
 
+def test_refused_sheet_leaves_none_of_its_new_calculations_behind(tmp_path, monkeypatch):
+    # No real input reaches the planner's "fail" rows for a sheet that passed the checks before it, so the planner
+    # is made to refuse [Bad] here, as it does for a field it cannot map.
+    from py_tbparse import library as lib_mod
+    extra = ("<column name='[Other]' datatype='real' role='measure'><calculation class='tableau' formula='[Sales] * 7'/></column>"
+             "<column name='[Bad]' datatype='real' role='measure'><calculation class='tableau' formula='[Sales] * 8'/></column>")
+    ds = datasource().replace("<column name='[Size]'", extra + "<column name='[Size]'")
+    sheet2 = (SHEET.replace("Sheet 1", "Sheet 2").replace("[Ratio]", "[Other]").replace(":Ratio:", ":Other:")
+              .replace("11111111-1111", "99999999-9999")
+              .replace("</datasource-dependencies>", "<column-instance column='[Bad]' derivation='Sum' "
+                       "name='[sum:Bad:qk]' pivot='key' type='quantitative'/></datasource-dependencies>", 1)
+              .replace("<rows>", "<rows>[" + DS + "].[sum:Bad:qk] ", 1))
+    s = write(tmp_path, workbook(ds=ds, sheet=SHEET + sheet2), "two.twb")
+    t = write(tmp_path, target_text(ds=datasource(calcs=False)), "tgt.twb")
+    real = lib_mod._plan
+
+    def plan(*a, **kw):
+        table, actions, T = real(*a, **kw)
+        table = table.copy()
+        bad = table["name"] == "[Bad]"
+        table.loc[bad, "action"] = "fail-unmapped"
+        return table, [x for x in actions if x["entry"]["name"] != "[Bad]"], T
+
+    monkeypatch.setattr(lib_mod, "_plan", plan)
+    data, rep = build_sheet_copy(s, t, ["Sheet 1", "Sheet 2"])
+    status = {r["sheet"]: r["status"] for r in rep["sheets"]}
+    assert status == {"Sheet 1": "copy", "Sheet 2": "refused"}
+    cols = out_doc(data).xpath(f"/workbook/datasources/datasource[@name='{DS}']/column/@name")
+    assert "[Double]" in cols and "[Ratio]" in cols
+    assert "[Other]" not in cols and "[Bad]" not in cols
+    assert {a["name"] for a in rep["added"]} == {"[Double]", "[Ratio]"}
+
 def test_group_with_other_members_is_a_clash_under_every_policy(tmp_path):
     top = SHEET.replace("<rows>", f"<rows>[{DS}].[none:Top:nk]")
     s = write(tmp_path, workbook(sheet=top), "gsrc.twb")
