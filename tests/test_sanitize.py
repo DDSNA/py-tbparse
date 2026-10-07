@@ -291,6 +291,19 @@ def test_cli(twb, tmp_path, capsys):
     assert "--report" in capsys.readouterr().out
 
 
+def test_port_is_removed_but_not_hunted_for(tmp_path):
+    src = tmp_path / "port.twb"
+    text = TWB.replace("<relation connection='postgres.1xyz' name='orders'",
+                       "<column caption='Port' datatype='integer' name='[Calc]'><calculation class='tableau' formula='[Amount] + 5432'/></column>\n"
+                       "        <relation connection='postgres.1xyz' name='orders'", 1)
+    assert "+ 5432" in text
+    src.write_text(text, encoding="utf-8")
+    out, report = tmp_path / "out.twb", {}
+    sanitize(src, out, report=report)
+    assert "port='5432'" not in out.read_text(encoding="utf-8")
+    assert report["removed"]["servers"] >= 2
+    assert not [i for i in report["leftovers"] if "column 'Port'" in i["note"]]
+
 XML_BASE_TWB = """<?xml version='1.0' encoding='utf-8' ?>
 <workbook version='18.1' xml:base='https://tableau.internal-corp.example' xmlns:user='http://www.tableausoftware.com/xml/user'>
   <datasources/>
