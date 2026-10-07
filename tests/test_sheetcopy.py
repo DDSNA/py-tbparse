@@ -102,6 +102,20 @@ def test_calc_clash_fails_by_default_and_renames_on_request(tmp_path, src):
     assert new[1:-1] in etree.tostring(ws).decode()          # the sheet now points at the renamed calculation
 
 
+def test_group_with_other_members_is_a_clash_under_every_policy(tmp_path):
+    top = SHEET.replace("<rows>", f"<rows>[{DS}].[none:Top:nk]")
+    s = write(tmp_path, workbook(sheet=top), "gsrc.twb")
+    same = write(tmp_path, target_text(ds=datasource()), "gsame.twb")
+    assert plan_sheet_copy(s, same, ["Sheet 1"], on_clash="fail")["copied"] == 1
+    west = datasource().replace("&quot;East&quot;", "&quot;West&quot;")
+    t = write(tmp_path, target_text(ds=west), "gwest.twb")
+    with pytest.raises(SheetCopyAbort, match=r"on_clash='fail'.*\[Top\]"):
+        plan_sheet_copy(s, t, ["Sheet 1"], on_clash="fail")
+    for policy in ("rename", "skip"):
+        rep = plan_sheet_copy(s, t, ["Sheet 1"], on_clash=policy)
+        assert rep["copied"] == 0 and rep["refused"] == 1
+        assert "[Top]" in rep["sheets"][0]["reason"]
+
 def test_dependent_of_a_clashing_calc_is_renamed_too_not_taken_as_identical(tmp_path, src):
     # the target's [Double] is x3 and its [Ratio] has the source's text; [Ratio] would use the other [Double]
     clash = write(tmp_path, target_text(ds=datasource(calc_formula="[Sales] * 3")), "dep.twb")
