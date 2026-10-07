@@ -175,7 +175,7 @@ def test_every_variable_the_stylesheet_uses_is_defined():
 
 def test_text_is_never_faded_with_opacity():
     # `opacity` on text silently lowers contrast below AA; use the --faint colour instead. The only
-    # places it is fine: disabled buttons (exempt), the toast and its fade, and animation keyframes.
+    # places it is fine: the toast and its fade, and animation keyframes (disabled buttons use --muted on --hover).
     # (::placeholder sets opacity:1 to undo the browser's own fade, which is the opposite of fading.)
     allowed = {".btn:disabled", ".toast", ".toast.show", ".drawer", ".drawer.show", "from", "to", "::placeholder"}
     offenders = []
