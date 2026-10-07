@@ -300,6 +300,18 @@ def test_identical_under_other_name(source, library):
     assert any(c.find("calculation").get("formula") == "[Calculation_7777] - 0.2" for c in gap)
 
 
+def test_identical_calc_is_skipped_even_when_it_names_a_field_the_target_lacks(source, library):
+    # self-import of a workbook whose metadata no longer lists [Profit]: the calculations are the
+    # target's own, so they are identical, not "unmapped" (a regression from comparing rewritten formulas late)
+    doc = source.xml_doc
+    for rec in doc.xpath("//metadata-record[local-name='[Profit]']"):
+        rec.getparent().remove(rec)
+    t = TwbParser_from_bytes(etree.tostring(doc))
+    rows = plan_import(t, library)
+    rows = rows[rows["uid"] != ""]
+    assert set(rows["action"]) == {"skip-identical"}
+
+
 def test_unmapped_chain_skipped(library):
     # a target without Profit: everything that uses it fails, and what depends on those is skipped
     doc = TwbParser(str(FIX / "target.twb")).xml_doc
