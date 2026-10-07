@@ -809,6 +809,7 @@ def _lib_source(parser: TwbParser, datasource: str | None) -> dict:
         report: dict = {}
         lib = _library.export_library(parser, datasource=datasource, report=report)
         st["entries"][key] = {"entries": lib["entries"], "unsupported": report.get("unsupported_names", []),
+                              "auto": report.get("auto_names", []), "not_formula": report.get("not_formula_names", []),
                               "datasource": lib["source"]["datasource"], "caption": lib["source"]["datasource_caption"]}
     return st["entries"][key]
 
@@ -824,7 +825,8 @@ def _library_entries_answer(qs: dict) -> dict:
     if ds is None and sum(1 for c in choices if c["has_connection"]) > 1:
         # several datasources: the page must choose one (the CLI asks the same)
         return {"datasources": choices, "datasource": None, "needs_datasource": True, "entries": [], "matching": 0,
-                "total": 0, "offset": 0, "limit": LIBRARY_PAGE, "unsupported": [], "names": []}
+                "total": 0, "offset": 0, "limit": LIBRARY_PAGE, "unsupported": [], "names": [],
+                "auto": [], "auto_count": 0, "not_formula": [], "not_formula_count": 0}
     src = _lib_source(parser, ds)
     kind = (qs.get("kind") or [""])[0]
     if kind not in ("", "calc", "parameter"):
@@ -849,6 +851,9 @@ def _library_entries_answer(qs: dict) -> dict:
         "datasources": choices, "datasource": src["datasource"], "needs_datasource": False,
         "total": len(src["entries"]), "matching": len(rows), "offset": offset, "limit": limit, "entries": page,
         "unsupported": src["unsupported"][:50], "unsupported_count": len(src["unsupported"]),
+        # calculations never listed, so the page can say why the sidebar counts more than it shows
+        "auto": src["auto"][:50], "auto_count": len(src["auto"]),
+        "not_formula": src["not_formula"][:50], "not_formula_count": len(src["not_formula"]),
         # every matching internal name, for "select all that match" (names only, a few bytes each)
         "names": [e["name"] for e in rows] if (qs.get("names") or [""])[0] == "1" else [],
     }

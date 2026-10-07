@@ -111,10 +111,33 @@
     return bar;
   }
 
+  // Why calculations the sidebar counts are not in the list: the ones Tableau made itself and groups or bins.
+  // Calculations that use another datasource have their own line (libUnsupported).
+  function names(list, count) {
+    return list.slice(0, 8).join(', ') + (count > 8 ? ' and ' + num(count - 8) + ' more' : '');
+  }
+  function notListed() {
+    const out = [];
+    if (page.auto_count) {
+      out.push(D.plural(page.auto_count, 'calculation') + ' not listed because Tableau made '
+        + (page.auto_count === 1 ? 'it' : 'them') + ' itself (a record count, split field or date bin) and a library cannot hold '
+        + (page.auto_count === 1 ? 'it' : 'them') + ': ' + names(page.auto, page.auto_count) + '.');
+    }
+    if (page.not_formula_count) {
+      out.push(num(page.not_formula_count) + (page.not_formula_count === 1 ? ' group or bin' : ' groups or bins')
+        + ' not listed because ' + (page.not_formula_count === 1 ? 'it is' : 'they are') + ' not a formula: '
+        + names(page.not_formula, page.not_formula_count) + '.');
+    }
+    return out.join(' ');
+  }
+
   function entriesTable() {
     if (!page.entries.length) {
-      return D.el('p', 'lib-empty', page.total ? 'Nothing matches these filters.'
-        : 'This datasource has no calculated fields or parameters that a library can hold.');
+      const why = page.total ? '' : notListed();
+      const p = D.el('p', 'lib-empty', page.total ? 'Nothing matches these filters.'
+        : 'This datasource has no calculated fields or parameters that a library can hold.' + (why ? ' ' + why : ''));
+      p.id = 'libEmpty';
+      return p;
     }
     const wrap = D.el('div', 'lib-table-wrap');
     const t = D.el('table', 'lib-table'); t.id = 'libTable';
@@ -241,6 +264,10 @@
       const shown = page.unsupported.slice(0, 8).join(', ') + (page.unsupported_count > 8 ? ' and ' + (page.unsupported_count - 8) + ' more' : '');
       const n = D.el('p', 'lib-hint', page.unsupported_count + ' not listed because they use another datasource: ' + shown + '.');
       n.id = 'libUnsupported'; sec.appendChild(n);
+    }
+    if (page.total && notListed()) {
+      const n = D.el('p', 'lib-hint', notListed());
+      n.id = 'libNotListed'; sec.appendChild(n);
     }
     sec.append(selectionBar(), entriesTable(), entriesPager(), exportBlock());
     return sec;
