@@ -187,6 +187,28 @@ def test_nothing_to_add_disables_the_download(page, big, library_file):
     assert "nothing to add" in page.inner_text(".lib-go").lower()
 
 
+def test_an_empty_list_says_why_the_counted_calculation_is_not_there(page, tmp_path):
+    # the sidebar counts one calculated field; the list is empty because it is Tableau's own record count (#144)
+    _load(page, str(Path(__file__).parent / "fixtures" / "public" / "TABLEAU_10_TWBX.twbx"))
+    _open(page, "libraries")
+    page.wait_for_selector("#libEmpty", timeout=10_000)
+    text = page.inner_text("#libEmpty")
+    assert "no calculated fields or parameters that a library can hold" in text
+    assert "1 calculation not listed because Tableau made it itself" in text and "Number of Records" in text
+    assert page.locator("#libNotListed").count() == 0
+    assert page.js_errors == []
+
+
+def test_a_list_with_rows_also_names_what_it_leaves_out(page, tmp_path):
+    extra = ("<column caption='Region (group)' datatype='string' name='[Region (group)]' role='dimension' type='nominal'>"
+             "<calculation class='categorical-bin' column='[Region]' new-bin='true'/></column>")
+    path = workbook(tmp_path, calcs=CALCS[:2], ds_extra=extra, name="groups.twb")
+    _libraries(page, path)
+    _rows(page, 2)
+    assert page.inner_text("#libNotListed") == "1 group or bin not listed because it is not a formula: Region (group)."
+    assert page.js_errors == []
+
+
 def test_opening_another_workbook_resets_the_view(page, big, target, library_file):
     _libraries(page, big)
     page.check("#libRow0")

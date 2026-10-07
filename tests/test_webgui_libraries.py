@@ -342,6 +342,34 @@ def test_several_datasources_need_a_choice(server, tmp_path):
     assert _post(server, "/library/export", {"select": ["[Calculation_7]"], "datasource": "ds2"})[0] == 200
 
 
+# a record count Tableau made, and a group (a calculation whose class is not `tableau`): counted as calculated
+# fields elsewhere (the sidebar), never listed here (#144)
+NOT_LISTED = ("<column datatype='integer' name='[Number of Records]' role='measure' type='quantitative' "
+              "user:auto-column='numrec' xmlns:user='http://www.tableausoftware.com/xml/user'>"
+              "<calculation class='tableau' formula='1'/></column>"
+              "<column caption='Region (group)' datatype='string' name='[Region (group)]' role='dimension' type='nominal'>"
+              "<calculation class='categorical-bin' column='[Region]' new-bin='true'>"
+              "<bin default-name='false' value='&quot;East&quot;'><value>&quot;East&quot;</value></bin></calculation></column>")
+
+
+def test_the_empty_list_says_why_a_counted_calculation_is_missing(server):
+    # TABLEAU_10_TWBX's only calculation is Tableau's own record count: the sidebar counts it, the list cannot
+    _load(server, str(Path(__file__).parent / "fixtures" / "public" / "TABLEAU_10_TWBX.twbx"))
+    status, body = _get(server, "/library/entries")
+    assert status == 200 and body["total"] == 0 and body["entries"] == []
+    assert body["auto"] == ["Number of Records"] and body["auto_count"] == 1
+    assert body["not_formula"] == [] and body["not_formula_count"] == 0 and body["unsupported_count"] == 0
+
+
+def test_entries_name_the_calculations_they_leave_out(server, tmp_path):
+    path = workbook(tmp_path, calcs=CALCS[:1], ds_extra=NOT_LISTED, name="left-out.twb")
+    _load(server, path)
+    _, body = _get(server, "/library/entries")
+    assert [e["caption"] for e in body["entries"]] == ["Ratio"]
+    assert body["auto"] == ["Number of Records"] and body["auto_count"] == 1
+    assert body["not_formula"] == ["Region (group)"] and body["not_formula_count"] == 1
+
+
 def test_the_script_is_served_and_static_names_are_fixed(server):
     status, data, headers = _req(server, "/static/libraries.js")
     assert status == 200 and headers["Content-Type"].startswith("text/javascript") and b"LibrariesView" in data

@@ -298,7 +298,10 @@ def export_library(
     calculation uses; without it they are listed as required. A calculation that refers to another
     datasource is not exported (nor what depends on it); it is counted in `report['unsupported']`.
 
-    `report`, if a dict, receives `exported`, `required`, `unsupported` (counts) and `unsupported_names`.
+    `report`, if a dict, receives `exported`, `required`, `unsupported` (counts) and `unsupported_names`, plus
+    what is never exported: `auto`/`auto_names` (columns Tableau made, left out of an export of everything; empty
+    when `select` or `folder` is given) and `not_formula`/`not_formula_names` (groups and bins, whose calculation
+    class is not `tableau`).
     """
     doc = parser.xml_doc
     ds = _pick_datasource(doc, datasource, Path(parser.twbx_path or parser.path).name)
@@ -421,6 +424,17 @@ def export_library(
         names = sorted(_unbracket(n) for n in unsupported if n in set(chosen) | _closure_names(chosen, uses, cols))
         report.update(exported=len(result["entries"]), required=len(result["required"]),
                       unsupported=len(names), unsupported_names=names)
+        # what an export of everything leaves out besides `unsupported`, so a caller can say why a calculation
+        # it counted elsewhere is missing: columns Tableau made itself, and calculations that are not a formula
+        # (groups, bins: their <calculation> class is not `tableau`)
+        if select is None and folder is None:
+            auto = sorted(_unbracket(c.get("caption") or n) for n, c in cols.items() if _is_auto(c) and n not in out_calcs)
+        else:
+            auto = []
+        other = sorted(_unbracket(c.get("caption") or c.get("name"))
+                       for c in ds.xpath("./column[@name][calculation]")
+                       if _calc_class(c) != "tableau" and not c.get("param-domain-type"))
+        report.update(auto=len(auto), auto_names=auto, not_formula=len(other), not_formula_names=other)
     return result
 
 
