@@ -26,10 +26,10 @@ docker run -d --name tbparse -p 127.0.0.1:8080:8080 \
 
 ## Published image
 
-From the next GitHub Release on, each release also publishes the image to the GitHub Container Registry, tagged with
-the release version (without the leading `v`); `latest` follows the newest release that is not a pre-release. No
-image exists yet: the publish workflow was added after 0.4.6 and has not run, so there is no `0.4.6` image (build it
-from the source as above).
+Since 0.5.0, each GitHub Release also publishes the image to the GitHub Container Registry, tagged with the release
+version (without the leading `v`); `latest` follows the newest release that is not a pre-release. There is no image
+for 0.4.x (build it from the source as above). The image that is tagged is the one the release workflow built once
+and smoke-tested, by digest; it is not rebuilt for the push.
 
 ```bash
 docker pull ghcr.io/ddsna/py-tbparse:<version>

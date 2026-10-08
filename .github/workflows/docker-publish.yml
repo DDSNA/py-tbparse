@@ -5,8 +5,15 @@ name: Docker publish
 # do not depend on each other: the Dockerfile builds the wheel from this checkout, not from PyPI, so the image
 # does not wait for (or fail with) the PyPI publish.
 #
+# The image is built once (#140). `build` pushes it to GHCR by digest only, with no tag, so nobody pulls it by
+# accident; `smoke` pulls that exact digest and checks it; `publish` then points the version tag (and `latest`)
+# at the same digest without rebuilding. If `smoke` fails, the untagged image stays in GHCR as an untagged
+# version and can be deleted from the package settings.
+#
 # Uses the built-in GITHUB_TOKEN, no stored secret. After the first push, set the package's visibility to
 # public (Packages > py-tbparse > Package settings) if the image should be pullable without a login.
+#
+# Actions are pinned to commit SHAs (the tag is in the comment); Dependabot (.github/dependabot.yml) updates them.
 
 on:
   release:
@@ -16,16 +23,20 @@ env:
   IMAGE: ghcr.io/ddsna/py-tbparse
 
 jobs:
-  smoke:
-    # Builds the image and checks it starts in server mode and answers /healthz. Nothing is pushed here.
+  build:
+    # Builds the image once and pushes it by digest, untagged.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
+      packages: write  # push the untagged image to ghcr.io with GITHUB_TOKEN
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Work out the version
+        id: version
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
@@ -35,23 +46,73 @@ jobs:
             echo "Release tag $TAG does not match pyproject.toml version $project; the image would report $project." >&2
             exit 1
           fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
-      - name: Build image (loaded locally, not pushed)
-        uses: docker/build-push-action@v6
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Labels
+        # Only the labels are used; the tags are set in `publish`, after the smoke test.
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5.10.0
+        with:
+          images: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.title=py-tbparse
+            org.opencontainers.image.description=py-tbparse browser GUI in server mode
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push by digest (no tag)
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
         with:
           context: .
-          load: true
-          push: false
-          tags: py-tbparse:smoke
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          # Same attestation as the earlier tag pushes; it also makes the pushed digest an index, which
+          # `imagetools create` in `publish` copies byte for byte.
+          provenance: mode=max
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Pushed digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          case "$DIGEST" in sha256:*) ;; *) echo "No digest from the build step: '$DIGEST'" >&2; exit 1 ;; esac
+          echo "Built and pushed $IMAGE@$DIGEST (untagged)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  smoke:
+    # Pulls the digest `build` pushed and checks it starts in server mode and answers /healthz. Pushes nothing.
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read  # pull the untagged image
+    env:
+      REF: ghcr.io/ddsna/py-tbparse@${{ needs.build.outputs.digest }}
+    steps:
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull the built image by digest
+        run: docker pull "$REF"
 
       - name: Start it in server mode and wait for /healthz
         run: |
           docker run -d --name tbparse -p 8080:8080 --read-only --tmpfs /tmp:size=64m \
-            -e PY_TBPARSE_ALLOWED_HOSTS=tbparse.example.com py-tbparse:smoke
+            -e PY_TBPARSE_ALLOWED_HOSTS=tbparse.example.com "$REF"
           ok=
           for i in $(seq 1 30); do
             if curl -fs http://127.0.0.1:8080/healthz; then ok=1; break; fi
@@ -66,15 +127,16 @@ jobs:
         run: docker logs tbparse
 
   publish:
-    needs: smoke
+    # Tags the digest that `smoke` tested. Nothing is built here.
+    needs: [build, smoke]
     runs-on: ubuntu-24.04
     environment: release  # same environment name as the PyPI publish; no required-reviewer gate is configured, so this job runs without approval
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
-      packages: write  # push to ghcr.io with GITHUB_TOKEN
+      packages: write  # add the tags on ghcr.io with GITHUB_TOKEN
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Work out the version
         id: version
@@ -95,35 +157,32 @@ jobs:
           echo "value=$(python3 scripts/is_highest_release.py "$VERSION" < releases.txt)" >> "$GITHUB_OUTPUT"
           echo "Highest release: $(cat "$GITHUB_OUTPUT")"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Tags and labels
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE }}
-          flavor: latest=false
-          tags: |
-            type=raw,value=${{ steps.version.outputs.value }}
-            type=raw,value=latest,enable=${{ !github.event.release.prerelease && steps.highest.outputs.value == 'true' }}
-          labels: |
-            org.opencontainers.image.title=py-tbparse
-            org.opencontainers.image.description=py-tbparse browser GUI in server mode
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.version=${{ steps.version.outputs.value }}
-            org.opencontainers.image.licenses=MIT
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+      - name: Tag the tested digest
+        # With one source that is an index, `imagetools create` copies the manifest bytes unchanged, so the
+        # tags point at exactly the digest `smoke` pulled. The check below fails the job if they do not.
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+          VERSION: ${{ steps.version.outputs.value }}
+          LATEST: ${{ !github.event.release.prerelease && steps.highest.outputs.value == 'true' }}
+        run: |
+          tags=("$VERSION")
+          if [ "$LATEST" = true ]; then tags+=(latest); fi
+          args=()
+          for t in "${tags[@]}"; do args+=(--tag "$IMAGE:$t"); done
+          docker buildx imagetools create "${args[@]}" "$IMAGE@$DIGEST"
+          for t in "${tags[@]}"; do
+            got="$(docker buildx imagetools inspect "$IMAGE:$t" --format '{{json .Manifest}}' | jq -r .digest)"
+            if [ "$got" != "$DIGEST" ]; then
+              echo "$IMAGE:$t points at $got, not the tested $DIGEST" >&2
+              exit 1
+            fi
+            echo "$IMAGE:$t -> $DIGEST" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
