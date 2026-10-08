@@ -63,7 +63,7 @@ There is no account to create, and nothing is sent anywhere.
    - press **Open file...** and pick it;
    - paste the file's full path into the long box at the top and press **Load** (remove the quotation marks Windows adds with **Copy as path**).
 
-![The start screen: the path box, Load, Open file..., Templates and Theme along the top, and "Let's open a workbook" in the middle](docs/guide-start.png)
+![The start screen: the path box, Load, Open file..., Templates and Theme along the top, and "Let's open a workbook" in the middle](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-start.png)
 
 **Dropped, or opened by path?** It matters in one place. Open a workbook by its path and the Field renames screen can save the renamed copy in the same folder as the original. Drop or pick a file and the app works on a private temporary copy, so it offers a download instead. Every other screen always gives you a download, which goes to your browser's usual downloads folder.
 
@@ -78,7 +78,7 @@ The start screen also lists the workbooks you opened by path recently, so you ca
 - **The list on the left** has every screen. The **Workbook** group holds the tools: Overview, Audit, Libraries, Styles, Slice and copy. The **Data**, **Data model**, **Dashboards** and **SQL** groups hold tables you can read and save. The number beside a name is how many rows that table has.
 - **Every table works the same way.** Click a column name to sort. Type in **Filter rows** to narrow the rows. Click a row to open a panel on the right with every detail of it, in full; **Close** shuts it. The `...` beside a column name sorts, filters, pins, hides or widens that column. **Columns** brings back hidden columns, **Compact rows** fits more rows on the screen, and **Export CSV** saves the table as a file Excel opens.
 
-![The Calculated fields table with the row Profit Ratio clicked: the panel on the right shows its name, type, formula SUM([Profit])/SUM([Sales]) and datasource](docs/guide-tables.png)
+![The Calculated fields table with the row Profit Ratio clicked: the panel on the right shows its name, type, formula SUM([Profit])/SUM([Sales]) and datasource](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-tables.png)
 
 </details>
 
@@ -94,7 +94,7 @@ The first screen after you open a workbook. One sentence about it, a tile for ea
 
 For the example: "superstore-sales-map.twb has 1 dashboard, 4 worksheets and 3 datasources", tiles for 4 parameters, 2 relationships and 7 calculated fields, and two lines worth a look: 4 calculations and 20 fields that no worksheet uses.
 
-![Overview: the sentence about the workbook, tiles for 3 datasources, 4 parameters, 2 relationships, 7 calculated fields, 48 raw fields and 1 dashboard, and the Worth a look list](docs/guide-overview.png)
+![Overview: the sentence about the workbook, tiles for 3 datasources, 4 parameters, 2 relationships, 7 calculated fields, 48 raw fields and 1 dashboard, and the Worth a look list](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-overview.png)
 
 </details>
 
@@ -118,7 +118,7 @@ The app shows what the workbook *describes*, not your data itself, and it does n
 
 One row per dashboard: how many worksheets it shows and which, its size, and how many filters, parameter controls and actions it has. For the example, Dashboard 1 shows Sheet 1 to Sheet 4, has an automatic size and 2 filters.
 
-![The Dashboards table: Dashboard 1, 4 worksheets, Sheet 1; Sheet 2; Sheet 3; Sheet 4, size automatic, 2 filters, 0 parameters](docs/guide-dashboards.png)
+![The Dashboards table: Dashboard 1, 4 worksheets, Sheet 1; Sheet 2; Sheet 3; Sheet 4, size automatic, 2 filters, 0 parameters](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-dashboards.png)
 
 </details>
 
@@ -133,7 +133,7 @@ Open **Relationship graph** (in the Data model group). The tables are boxes and 
 
 For the example: Orders connects to People on Region and to Returns on Order ID.
 
-![The relationship graph: Orders linked to People by Region = Region (People) and to Returns by Order ID = Order ID (Returns)](docs/guide-graph.png)
+![The relationship graph: Orders linked to People by Region = Region (People) and to Returns by Order ID = Order ID (Returns)](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-graph.png)
 
 </details>
 
@@ -150,7 +150,7 @@ It suggests tidy names (`SalesLOD` becomes `Sales LOD`) and makes a copy of the 
 
 For the example there are three suggestions: `Sub-Category` to `Sub Category`, `SalesLOD` to `Sales LOD` and `SalesLOD%` to `Sales LOD%`.
 
-![Field renames: Title Case, all datasources, Fields only; three ticked suggestions and the button Create with 3 of 3 renames](docs/guide-renames.png)
+![Field renames: Title Case, all datasources, Fields only; three ticked suggestions and the button Create with 3 of 3 renames](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-renames.png)
 
 You cannot type your own names on this screen; a suggestion is either taken or left. The app does not reconnect a datasource for you, and a sheet that already points at a missing field stays broken.
 
@@ -169,7 +169,7 @@ Click **Audit**. It lists calculations nobody uses, two calculations with the sa
 
 For the example: "5 info". Three calculations no worksheet uses (Category LOD, Profit (bin) and Profit Ratio) and two parameters that only those use. (The Overview counted 4 unused calculations; it also counts one with no formula, a group, that the audit leaves out.)
 
-![Audit: 5 info, the severity and rule menus, Skip rules, and the findings A001 and A005 with their fixes](docs/guide-audit.png)
+![Audit: 5 info, the severity and rule menus, Skip rules, and the findings A001 and A005 with their fixes](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-audit.png)
 
 "Unused" means unused in this workbook. Another workbook or a published data source may still need the field. The audit changes nothing.
 
@@ -186,7 +186,7 @@ Save calculated fields and parameters from one workbook in a small *library* fil
 2. Tick the ones you want. Leave **Also take the calculations and parameters the selection uses** ticked so nothing they need is left behind.
 3. Optional: give the library a name. Press **Export library file**. Your browser downloads a `.library.json` file.
 
-![Libraries: Profit Ratio and Category LOD ticked among 7 calculations and parameters, and the Export library file button](docs/guide-libraries.png)
+![Libraries: Profit Ratio and Category LOD ticked among 7 calculations and parameters, and the Export library file button](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-libraries.png)
 
 **Add them to another workbook**
 
@@ -209,7 +209,7 @@ Copy your team's named colour palettes into a workbook, so they are in Tableau's
 
 The example workbook has no palettes of its own. Here a small file with two palettes was added, and the plan says **2 to add**:
 
-![Styles: brand-palettes.tps with 2 palettes, the four choices Stop, Skip, Rename and Replace, and Plan: 2 to add with the colour chips of Superstore Brand](docs/guide-styles.png)
+![Styles: brand-palettes.tps with 2 palettes, the four choices Stop, Skip, Rename and Replace, and Plan: 2 to add with the colour chips of Superstore Brand](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-styles.png)
 
 To use an exported `Preferences.tps` in Tableau Desktop, keep a copy of your own `Preferences.tps` (in My Tableau Repository), put the new one in its place and restart Tableau.
 
@@ -227,7 +227,7 @@ Make a smaller copy of the workbook with only the dashboards you pick. The other
 
 The example has only one dashboard, so keeping it keeps all four worksheets; the clean-up then removes 3 calculations and 1 parameter that nothing used.
 
-![Slice plan: keep 1 dashboard and 4 worksheets, remove 0; then removed as unused: 3 calculations, 1 parameter, 0 datasources; the Download sliced workbook button](docs/guide-slice.png)
+![Slice plan: keep 1 dashboard and 4 worksheets, remove 0; then removed as unused: 3 calculations, 1 parameter, 0 datasources; the Download sliced workbook button](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-slice.png)
 
 The clean-up also removes calculations that were unused before you sliced; untick the box to keep them.
 
@@ -249,7 +249,7 @@ Copy worksheets from the open workbook into a new copy of another workbook. The 
 
 Here the target is a second copy of the example, so every name is taken. With **Stop** the plan says "Stopped: 'Sheet 1' is already a sheet or dashboard of the target" and the download stays off. With **Rename**:
 
-![Copy sheets with Rename: Plan: 1 sheet to copy; Sheet 1 copied as Sheet 1 (2); Subcategory LOD and SalesLOD already there](docs/guide-copy-rename.png)
+![Copy sheets with Rename: Plan: 1 sheet to copy; Sheet 1 copied as Sheet 1 (2); Subcategory LOD and SalesLOD already there](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-copy-rename.png)
 
 The app copies worksheets, not whole dashboards. It does not copy a sheet that mixes two datasources, and drops action filters (the plan lists them).
 
@@ -262,12 +262,12 @@ A template is a finished workbook prepared for reuse: you later fill it with new
 
 1. Open the finished workbook, then press **Templates** at the top. You see three steps for filling a template, and below them **Make a template from your open workbook**.
 
-   ![The Templates screen: steps 1 Template, 2 New data and 3 Review and create, then Make a template from your open workbook](docs/guide-templates.png)
+   ![The Templates screen: steps 1 Template, 2 New data and 3 Review and create, then Make a template from your open workbook](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-templates.png)
 
 2. In **Make a template from your open workbook**, give it a name and, if you like, a line about what it is for.
 3. Press **Make template**. It says how many fields the template needs and shows the **Template check**. Press **Download the template** to keep it (a `.template.twbx` file), or **Use it as the template** to fill it straight away.
 
-![Made Superstore sales map.template.twbx: 5 required fields, 2 parameters, 0 tokens; Download the template and Use it as the template; Template check: 3 worth knowing](docs/guide-template-make.png)
+![Made Superstore sales map.template.twbx: 5 required fields, 2 parameters, 0 tokens; Download the template and Use it as the template; Template check: 3 worth knowing](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-template-make.png)
 
 Passwords and user names are taken out, and extracts and data files are left out. Server names and formulas stay as they are, so read the template check before you share a template.
 
@@ -282,12 +282,12 @@ Passwords and user names are taken out, and extracts and data files are left out
 
    For the example, a small CSV with the columns `State`, `Region`, `Category`, `Sub_Category`, `Sales Amount` and `Order Date` matches three fields by name; State/Province and Sales are missing:
 
-   ![Match the fields to your columns: State/Province missing, Region, Category and Sub-Category matched by name, Sales missing](docs/guide-template-mapping.png)
+   ![Match the fields to your columns: State/Province missing, Region, Category and Sub-Category matched by name, Sales missing](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-template-mapping.png)
 
 4. Fill in **Parameters** and **Text to fill in** if the template has any. Leave a box empty to keep the template's value.
 5. Read **Check before you create**. **Problems to fix** must be empty. After picking `State` and `Sales Amount` it says "Ready to create":
 
-   ![Check before you create: Ready to create, Problems to fix (0), What would break (0); the Create workbook and Save beside the template buttons](docs/guide-template-create.png)
+   ![Check before you create: Ready to create, Problems to fix (0), What would break (0); the Create workbook and Save beside the template buttons](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-template-create.png)
 
 6. Press **Create workbook**. The new workbook downloads. (**Save beside the template** saves it in the template's folder instead; that works when you opened the template by typing its path.)
 
@@ -300,7 +300,7 @@ One CSV file or one Excel sheet fills one table. A template whose datasource joi
 
 Press **Theme** at the top right. Pick one of 34 colour themes, and at the end of the list choose **Auto (follow my system)**, **Light** or **Dark**. The app remembers your choice.
 
-![The Overview in dark mode with the Theme menu open: Shop, Matcha, Fjord, High contrast, Harbor and more](docs/guide-dark.png)
+![The Overview in dark mode with the Theme menu open: Shop, Matcha, Fjord, High contrast, Harbor and more](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-dark.png)
 
 </details>
 
