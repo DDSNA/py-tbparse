@@ -426,7 +426,7 @@ From the command line:
 py-tbparse workbook.twb                    # overview
 py-tbparse workbook.twb calculated-fields
 py-tbparse workbook.twb fields --format csv -o fields.csv
-py-tbparse workbook.twb validate           # exit code 2 if it finds a problem
+py-tbparse workbook.twb validate           # exit code 2 if a relationship is broken; codes of every command: docs/cli.md
 ```
 
 In the browser:

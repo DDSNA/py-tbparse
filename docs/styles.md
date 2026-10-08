@@ -33,7 +33,7 @@ py-tbparse style check Preferences_palettes.tps                      # problems 
 - `import` writes nothing without `--write`. After `--write` it says that the palettes are in the colour picker and the marks keep their colours. For a `.tps` it adds: copy the file over `Preferences.tps` (keep a backup) and restart Tableau Desktop.
 - **Name clashes.** A clash is the same name with different colours (same name, type and colours is "already there" and skipped; names that differ only in case are not a clash, the plan notes them). `--on-clash` is `fail` (default: stop, write nothing, say which names), `skip` (keep the existing one), `rename` (add as `Name (2)`, or the next free number) or `replace` (swap the existing palette in place). Use `replace` for a new version of your palette and `rename` to keep both.
 - Palettes that cannot be used (no name, an unknown type, no colours, a colour that is not `#RRGGBB` or `#RRGGBBAA`) are listed as `invalid` and are never written. The command still writes the rest and exits 2.
-- Exit codes: 0 fine; 1 an error, a name clash under `--on-clash fail` (also when you only print the plan), or `check` found problems; 2 some palette was invalid but the rest was written.
+- Exit codes: 0 fine; 1 an error, a name clash under `--on-clash fail` (also when you only print the plan), or `check` found problems; 2 some palette was invalid but the rest was written. Every command's codes: [cli.md](cli.md#exit-codes).
 - Everything else in the target is kept: other `<preference>` elements, unknown elements in a `.tps`, all sheets and formats. A workbook is written again as a whole by the XML library, so quoting and spacing of the whole file can change, as with `rename`.
 
 ## In the GUI

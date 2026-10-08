@@ -21,7 +21,7 @@ For each sheet:
 3. Every physical field, group and bin the sheet needs must exist in the target. The needs are followed from the source datasource, not taken from the sheet's cached list, so the calculations a calculation uses are found too.
 4. Missing calculations and parameters are added to the target by the same planner as `library import` ([libraries.md](libraries.md)). An identical one in the target is reused.
 
-A refused sheet is listed with the reason and the others are copied (exit code 2). If no sheet can be copied nothing is written (exit 1).
+A refused sheet is listed with the reason and the others are copied (exit code 2). If no sheet can be copied nothing is written (exit 1; any other error is 1 too). Every command's codes: [cli.md](cli.md#exit-codes).
 
 ## Clashes: `--on-clash`
 

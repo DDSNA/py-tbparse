@@ -31,7 +31,7 @@ py-tbparse scaffold apply other.twb overview.scaffold.json --name "Regional" --s
 py-tbparse scaffold apply other.twb overview.scaffold.json --name "Regional" --sheet Sales --sheet Profit --write
 ```
 
-`make` takes `--dashboard`, `--output`, `--name`, `--description` and `--overwrite`. `apply` takes `--name`, `--sheet` (repeatable, in slot order), `--sheets` (comma-separated; use `--sheet` when a name has a comma), `--allow-empty`, `-o`, `--overwrite`, `--write` and `--format`. Without `--write` nothing is written. Exit code 1 on any error.
+`make` takes `--dashboard`, `--output`, `--name`, `--description` and `--overwrite`. `apply` takes `--name`, `--sheet` (repeatable, in slot order), `--sheets` (comma-separated; use `--sheet` when a name has a comma), `--allow-empty`, `-o`, `--overwrite`, `--write` and `--format`. Without `--write` nothing is written. Exit code 0, or 1 on any error. Every command's codes: [cli.md](cli.md#exit-codes).
 
 From Python: `make_scaffold(workbook, dashboard)`, `save_scaffold`/`load_scaffold`, `apply_scaffold(workbook, scaffold, name, sheets)` with `sheets` a list or `{slot number: sheet}`.
 

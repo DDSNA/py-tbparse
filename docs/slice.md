@@ -37,7 +37,7 @@ Not touched: hidden `[Action (...)]` groups in a datasource. If a kept filter st
 - An unknown dashboard name fails and lists the valid names. Names are separated by commas; a name that contains a comma works when it is the only one.
 - A selection that shows no worksheet (an empty story, say) is refused: a workbook needs at least one worksheet.
 - The output must end in the input's extension, an existing output is refused without `--overwrite`, and the input is never written.
-- Exit code 0, or 2 for an error. If the result has an integrity problem the input did not have (`dashboards.integrity_check`), nothing is written and the command exits 2. A dry run exits 2 too (it prints the `INTEGRITY` lines and says `--write` would refuse), so it predicts the write.
+- Exit code 0, or 2 for any error (there is no 1). Every command's codes: [cli.md](cli.md#exit-codes). If the result has an integrity problem the input did not have (`dashboards.integrity_check`), nothing is written and the command exits 2. A dry run exits 2 too (it prints the `INTEGRITY` lines and says `--write` would refuse), so it predicts the write.
 
 ## What was checked, and what was not
 

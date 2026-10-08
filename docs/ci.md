@@ -23,6 +23,8 @@ They do not depend on the format and did not change.
 | `audit`, `template check`, `template drift` | no finding at `--fail-on` (default `error`) | a finding at or above `--fail-on` | file cannot be read, or a bad option | a rule crashed (the traceback goes to stderr) |
 | `validate` | relationships are fine | the workbook cannot be loaded | a relationship refers to a table or field the workbook lacks | (not used) |
 
+The other commands (`sanitize`, `prune`, `slice`, `sheet copy`, `library import` and the rest) use 1 and 2 in their own ways: the full table is in [cli.md](cli.md#exit-codes).
+
 So a pipeline step that must not fail on warnings can write a report with `--fail-on never` and still see exit 3 if py-tbparse itself failed.
 
 ## Rule ids
