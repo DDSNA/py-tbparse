@@ -24,6 +24,7 @@ from test_gui_browser import (  # noqa: F401  (fixtures and helpers shared with 
     new_page,
 )
 from test_gui_table import _FEED_ROWS, open_synthetic, render_stamp, wait_render
+from test_audit import workbook
 
 
 # ====================================================================================== keyboard and focus
@@ -472,5 +473,38 @@ def test_normal_motion_does_use_view_transitions_where_available(browser, gui_se
         _header(pg, "name").click()
         wait_render(pg, stamp)
         assert pg.evaluate("() => window.__vt") >= 1
+    finally:
+        pg.ctx.close()
+
+
+# ====================================================================================== disabled controls
+
+BUTTON_LOOK = """sel => { const cs = getComputedStyle(document.querySelector(sel));
+  return {bg: cs.backgroundColor, color: cs.color, border: cs.borderStyle, cursor: cs.cursor}; }"""
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_a_disabled_primary_button_does_not_look_enabled(browser, gui_server, tmp_path, scheme):
+    # "Export library file" is a primary button that is off until a row is ticked; off, it used to keep its
+    # filled look, and in dark mode read as enabled (#143)
+    path = workbook(tmp_path, calcs=[("[Calculation_1]", "Ratio", "[Sales] / [Profit]")], name="one.twb")
+    pg = new_page(browser, gui_server, color_scheme=scheme, viewport={"width": 1280, "height": 900})
+    try:
+        _load(pg, path)
+        _open(pg, "libraries")
+        pg.wait_for_selector("#libTable", timeout=10_000)
+        settle(pg)
+        assert pg.is_disabled("#libExport")
+        off = pg.evaluate(BUTTON_LOOK, "#libExport")
+        load = pg.evaluate(BUTTON_LOOK, "#loadBtn")             # an enabled primary button for comparison
+        pg.check("#libRow0")
+        pg.wait_for_function("() => !document.getElementById('libExport').disabled", timeout=10_000)
+        settle(pg)
+        on = pg.evaluate(BUTTON_LOOK, "#libExport")
+        assert on["bg"] == load["bg"] and on["color"] == load["color"]
+        assert off["bg"] != on["bg"] and off["color"] != on["color"], (off, on)
+        assert off["border"] == "dashed" and on["border"] == "solid"
+        assert off["cursor"] == "not-allowed" and on["cursor"] == "pointer"
+        assert pg.js_errors == []
     finally:
         pg.ctx.close()

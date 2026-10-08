@@ -1416,6 +1416,11 @@ def _run_slice(argv: list[str]) -> int:
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
         print(slice_report(report))
+    if report["dry_run"] and report["integrity_new"]:
+        # --write would refuse this result with exit 2, so the dry run predicts it
+        print("error: the result has new integrity problems; --write would refuse it and write nothing",
+              file=sys.stderr)
+        return 2
     return 0
 
 

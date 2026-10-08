@@ -18,6 +18,7 @@ import collections.abc
 import secrets
 import shutil
 import signal
+import socket
 import re
 import tempfile
 import threading
@@ -808,6 +809,7 @@ def _lib_source(parser: TwbParser, datasource: str | None) -> dict:
         report: dict = {}
         lib = _library.export_library(parser, datasource=datasource, report=report)
         st["entries"][key] = {"entries": lib["entries"], "unsupported": report.get("unsupported_names", []),
+                              "auto": report.get("auto_names", []), "not_formula": report.get("not_formula_names", []),
                               "datasource": lib["source"]["datasource"], "caption": lib["source"]["datasource_caption"]}
     return st["entries"][key]
 
@@ -823,7 +825,8 @@ def _library_entries_answer(qs: dict) -> dict:
     if ds is None and sum(1 for c in choices if c["has_connection"]) > 1:
         # several datasources: the page must choose one (the CLI asks the same)
         return {"datasources": choices, "datasource": None, "needs_datasource": True, "entries": [], "matching": 0,
-                "total": 0, "offset": 0, "limit": LIBRARY_PAGE, "unsupported": [], "names": []}
+                "total": 0, "offset": 0, "limit": LIBRARY_PAGE, "unsupported": [], "names": [],
+                "auto": [], "auto_count": 0, "not_formula": [], "not_formula_count": 0}
     src = _lib_source(parser, ds)
     kind = (qs.get("kind") or [""])[0]
     if kind not in ("", "calc", "parameter"):
@@ -848,6 +851,9 @@ def _library_entries_answer(qs: dict) -> dict:
         "datasources": choices, "datasource": src["datasource"], "needs_datasource": False,
         "total": len(src["entries"]), "matching": len(rows), "offset": offset, "limit": limit, "entries": page,
         "unsupported": src["unsupported"][:50], "unsupported_count": len(src["unsupported"]),
+        # calculations never listed, so the page can say why the sidebar counts more than it shows
+        "auto": src["auto"][:50], "auto_count": len(src["auto"]),
+        "not_formula": src["not_formula"][:50], "not_formula_count": len(src["not_formula"]),
         # every matching internal name, for "select all that match" (names only, a few bytes each)
         "names": [e["name"] for e in rows] if (qs.get("names") or [""])[0] == "1" else [],
     }
@@ -1638,6 +1644,26 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return -1
 
+    def _linger_close(self, limit: int = 1024 * 1024, wait: float = 2.0) -> None:
+        """Close politely after answering a request whose body could not be drained first (a Content-Length that
+        is not a number or is negative, or one too big to read). Closing a socket that still has unread bytes
+        makes Windows send a reset, and the client then fails with a connection abort instead of reading the
+        error. So: flush the answer, half-close our side (the client sees the end of the response), and read
+        what is still arriving, at most `limit` bytes and `wait` seconds, until the client closes."""
+        self.close_connection = True
+        try:
+            self.wfile.flush()
+            self.connection.shutdown(socket.SHUT_WR)
+            self.connection.settimeout(wait)
+            left = limit
+            while left > 0:
+                chunk = self.connection.recv(min(65536, left))
+                if not chunk:
+                    break
+                left -= len(chunk)
+        except OSError:
+            pass
+
     def _drain(self, left: int) -> None:
         """Read and throw away an unread request body (up to MAX_DRAIN_BYTES) before refusing it. Answering
         first and closing with bytes still arriving makes some systems, Windows in particular, reset the
@@ -2276,11 +2302,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _refuse_post(self, status: int, message: str, *, as_json: bool = True) -> None:
         """Refuse a POST before its body is read: drain the body first (see `_drain`), then answer."""
-        self._drain(self._declared_length())
+        length = self._declared_length()
+        self._drain(length)
         if as_json:
             self._send_json({"error": message}, status)
         else:
             self._send(status, message, "text/plain")
+        if length < 0 or length > MAX_DRAIN_BYTES:
+            self._linger_close()
 
     def _do_post(self) -> None:
         if not _host_allowed(self.headers.get("Host"), self.server.server_address):

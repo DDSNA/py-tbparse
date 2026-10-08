@@ -1,7 +1,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; }
-:root { --top-h: 66px; --gutter: var(--space-5); }
+:root { --top-h: 66px; --gutter: var(--space-5); --toast-room: 72px; }  /* a two-line toast and its offset from the bottom */
 body { font: var(--text-md)/var(--leading) var(--font); background: var(--bg); color: var(--text); }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
@@ -55,8 +55,12 @@ body { font: var(--text-md)/var(--leading) var(--font); background: var(--bg); c
 .btn:active { transform: translateY(1px); }
 .btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text);
                font-weight: 600; box-shadow: var(--shadow-1); }
-.btn.primary:hover { filter: brightness(1.08); }
-.btn:disabled { opacity: .6; cursor: progress; }
+.btn.primary:not(:disabled):hover { filter: brightness(1.08); }
+/* disabled: flat, muted and dashed, so a disabled primary button never reads as an enabled one (#143);
+   muted text on --hover keeps AA contrast in every theme, so no opacity */
+.btn:disabled, .btn:disabled:hover { background: var(--hover); border-color: var(--border); border-style: dashed;
+                                     color: var(--muted); box-shadow: none; filter: none; transform: none;
+                                     cursor: not-allowed; }
 .btn.small { height: 32px; padding: 0 10px; font-size: var(--text-sm); }
 .rename-tools { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .rename-tools input[type=text] { width: 260px; font-family: var(--mono); font-size: var(--text-sm); }
@@ -154,7 +158,7 @@ code, kbd { font-family: var(--mono); font-size: var(--text-sm); background: var
 
 .view { display: flex; flex-direction: column; min-width: 0; background: var(--panel);
         border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-1);
-        min-height: calc(100vh - var(--top-h) - 2 * var(--gutter)); }
+        min-height: calc(100vh - var(--top-h) - 2 * var(--gutter)); padding-bottom: var(--toast-room); }
 .view:focus { outline: none; }
 .view-head { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-4); align-items: center;
              justify-content: space-between; padding: 18px var(--space-5) var(--space-4);
@@ -168,7 +172,8 @@ code, kbd { font-family: var(--mono); font-size: var(--text-sm); background: var
 .mobile-only { display: none; }
 
 /* tables: windowed, fixed row height, fixed column widths */
-#tableWrap { flex: 1; overflow: auto; max-height: calc(100vh - 270px); }
+/* the view ends in a strip of --toast-room where the toast sits, so it never covers the last row or hint (#143) */
+#tableWrap { flex: 1; overflow: auto; max-height: calc(100vh - 222px - var(--toast-room)); }
 #tableWrap:focus { outline: none; }
 .tbl { border-collapse: separate; border-spacing: 0; table-layout: fixed; min-width: 100%; font-size: 14px; }
 [data-density="compact"] .tbl { font-size: var(--text-sm); }
@@ -449,6 +454,12 @@ button.stat:hover { border-color: var(--primary); transform: translateY(-2px); b
   .audit-table td { border: 0; padding: 2px 0; }
   .audit-msg { min-width: 0; }
 }
+/* phone-width cards of the audit, libraries, styles and copy tables: each cell shows its column name (labelCells in app.js) */
+@media (max-width: 760px) {
+  .lib-table td[data-label]::before, .audit-table td[data-label]::before {
+    content: attr(data-label) ": "; color: var(--muted); font-size: var(--text-sm); }
+  .lib-table td.lib-name { font-weight: 600; }
+}
 /* end audit view */
 
 /* libraries view */
@@ -540,6 +551,7 @@ button.stat:hover { border-color: var(--primary); transform: translateY(-2px); b
   .drawer { top: 0; }
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: var(--space-3); }
   .toast { bottom: var(--space-3); }
+  :root { --toast-room: 96px; }  /* the page scrolls on a phone; room for a three-line toast at its end */
 }
 
 /* slice and copy view (reuses the .lib-* layout of the libraries view) */

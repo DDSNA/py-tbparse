@@ -270,3 +270,35 @@ def test_a_phone_gets_a_readable_page_without_sideways_scroll(browser, gui_serve
         assert pg.js_errors == []
     finally:
         pg.ctx.close()
+
+
+# the label each cell of the first card shows before its value at phone width (`::before`), or "none"
+CARD_LABELS = """sel => Array.from(document.querySelector(sel + ' tbody tr').cells)
+  .map((td) => getComputedStyle(td, '::before').content)"""
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_phone_cards_name_each_value(browser, gui_server, src, tgt, scheme):
+    # at 390 px the header row is hidden, so "D1 / Dashboard / 2" needs the column names to mean anything (#142)
+    pg = new_page(browser, gui_server, color_scheme=scheme, viewport={"width": 390, "height": 800})
+    try:
+        _load(pg, src)
+        pg.select_option("#tableSel", "copy")
+        pg.wait_for_selector("#cpyDashTable", timeout=10_000)
+        _target(pg, tgt)
+        pg.check("#cpySheetRow0")
+        _plan(pg)
+        wait_settled(pg)
+        # checkbox and name (the card heading) carry no label; every other cell does
+        assert pg.evaluate(CARD_LABELS, "#cpyDashTable") == ["none", "none", '"Kind: "', '"Worksheets on it: "']
+        assert pg.evaluate(CARD_LABELS, "#cpySheetTable") == ["none", "none", '"Datasource: "']
+        assert pg.evaluate(CARD_LABELS, "#cpyPlan") == ["none", '"Datasource: "', '"What happens: "', '"Why or what is dropped: "']
+        assert pg.evaluate("() => getComputedStyle(document.querySelector('#cpyDashTable td.lib-name')).fontWeight") == "600"
+        found = failures(pg, f"copy cards ({scheme})")                 # the labels are --muted text: AA in both themes
+        assert found == []
+        pg.set_viewport_size({"width": 1280, "height": 900})           # a real table again: no labels drawn
+        wait_settled(pg)
+        assert set(pg.evaluate(CARD_LABELS, "#cpyDashTable")) == {"none"}
+        assert pg.js_errors == []
+    finally:
+        pg.ctx.close()

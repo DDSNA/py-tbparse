@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 
 from py_tbparse import SliceError, TwbParser, slice_doc, slice_workbook
+from py_tbparse import slicer
 from py_tbparse.cli import main
 from py_tbparse.dashboards import integrity_check
 
@@ -213,6 +214,27 @@ def test_cli_dry_run_write_json_and_errors(tmp_path, capsys):
     assert "--strict" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         main(["slice", path, "-d", "D1", "-o", str(out)])
+
+
+def test_dry_run_and_write_exit_the_same_when_integrity_is_new(tmp_path, capsys, monkeypatch):
+    path = build(tmp_path)
+    out = tmp_path / "bad.twb"
+    real = slicer.integrity_check
+    calls = []
+
+    def fake(doc):                      # the first call is the input, the second the sliced result
+        calls.append(1)
+        found = real(doc)
+        if len(calls) % 2 == 0:
+            found = found + [{"check": "X", "dashboard": "D1", "detail": "made up", "element": None}]
+        return found
+
+    monkeypatch.setattr(slicer, "integrity_check", fake)
+    assert main(["slice", path, "-d", "D1"]) == 2
+    cap = capsys.readouterr()
+    assert "INTEGRITY  X: made up" in cap.out and "would refuse" in cap.err
+    assert main(["slice", path, "-d", "D1", "--write", "-o", str(out)]) == 2
+    assert not out.exists()
 
 
 def test_a_selection_with_no_worksheet_is_refused(tmp_path):

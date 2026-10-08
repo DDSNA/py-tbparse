@@ -92,6 +92,22 @@ function finishView(fresh, node, message) {
   $('announce').textContent = message;
 }
 function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+// At phone width the tables of the Audit, Libraries, Styles and Slice and copy views turn into stacked cards and
+// their header row is hidden, so each cell carries its column name in data-label and the stylesheet shows it
+// before the value (#142). The checkbox and the name, which heads the card, need none.
+function labelCells(root) {
+  root.querySelectorAll('table.lib-table, table.audit-table').forEach((table) => {
+    const head = table.tHead && table.tHead.rows[0];
+    if (!head) return;
+    const names = Array.from(head.cells, (th) => th.textContent.trim());
+    Array.from(table.tBodies).forEach((body) => Array.from(body.rows).forEach((tr) => {
+      if (tr.cells.length !== names.length) return;
+      Array.from(tr.cells).forEach((td, i) => {
+        if (names[i] && !td.classList.contains('lib-check') && !td.classList.contains('lib-name')) td.dataset.label = names[i];
+      });
+    }));
+  });
+}
 function showSkeleton() {
   const wrap = $('tableWrap');
   wrap.innerHTML = '';
@@ -1581,10 +1597,10 @@ try { savedDensity = localStorage.getItem('py-tbparse.density'); } catch (e) { /
 applyDensity(savedDensity === 'compact' ? 'compact' : 'comfortable', false);
 
 populateTables();
-AuditView.init({$: $, el: el, fetchJSON: fetchJSON, fail: fail, plural: plural});
-LibrariesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural});
-StylesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural});
-CopyView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural});
+AuditView.init({$: $, el: el, fetchJSON: fetchJSON, fail: fail, plural: plural, labelCells: labelCells});
+LibrariesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural, labelCells: labelCells});
+StylesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural, labelCells: labelCells});
+CopyView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural, labelCells: labelCells});
 TemplatesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural});
 if (location.hash === '#templates') setTemplatesMode(true);
 if (window.SERVER_MODE) {

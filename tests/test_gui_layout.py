@@ -155,6 +155,32 @@ def test_menu_drawer_and_toast_stay_inside_the_screen(browser, gui_server, wenji
         pg.ctx.close()
 
 
+@pytest.mark.parametrize("size", [(390, 800), (1360, 900), (1366, 768)], ids=lambda s: f"{s[0]}x{s[1]}")
+def test_the_toast_does_not_cover_the_end_of_the_view(browser, gui_server, wenjie_path, size):
+    # the view ends in a strip as tall as a two-line toast, so with the view scrolled to its end the toast
+    # sits below the last row or hint, never on it (#143). The toast is a live region, not a tab stop.
+    pg = new_page(browser, gui_server, viewport={"width": size[0], "height": size[1]})
+    try:
+        _load(pg, wenjie_path)
+        for view in ("fields", "libraries", "copy"):
+            go(pg, view)
+            pg.wait_for_function("v => location.hash === '#' + v", arg=view, timeout=10_000)
+            pg.fill("#path", "/no/such/workbook.twb")       # an error toast stays until it is dismissed
+            pg.click("#loadBtn")
+            pg.wait_for_function("() => document.getElementById('status').classList.contains('err')", timeout=10_000)
+            pg.evaluate("() => { const w = document.getElementById('tableWrap'); w.scrollTop = w.scrollHeight; "
+                        "window.scrollTo(0, document.documentElement.scrollHeight); }")
+            wait_settled(pg)
+            r = pg.evaluate("""() => ({wrap: document.getElementById('tableWrap').getBoundingClientRect().bottom,
+                                       toast: document.getElementById('status').getBoundingClientRect().top,
+                                       tab: document.getElementById('status').tabIndex})""")
+            assert r["toast"] >= r["wrap"], (view, r)
+            assert r["tab"] < 0
+        assert [e for e in pg.js_errors if "400" not in e and "Bad Request" not in e] == []
+    finally:
+        pg.ctx.close()
+
+
 # ====================================================================================== stability
 
 SHORT = "short"
