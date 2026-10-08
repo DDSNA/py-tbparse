@@ -230,11 +230,11 @@ def test_library_self_import():
             if not lib["entries"]:
                 continue
             checked += 1
-            plan = plan_import(parser, lib, datasource=ds.get("name"))
+            plan = plan_import(parser, lib, datasource=ds.get("name"), on_clash="rename")
             rows = plan[plan["uid"] != ""]
             assert set(rows["action"]) == {"skip-identical"}, f"{path.name} / {ds.get('name')}: {rows[rows['action'] != 'skip-identical'][['name', 'action', 'reason']].to_dict('records')}"
             report = {}
-            build_imported_workbook(parser, lib, datasource=ds.get("name"), report=report)
+            build_imported_workbook(parser, lib, datasource=ds.get("name"), on_clash="rename", report=report)
             assert report["failed"] == 0 and report["added"] == 0
     assert checked > 100
 

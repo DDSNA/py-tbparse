@@ -113,7 +113,7 @@ def save_library(library: dict, path: str | os.PathLike, overwrite: bool = False
 def load_library(path: str | os.PathLike) -> dict
 def library_table(library: dict) -> pd.DataFrame      # kind, name, caption, datatype, depends_on, required_by
 def plan_import(parser: TwbParser, library: dict, datasource: str | None = None,
-                mapping: dict | str | pd.DataFrame | None = None, on_clash: str = "rename") -> pd.DataFrame
+                mapping: dict | str | pd.DataFrame | None = None, on_clash: str = "rename") -> pd.DataFrame   # 0.5.x: omitted warns; default becomes "fail" in 0.6.0
 def build_imported_workbook(parser, library, datasource=None, mapping=None, on_clash="rename",
                             report: dict | None = None) -> bytes
 def import_library(parser, library: dict | str, datasource=None, mapping=None, on_clash="rename",
