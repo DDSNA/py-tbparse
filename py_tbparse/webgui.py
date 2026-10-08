@@ -34,6 +34,7 @@ import pandas as pd
 
 from . import __version__, template_gui
 from ._tables import TABLE_NAMES, TABLE_SPECS
+from .dashboards import dashboard_targets
 from .docgen import workbook_markdown
 from .findings import SEVERITY, exceeds, rules as _audit_rules, format_findings, summary as findings_summary
 from .parser import TwbParser
@@ -1144,7 +1145,9 @@ def _cpy_dashboards_answer(qs: dict) -> dict:
     offset, limit = _cpy_page(lambda k, d: (qs.get(k) or [d])[0])
     out = []
     for e in rows[offset:offset + limit]:
-        shown = {n for n in e.xpath(".//zone/@name | .//@sheet") if n in sheets}
+        # same zones as the Dashboards table: a sheet zone names its sheet in @worksheet or, in some files, @name
+        shown = ({n for n in dashboard_targets(e) if n in sheets}
+                 | {n for n in e.xpath(".//@sheet") if n in sheets})
         out.append({"name": e.get("name"), "kind": "story" if e.get("type") == "storyboard" else "dashboard",
                     "n_sheets": len(shown)})
     names = [e.get("name") for e in rows] if (qs.get("names") or [""])[0] == "1" else []
