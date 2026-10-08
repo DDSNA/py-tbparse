@@ -385,7 +385,7 @@ Prefer typing commands or scripting? Everything here, and a few extras that are 
 - Takes calculated fields and parameters out of one workbook into a library file and adds them to another (`library export`, `library import`). The output follows what Tableau writes but has not been opened in Tableau.
 - Saves the layout of a dashboard (containers, text, styles, one slot per sheet) as a scaffold and makes a new dashboard from it with your own sheets (`scaffold make`, `show`, `apply`). First slice: a single tiled root only; filters, legends, controls, images and device layouts are dropped and listed. It has not been opened in Tableau.
 - Takes named colour palettes out of workbooks and `Preferences.tps` files and writes them into a new `Preferences.tps`, a JSON file or a copy of a workbook (`style show`, `export`, `import`, `check`; also a Styles view in the GUI). Palettes only: it adds them to the colour picker and recolours nothing, and it has not been opened in Tableau.
-- Runs as a Docker image behind a TLS proxy. From the next release, the image is also published to the GitHub Container Registry (`ghcr.io/ddsna/py-tbparse`).
+- Runs as a Docker image behind a TLS proxy. Each release since 0.5.0 also publishes the image to the GitHub Container Registry (`ghcr.io/ddsna/py-tbparse`).
 - Compares two workbooks, scans a folder of them, and draws the data model as a graph.
 - Works from Python, from the command line, or in a local browser page.
 

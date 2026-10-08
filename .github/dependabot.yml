@@ -1,0 +1,15 @@
+# Keeps the SHA-pinned actions in .github/workflows/ up to date (#140). Dependabot opens a PR that moves the
+# SHA and the "# vX.Y.Z" comment together. Only GitHub Actions; Python dependencies are not managed here.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "CI"

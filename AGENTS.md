@@ -131,11 +131,18 @@ Publishers" settings page before the first release, and needs a
 (before the tests) if the release tag, minus the `v`, differs from
 `pyproject.toml`'s version (#38).
 
-`.github/workflows/docker-publish.yml` (same trigger) builds the `Dockerfile`, checks that it starts and answers
-`/healthz`, and pushes `ghcr.io/ddsna/py-tbparse:<version>` (tag minus the `v`; `latest` only for non-pre-releases)
-with `GITHUB_TOKEN`. It fails if the release tag differs from `pyproject.toml`'s version. It does not depend on the
-PyPI job (the image is built from the checkout). It uses the `release` environment and runs without manual
-approval. It has not run yet; the first release will be its first test.
+`.github/workflows/docker-publish.yml` (same trigger) builds the `Dockerfile` once and pushes it to GHCR by digest
+with no tag (`build`), pulls that digest and checks it starts and answers `/healthz` (`smoke`), then points
+`ghcr.io/ddsna/py-tbparse:<version>` (tag minus the `v`; `latest` only for the highest non-pre-release) at the same
+digest without rebuilding (`publish`, #140), all with `GITHUB_TOKEN`. A failed smoke test leaves an untagged
+version in the GHCR package. It fails if the release tag differs from `pyproject.toml`'s version. It does not depend
+on the PyPI job (the image is built from the checkout). `publish` uses the `release` environment and runs without
+manual approval. The build-once flow (#140) has not run yet; the next release is its first test.
+
+Actions in all workflows are pinned to commit SHAs with the tag in a trailing comment (`# v4.4.0`);
+`.github/dependabot.yml` opens weekly PRs that move them. When adding an action, pin it the same way and check the
+SHA with `gh api repos/OWNER/REPO/git/ref/tags/TAG` (dereference annotated tags). The CI `build` job writes the
+SBOM (`sbom` artifact) from a fresh venv that holds only the built wheel and its dependencies.
 
 ## Versioning
 
