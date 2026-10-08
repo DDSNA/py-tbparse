@@ -20,10 +20,10 @@ jobs:
       # A PR gets the ends of the range on the two systems most people use; main gets all 20 combinations.
       matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"os":"ubuntu-24.04","python-version":"3.9"},{"os":"ubuntu-24.04","python-version":"3.13"},{"os":"windows-latest","python-version":"3.13"}]}' || '{"os":["ubuntu-24.04","macos-latest","windows-latest","ubuntu-24.04-arm"],"python-version":["3.9","3.10","3.11","3.12","3.13"]}') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -45,10 +45,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
 
@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Build image
         run: docker build -t py-tbparse:ci .
@@ -106,10 +106,10 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [test, gui]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
 
@@ -122,20 +122,42 @@ jobs:
       - name: Check distribution metadata
         run: twine check dist/*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: dist
           path: dist/
 
-       # ---- SBOM ----
+      # ---- SBOM ----
+      # Read from a fresh venv that holds only the built wheel and what it pulls in, so it lists what
+      # `pip install py-tbparse` installs, not this job's build, twine and cyclonedx (#140). The venv has
+      # no pip of its own (pip --python installs into it from outside), so pip is not listed either.
+      - name: Install the wheel alone in a fresh venv
+        run: |
+          python -m venv --without-pip "$RUNNER_TEMP/sbom-venv"
+          pip --python "$RUNNER_TEMP/sbom-venv/bin/python" install dist/*.whl
+
       - name: Install CycloneDX
         run: pip install cyclonedx-bom
 
       - name: Generate SBOM
-        run: cyclonedx-py environment --output-format JSON --output-file sbom.cdx.json
+        run: |
+          cyclonedx-py environment --pyproject pyproject.toml --mc-type library \
+            --output-format JSON --output-file sbom.cdx.json "$RUNNER_TEMP/sbom-venv/bin/python"
+
+      - name: The SBOM lists the runtime dependencies and no build tooling
+        run: |
+          python - <<'EOF'
+          import json
+          names = {c["name"].lower() for c in json.load(open("sbom.cdx.json")).get("components", [])}
+          print("components:", ", ".join(sorted(names)))
+          missing = {"lxml", "pandas"} - names
+          tooling = names & {"build", "twine", "cyclonedx-bom", "pip", "setuptools", "wheel"}
+          assert not missing, f"runtime dependencies missing from the SBOM: {sorted(missing)}"
+          assert not tooling, f"build tooling in the SBOM: {sorted(tooling)}"
+          EOF
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: sbom
           path: sbom.cdx.json
