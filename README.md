@@ -477,7 +477,7 @@ scan_folder("./workbooks", table="datasources")   # one table, every workbook in
 - The code layout, the module table and the rules for porting a function from the R package: [AGENTS.md](https://github.com/DDSNA/py-tbparse/blob/main/AGENTS.md).
 - CI output formats and the pre-commit hook: [docs/ci.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/ci.md).
 - The Docker image and running the GUI behind a TLS proxy: [docs/deployment.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/deployment.md).
-- The screenshots: `scripts/readme_screenshots.py` takes the pictures at the top of this page and in docs/gui.md (from the made-up demo workbook); `scripts/guide_screenshots.py` takes the user's guide pictures (`docs/guide-*.png`) from the public Superstore workbook in the corpus (`scripts/fetch_corpus.py` fetches it).
+- The screenshots: `scripts/readme_screenshots.py` takes the pictures at the top of this page and in docs/gui.md (from the made-up demo workbook); `scripts/guide_screenshots.py` takes the user's guide pictures (`docs/guide-*.png`) from the public Superstore workbook in the corpus (`scripts/fetch_corpus.py` fetches it); `scripts/gui_screenshots.py WORKBOOK OUT_DIR` captures every view (also Audit, Libraries, Styles and Slice and copy in light, dark and phone width) for comparing before and after a GUI change, and is retaken at each major release.
 
 </details>
 
