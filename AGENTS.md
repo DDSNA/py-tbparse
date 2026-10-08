@@ -494,6 +494,7 @@ visible change.
 `scripts/guide_screenshots.py [--out DIR]` retakes the user's guide images in the README (`docs/guide-*.png`) from the
 public corpus workbook `Brushing_Superstore_Sales_Map.twb` (fetch the corpus first), sanitized into a temporary folder;
 never commit the corpus file. The guide text quotes what those screens show, so reread the guide after retaking them.
+README images must use absolute `https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/...` URLs, never repo-relative paths, because PyPI renders the README and relative paths break there.
 
 `scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures the GUI states (start,
 overview and fields in light and dark, renames, graph, phone width, the Templates view: empty, mapping, review, make, and
