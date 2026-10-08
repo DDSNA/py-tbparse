@@ -15,7 +15,7 @@ import pandas as pd
 
 _DASHBOARD_COLUMNS = ["name"]
 _SUMMARY_COLUMNS = ["name", "worksheets", "sheets", "size", "filters", "parameters", "actions",
-                    "filter_fields", "parameter_names"]
+                    "images", "texts", "webs", "filter_fields", "parameter_names"]
 _SHEETS_COLUMNS = ["dashboard", "sheet", "zone_id", "x", "y", "w", "h"]
 # Zones of these kinds are named after the worksheet they show or control (`sheet` and `worksheet` are what some
 # generated workbooks write; Tableau itself writes no type for a sheet).
@@ -191,7 +191,8 @@ def _zone_names(xml_doc, db, kind: str) -> str:
 
 def dashboard_summary(xml_doc) -> pd.DataFrame:
     """One row per dashboard: how many distinct worksheets it shows (and which), its size, and how many
-    quick filters, parameter controls and workbook actions it has, plus the fields the filters are on
+    quick filters, parameter controls and workbook actions it has, how many image (`bitmap`), text and web page
+    zones its main layout has (`images`, `texts`, `webs`; a `title` zone is not counted as text), plus the fields the filters are on
     (`filter_fields`) and the parameters the controls set (`parameter_names`). `list_dashboards` stays the name-only list."""
     action_counts: dict[str, int] = {}
     for src in xml_doc.xpath(".//actions/action/source[@dashboard]"):
@@ -206,6 +207,7 @@ def dashboard_summary(xml_doc) -> pd.DataFrame:
                 "name": name, "worksheets": len(sheets), "sheets": "; ".join(sheets), "size": _size_text(db),
                 "filters": kinds.count("filter"), "parameters": kinds.count("paramctrl"),
                 "actions": action_counts.get(name, 0),
+                "images": kinds.count("bitmap"), "texts": kinds.count("text"), "webs": kinds.count("web"),
                 "filter_fields": _zone_names(xml_doc, db, "filter"),
                 "parameter_names": _zone_names(xml_doc, db, "paramctrl"),
             })

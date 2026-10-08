@@ -355,3 +355,44 @@ def test_summary_names_the_filter_fields_and_parameters_once_each_in_layout_orde
     assert row["filter_fields"] == "Category; Order Date; Margin band"
     assert row["parameter_names"] == "Top N"
     assert row["filters"] == 5 and row["parameters"] == 1
+
+
+_MEDIA_XML = """
+<workbook>
+  <dashboards>
+    <dashboard name="D"><zones><zone id="1" type-v2="layout-basic">
+      <zone id="2" type-v2="bitmap" param="logo.png"/>
+      <zone id="3" type="bitmap" param="old.png"/>
+      <zone id="4" type-v2="text"/>
+      <zone id="5" type-v2="title"/>
+      <zone id="6" type-v2="web" url="https://example.com"/>
+      <zone id="7" type-v2="web" url="https://example.org"/>
+      <zone id="8" name="S1"/>
+      <zone id="9" _.fcp.SetMembershipControl.true...type-v2="text"/>
+    </zone></zones>
+    <devicelayouts><devicelayout name="Phone"><zones>
+      <zone id="2" type-v2="bitmap" param="logo.png"/>
+      <zone id="6" type-v2="web" url="https://example.com"/>
+    </zones></devicelayout></devicelayouts></dashboard>
+    <dashboard name="Plain"><zones><zone id="1" name="S1"/></zones></dashboard>
+  </dashboards>
+</workbook>
+"""
+
+
+def test_summary_counts_image_text_and_web_zones_of_the_main_layout():
+    df = dashboard_summary(xml_from_string(_MEDIA_XML))
+    assert {"images", "texts", "webs"} <= set(df.columns)
+    row = df[df["name"] == "D"].iloc[0]
+    # both bitmap spellings count; the title is not text; the Phone layout repeats and is not counted again
+    assert (row["images"], row["texts"], row["webs"]) == (2, 2, 2)
+    plain = df[df["name"] == "Plain"].iloc[0]
+    assert (plain["images"], plain["texts"], plain["webs"]) == (0, 0, 0)
+
+
+def test_summary_media_columns_are_in_the_empty_table_and_the_demo_workbook():
+    assert {"images", "texts", "webs"} <= set(dashboard_summary(xml_from_string("<workbook/>")).columns)
+    from py_tbparse import TwbParser
+    df = TwbParser("docs/demo/coffee-shop.twb").get_dashboard_summary()
+    assert {"images", "texts", "webs"} <= set(df.columns)
+    assert (df[["images", "webs"]] == 0).all().all()
