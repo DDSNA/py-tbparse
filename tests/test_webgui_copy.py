@@ -365,3 +365,11 @@ def test_server_mode_works_without_paths_and_keeps_each_browsers_target_private(
     # a path in the body is refused by name
     s5, body, _ = _sreq(shared, "/copy/plan", "POST", json.dumps({"sheets": ["S1"], "path": "/tmp/x.twb"}), JSON_H, cookie=c1)
     assert s5 == 400 and "path" in json.loads(body)["error"]
+
+
+def test_dashboard_sheet_count_reads_worksheet_attribute(server):
+    # the demo workbook writes <zone worksheet="..."> with no name; the count used to be 0 for every dashboard
+    demo = Path(__file__).parent.parent / "docs" / "demo" / "coffee-shop.twb"
+    _load(server, demo)
+    _, d = _get(server, "/copy/dashboards")
+    assert {r["name"]: r["n_sheets"] for r in d["rows"]} == {"Product Review": 2, "Weekly Overview": 2}
