@@ -489,7 +489,8 @@ public corpus workbook `Brushing_Superstore_Sales_Map.twb` (fetch the corpus fir
 never commit the corpus file. The guide text quotes what those screens show, so reread the guide after retaking them.
 
 `scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures the GUI states (start,
-overview and fields in light and dark, renames, graph, phone width, and the Templates view: empty, mapping, review, make) deterministically. Use it for GUI
+overview and fields in light and dark, renames, graph, phone width, the Templates view: empty, mapping, review, make, and
+Audit, Libraries, Styles and Slice and copy, each in light, dark and 390 px: files 12 to 23) deterministically. Use it for GUI
 refactors: a pure refactor must compare all-identical to the baseline taken before it; a redesign is expected to
 differ, so review the new look and re-capture the baseline. The redesign plan and its decisions are in
 `docs/ui-redesign-plan.md`.

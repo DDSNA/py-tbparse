@@ -5,7 +5,8 @@
     python scripts/gui_screenshots.py WORKBOOK OUT_DIR --compare BASELINE_DIR
 
 States: start screen, overview (light and dark), fields (light and dark), field renames, relationship
-graph, and the overview and fields at phone width (390 px). Needs Playwright and Chromium (see the
+graph, the overview and fields at phone width (390 px), the Templates view, and Audit, Libraries, Styles and
+Slice and copy, each in light, dark and at phone width (files 12 to 23). Needs Playwright and Chromium (see the
 browser-test setup in AGENTS.md); if `.browser-libs/` exists at the repo root its libraries, fonts and
 keyboard data are used, exactly as the browser tests do.
 
@@ -91,6 +92,88 @@ def _templates_states(browser, url, shot) -> None:
         page.close()
 
 
+def _wait_settled(page) -> None:
+    """The tests' `wait_settled` (tests/test_gui_browser.py): wait until nothing is animating any more."""
+    sys.path.insert(0, str(ROOT / "tests"))
+    try:
+        from test_gui_browser import wait_settled
+    except ImportError:   # pytest or Playwright test helpers missing: a fixed pause is the best we can do
+        time.sleep(1.0)
+    else:
+        wait_settled(page)
+    finally:
+        sys.path.pop(0)
+
+
+_STYLES_TPS = """<?xml version='1.0'?>
+<workbook><preferences>
+<color-palette name="Screenshot Brand" type="regular"><color>#1F4E79</color><color>#2E86AB</color><color>#F18F01</color></color-palette>
+</preferences></workbook>
+"""
+
+
+def _newer_views(browser, url, workbook, shot) -> None:
+    """Audit, Libraries, Styles and Slice and copy, in light, dark and at 390 px (files 12 to 23). Each view is
+    opened on the given workbook, a few rows are ticked or a small file is dropped so the view shows more than its
+    empty state, and the tables stay at a handful of rows."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tps = Path(tmp) / "brand.tps"
+        tps.write_text(_STYLES_TPS, encoding="utf-8")
+
+        def go(page, table):
+            nav = page.locator(f'.nav-item[data-table="{table}"]')
+            if nav.is_visible():
+                nav.click()
+            else:   # at phone width the sidebar is hidden and a menu takes its place
+                page.select_option("#tableSel", table)
+            page.wait_for_selector("#tableWrap > *", timeout=10000)
+            _wait_settled(page)
+
+        def audit(page):
+            go(page, "audit")
+
+        def libraries(page):
+            go(page, "libraries")
+            if page.locator("#libRow0").count():
+                page.check("#libRow0")
+            _wait_settled(page)
+
+        def styles(page):
+            go(page, "styles")
+            page.set_input_files("#styFile", str(tps))
+            page.wait_for_selector("#styPlanBox", timeout=15000)
+            page.locator("#styPlanBox").scroll_into_view_if_needed()   # the plan, not the empty palette list
+            _wait_settled(page)
+
+        def copy(page):
+            go(page, "copy")
+            if page.locator("#cpyDashRow0").count():
+                page.check("#cpyDashRow0")
+                page.wait_for_selector("#cpySliceSummary", timeout=15000)
+            _wait_settled(page)
+
+        # Libraries needs a workbook with exactly one datasource, so it uses a small public fixture; the others
+        # use the workbook given on the command line.
+        single = str(ROOT / "tests" / "fixtures" / "public" / "filtering.twb")
+        views = (("audit", audit, workbook), ("libraries", libraries, single), ("styles", styles, workbook),
+                 ("slice-copy", copy, workbook))
+        number = 12
+        for view, drive, source in views:
+            for suffix, scheme, width in (("light", "light", 1360), ("dark", "dark", 1360), ("phone", "light", 390)):
+                page = browser.new_page(viewport={"width": width, "height": 800}, color_scheme=scheme)
+                page.goto(url)
+                page.fill("#path", source)
+                page.click("#loadBtn")
+                page.wait_for_selector("#tableWrap .health, #tableWrap table", timeout=20000)
+                _wait_settled(page)
+                drive(page)
+                shot(page, f"{number}-{view}-{suffix}.png")
+                number += 1
+                page.close()
+
+
 def capture(workbook: str, out: Path) -> list[str]:
     from playwright.sync_api import sync_playwright
 
@@ -106,6 +189,7 @@ def capture(workbook: str, out: Path) -> list[str]:
 
     def shot(page, name):
         page.add_style_tag(content=_FREEZE)
+        page.evaluate("() => { const t = document.getElementById('status'); if (t) t.classList.remove('show'); }")
         page.evaluate("() => document.activeElement && document.activeElement.blur && document.activeElement.blur()")
         page.screenshot(path=str(out / name))
         names.append(name)
@@ -149,6 +233,7 @@ def capture(workbook: str, out: Path) -> list[str]:
         shot(page, "07-phone-fields.png")
         page.close()
         _templates_states(browser, url, shot)
+        _newer_views(browser, url, workbook, shot)
         browser.close()
     srv.shutdown()
     return names
