@@ -24,6 +24,10 @@ from py_tbparse import (
 from py_tbparse import library as lib_mod
 from py_tbparse.usage import missing_references
 
+# These tests call the API without on_clash on purpose (the 'rename' default, issue #128); the warning
+# itself is tested in test_library_default_policy.py.
+pytestmark = pytest.mark.filterwarnings("ignore:on_clash was not passed:DeprecationWarning")
+
 FIX = Path(__file__).parent / "fixtures" / "library"
 CALC = "{http://www.tableausoftware.com/xml/user}auto-column"
 
