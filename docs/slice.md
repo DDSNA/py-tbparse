@@ -41,7 +41,7 @@ Not touched: hidden `[Action (...)]` groups in a datasource. If a kept filter st
 
 ## What was checked, and what was not
 
-Tested on a synthetic workbook (`tests/test_slice.py`: tooltip sheet, hidden sheet on a removed dashboard, actions dropped and trimmed, strict, prune of a datasource, calculation and parameter, story, `.twb` writing, CLI) and over the 200-workbook corpus (`tests/test_slice_corpus.py`, skipped when `tests/corpus/files` is missing): for the 19 workbooks with two or more dashboards, keep the first. The result re-parses, schema errors and A003 (missing reference) do not rise, `integrity_check` finds nothing new, and a second slice of the output is a no-op. A one-off run keeping each dashboard in turn (46 slices, two refused for showing no worksheet) found no new schema or integrity problem.
+Tested on a synthetic workbook (`tests/test_slice.py`: tooltip sheet, hidden sheet on a removed dashboard, actions dropped and trimmed, strict, prune of a datasource, calculation and parameter, story, `.twb` writing, CLI) and over the 200-workbook corpus (`tests/test_slice_corpus.py`, skipped when `tests/corpus/files` is missing, so a local check: fetch it with `python scripts/fetch_corpus.py`, run `pytest -m corpus`; the weekly and on-demand `Corpus` workflow does the same, see [development.md](development.md)): for the 19 workbooks with two or more dashboards, keep the first. The result re-parses, schema errors and A003 (missing reference) do not rise, `integrity_check` finds nothing new, and a second slice of the output is a no-op. A one-off run keeping each dashboard in turn (46 slices, two refused for showing no worksheet) found no new schema or integrity problem.
 
 Not checked, and the weak spots:
 

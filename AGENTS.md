@@ -332,7 +332,7 @@ beyond the R package's scope:
   functions' own `@examples` roxygen blocks).
 - `tests/corpus/` is 200 real workbooks (permissive licences, pinned by blob sha in
   `manifest.csv`, licence texts in `licenses/`). The files are gitignored; fetch with
-  `python scripts/fetch_corpus.py`. `tests/test_corpus.py` skips without them. Run it when you
+  `python scripts/fetch_corpus.py`. `tests/test_corpus.py` skips without them, and so do all tests marked `corpus` (auto-applied in `conftest.py`; run them with `pytest -m corpus`). The PR CI never fetches the corpus; `.github/workflows/corpus.yml` does, weekly and on demand. Run them when you
   change anything that reads workbook XML: it found a Unicode matching bug the hand-made
   fixtures could not. Add to the corpus only from repositories whose licence permits
   redistribution, and record the licence text.

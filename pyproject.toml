@@ -53,3 +53,6 @@ py_tbparse = ["py.typed", "webui/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "corpus: needs the downloaded workbook corpus (python scripts/fetch_corpus.py); run with pytest -m corpus",
+]
