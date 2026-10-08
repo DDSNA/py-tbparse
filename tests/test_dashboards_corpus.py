@@ -43,3 +43,19 @@ def test_names_and_counts_cannot_drift_apart(summaries):
             named_params += len(params)
     assert named_filters > 0 and named_params > 0
     assert any("Category" in df["filter_fields"].str.cat() for df in summaries)
+
+
+def test_image_text_and_web_counts_match_a_separate_count_over_the_corpus(summaries):
+    # counted straight from the XML (type-v2/type only), so a feature-flag-only zone is the allowed difference
+    from lxml import etree
+    want = {"images": 0, "texts": 0, "webs": 0}
+    got = {"images": 0, "texts": 0, "webs": 0}
+    for path, df in zip(FILES, summaries):
+        doc = etree.parse(str(path))
+        for col, kind in (("images", "bitmap"), ("texts", "text"), ("webs", "web")):
+            want[col] += len(doc.xpath(f"//dashboards/dashboard/zones//zone[@type-v2='{kind}' or @type='{kind}']"))
+            got[col] += int(df[col].sum())
+    for col in want:
+        assert got[col] >= want[col], col
+        assert got[col] - want[col] <= 5, col
+    assert got["images"] > 0 and got["texts"] > 0 and got["webs"] > 0, got
