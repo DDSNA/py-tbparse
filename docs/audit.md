@@ -13,7 +13,7 @@ py-tbparse audit sales.twb --only A001,A005 --format csv -o findings.csv
 py-tbparse audit sales.twb --skip A006,A009 --format json
 ```
 
-Findings go to stdout (or `-o`), the count to stderr. Formats are `table`, `csv`, `json` and the CI formats `junit`, `sarif` and `github` ([ci.md](ci.md)). Exit codes are the ones of `template check`: 0, 1 (a finding at `--fail-on`), 2 (the workbook cannot be read or an option is wrong) and 3 (a rule crashed; it is reported as an error finding and its traceback goes to stderr).
+Findings go to stdout (or `-o`), the count to stderr. Formats are `table`, `csv`, `json` and the CI formats `junit`, `sarif` and `github` ([ci.md](ci.md)). Exit codes are the ones of `template check`: 0, 1 (a finding at `--fail-on`), 2 (the workbook cannot be read or an option is wrong) and 3 (a rule crashed; it is reported as an error finding and its traceback goes to stderr). The other commands use the codes differently: [cli.md](cli.md#exit-codes).
 
 From Python: `from py_tbparse import audit; audit("sales.twb", only=["A001"])` returns a pandas DataFrame with the columns `rule, severity, object, detail, fix`, sorted so the same workbook always gives the same frame.
 

@@ -51,7 +51,7 @@ Its `<column>` (captions, aliases and the calculation are inside it), the `<colu
 
 - Dry run unless `--write -o OUT`. The output is a new file in the input's format (`.twb` to `.twb`, `.twbx` to `.twbx`, whose other members are copied as they are); the input is never written and an existing `OUT` is refused unless `--overwrite`.
 - A second prune of the output removes nothing.
-- Exit code 0, or 2 for an unreadable workbook, a refused output or a wrong option.
+- Exit code 0, or 2 for an unreadable workbook, a refused output or a wrong option (there is no 1). Every command's codes: [cli.md](cli.md#exit-codes).
 
 ## What was checked, and what was not
 

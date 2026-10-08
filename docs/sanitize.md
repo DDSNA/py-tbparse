@@ -10,7 +10,7 @@ py-tbparse sanitize sales.twbx shared.twbx --placeholders --keep comments
 py-tbparse sanitize sales.twb demo.twbx --fake-data --seed 3
 ```
 
-The input is never written, and an existing output is refused unless `--overwrite` (the input itself is refused even then). The output has the input's format: `.twb` in, `.twb` out; `.twbx` in, `.twbx` out; `--fake-data` always writes a `.twbx`. Running it on its own output changes nothing and reports zero removals. Exit code 0 on success, 2 when the workbook cannot be read or an option is wrong.
+The input is never written, and an existing output is refused unless `--overwrite` (the input itself is refused even then). The output has the input's format: `.twb` in, `.twb` out; `.twbx` in, `.twbx` out; `--fake-data` always writes a `.twbx`. Running it on its own output changes nothing and reports zero removals. Exit code 0 on success, 2 for any error (the workbook cannot be read, the output exists or has the wrong extension, an unknown `--keep`, a wrong option); there is no 1. Every command's codes: [cli.md](cli.md#exit-codes).
 
 From Python: `sanitize(path, out, keep=(), placeholders=False, fake_data=False, seed=0, fake_rows=20, overwrite=False, report=None)`; `report` is a dict that is filled in, and `format_report(report)` prints it.
 

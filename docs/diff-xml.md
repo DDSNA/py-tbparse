@@ -11,7 +11,7 @@ py-tbparse diff-xml before.twb after.twb          # unified diff on stdout
 py-tbparse diff-xml before.twbx after.twbx -U 0 -o changes.diff
 ```
 
-Exit code 0: no differences. 1: differences. 2: a file cannot be read, or `-o` names one of the inputs.
+Exit code 0: no differences. 1: differences. 2: a file cannot be read, or `-o` names one of the inputs. Every command's codes: [cli.md](cli.md#exit-codes).
 For a `.twbx` only the workbook (`.twb`) member is compared; data, extracts and images are not.
 
 In Python:
