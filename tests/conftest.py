@@ -34,6 +34,33 @@ def _check_same_checkout():
 _check_same_checkout()
 
 
+_CORPUS_HINTS = ("corpus not fetched", "corpus(", "CORPUS")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Mark every test that needs the (gitignored) workbook corpus with `corpus`, so `pytest -m corpus`
+    selects them and CI can run them after scripts/fetch_corpus.py. Nothing is deselected or skipped here:
+    plain `pytest` behaves as before. A test counts when its file is a corpus file, a skipif on it names the
+    corpus, or its own source reads the corpus."""
+    import inspect
+
+    for item in items:
+        needs = "corpus" in item.path.stem
+        if not needs:
+            needs = any(
+                "corpus not fetched" in str(m.kwargs.get("reason", ""))
+                for m in item.iter_markers("skipif")
+            )
+        if not needs:
+            try:
+                src = inspect.getsource(item.function)
+            except (AttributeError, OSError, TypeError):
+                src = ""
+            needs = any(h in src for h in _CORPUS_HINTS)
+        if needs:
+            item.add_marker(pytest.mark.corpus)
+
+
 @pytest.fixture
 def wenjie_xml():
     return etree.parse(str(FIXTURES / "test_for_wenjie.twb"))

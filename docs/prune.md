@@ -55,7 +55,7 @@ Its `<column>` (captions, aliases and the calculation are inside it), the `<colu
 
 ## What was checked, and what was not
 
-Tested over the 200-workbook corpus with every option on (`tests/test_prune_corpus.py`; the datasource option has its own run, `tests/test_prune_doc_corpus.py`, same checks plus no removed datasource name left in the output): no exception, the output re-parses, the XML-schema errors do not increase against the input, nothing removed is still an A001, A005 or A006 finding, no removed field name is left anywhere in the output, the A003 (missing reference) count does not rise, and a second prune is a no-op. Counts from that run: 146 calculations, 11 parameters and 69 sheets removed, 3 workbooks where the last worksheets were kept.
+Tested over the 200-workbook corpus with every option on (`tests/test_prune_corpus.py`, a local check: it skips without the corpus and the pull-request CI does not fetch it; run it with `python scripts/fetch_corpus.py` then `pytest -m corpus`, or see the weekly `Corpus` workflow in [development.md](development.md); the datasource option has its own run, `tests/test_prune_doc_corpus.py`, same checks plus no removed datasource name left in the output): no exception, the output re-parses, the XML-schema errors do not increase against the input, nothing removed is still an A001, A005 or A006 finding, no removed field name is left anywhere in the output, the A003 (missing reference) count does not rise, and a second prune is a no-op. Counts from that run: 146 calculations, 11 parameters and 69 sheets removed, 3 workbooks where the last worksheets were kept.
 
 Not checked, and the weak spots:
 
