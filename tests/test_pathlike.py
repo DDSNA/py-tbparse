@@ -211,11 +211,25 @@ def _names_pathlike(types) -> bool:
     return any(t is os.PathLike or typing.get_origin(t) is os.PathLike for t in types)
 
 
+def _hints(fn) -> dict:
+    """`typing.get_type_hints(fn)`, one parameter at a time: on Python 3.9 an unrelated `X | None` annotation
+    elsewhere in a signature cannot be evaluated and would otherwise hide the path parameters."""
+    out = {}
+    for param, ann in getattr(fn, "__annotations__", {}).items():
+        if isinstance(ann, str):
+            try:
+                ann = eval(ann, getattr(fn, "__globals__", {}))  # noqa: S307 - our own annotation strings
+            except TypeError:
+                continue
+        out[param] = ann
+    return out
+
+
 def test_no_public_path_parameter_is_a_plain_str():
     offenders = []
     checked = 0
     for name, fn in _public_callables():
-        hints = typing.get_type_hints(fn)
+        hints = _hints(fn)
         for param in inspect.signature(fn).parameters:
             if (name, param) in NOT_A_PATH or param not in PATH_PARAM_NAMES or param not in hints:
                 continue
