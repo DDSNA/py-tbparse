@@ -23,7 +23,7 @@ import pandas as pd
 from lxml import etree
 
 from .dashboards import CONTAINER_KINDS, _dashboard_xpath, integrity_check, zone_kind
-from ._xml import PathLike, parse_bytes
+from ._xml import PathLike, PyTbparseError, parse_bytes
 from .parser import TwbParser
 from .rename import _serialize_workbook
 from .sheetcopy_core import add_window, new_uuid as _new_uuid
@@ -37,7 +37,7 @@ DROPPED_COLUMNS = ["id", "kind", "name", "reason"]
 _TYPE_ATTRS = ("type", "type-v2")
 
 
-class ScaffoldError(ValueError):
+class ScaffoldError(PyTbparseError):
     """A dashboard cannot be a scaffold, or a scaffold cannot be applied as asked."""
 
 
@@ -154,6 +154,10 @@ def _check(scaffold: dict) -> dict:
 
 
 def save_scaffold(scaffold: dict, path: Union[str, os.PathLike], overwrite: bool = False) -> str:
+    """Write a scaffold dict as JSON (UTF-8, indent 2) and return the path.
+
+    The scaffold is checked first. An existing file is kept and `FileExistsError`
+    raised unless `overwrite=True`."""
     _check(scaffold)
     out = Path(path)
     if out.exists() and not overwrite:
@@ -165,6 +169,8 @@ def save_scaffold(scaffold: dict, path: Union[str, os.PathLike], overwrite: bool
 
 
 def load_scaffold(path: Union[str, os.PathLike]) -> dict:
+    """Read a scaffold JSON file back and check it. Raises `ScaffoldError` when the
+    file is not JSON or not a scaffold of a version this release can read."""
     with open(path, encoding="utf-8") as fh:
         try:
             data = json.load(fh)

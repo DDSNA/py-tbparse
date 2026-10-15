@@ -30,7 +30,7 @@ import copy
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
-from ._xml import PathLike
+from ._xml import PathLike, PyTbparseError
 from .dashboards import integrity_check
 from .parser import TwbParser
 from .prune import _drop, _el_values, prune_doc
@@ -38,7 +38,7 @@ from .rename import _serialize_workbook
 from .templates import _write_new
 
 
-class SliceError(ValueError):
+class SliceError(PyTbparseError):
     pass
 
 

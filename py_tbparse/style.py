@@ -25,12 +25,12 @@ import pandas as pd
 from lxml import etree
 
 from . import templates as _templates
-from ._xml import PathLike, parse_bytes, parse_file
+from ._xml import PathLike, PyTbparseError, parse_bytes, parse_file
 from .parser import TwbParser
 from .rename import _serialize_workbook
 
 
-class StyleError(ValueError):
+class StyleError(PyTbparseError):
     """A palette, style file or import cannot be read or done as asked."""
 
 
