@@ -449,6 +449,7 @@ scan_folder("./workbooks", table="datasources")   # one table, every workbook in
 <details>
 <summary><b>Guides</b>: every command and feature in detail (docs/)</summary>
 
+- [Python API](https://github.com/DDSNA/py-tbparse/blob/main/docs/api.md): every public function and class, grouped by task, with runnable examples.
 - [Command line](https://github.com/DDSNA/py-tbparse/blob/main/docs/cli.md): every table, the `diff`, `batch`, `rename`, `template`, `library`, `style` and `scaffold` commands, and their options.
 - [Browser GUI](https://github.com/DDSNA/py-tbparse/blob/main/docs/gui.md): opening files, the table, the overview, the audit, the graph, themes, filling a template with new data, and making a template from the open workbook (Templates).
 - [Running as a server](https://github.com/DDSNA/py-tbparse/blob/main/docs/deployment.md): the Docker image, a reverse proxy that ends TLS, sessions, limits.

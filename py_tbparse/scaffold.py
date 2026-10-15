@@ -154,6 +154,10 @@ def _check(scaffold: dict) -> dict:
 
 
 def save_scaffold(scaffold: dict, path: Union[str, os.PathLike], overwrite: bool = False) -> str:
+    """Write a scaffold dict as JSON (UTF-8, indent 2) and return the path.
+
+    The scaffold is checked first. An existing file is kept and `FileExistsError`
+    raised unless `overwrite=True`."""
     _check(scaffold)
     out = Path(path)
     if out.exists() and not overwrite:
@@ -165,6 +169,8 @@ def save_scaffold(scaffold: dict, path: Union[str, os.PathLike], overwrite: bool
 
 
 def load_scaffold(path: Union[str, os.PathLike]) -> dict:
+    """Read a scaffold JSON file back and check it. Raises `ScaffoldError` when the
+    file is not JSON or not a scaffold of a version this release can read."""
     with open(path, encoding="utf-8") as fh:
         try:
             data = json.load(fh)
