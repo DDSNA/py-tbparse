@@ -29,6 +29,7 @@ from typing import Iterable, Optional
 
 from lxml import etree
 
+from ._xml import PyTbparseError
 from .library import _PARAMETERS, _bracket, _calc_class, _scan, _unbracket
 from .templates import _base_name, _connections, _non_parameter_datasources
 from .usage import _BRACKETED, _INSTANCE, _code_ref_spans, _datasource_fields
@@ -46,7 +47,7 @@ _BUILTIN = re.compile(r"^\[(?::.*|Multiple Values|.*\(generated\)|__tableau_inte
                       r"Number of Records)\]$")
 
 
-class SheetCopyError(ValueError):
+class SheetCopyError(PyTbparseError):
     """A sheet cannot be copied as asked (no or several matching datasources, a name that differs...)."""
 
 

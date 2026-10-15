@@ -28,7 +28,7 @@ import pandas as pd
 from lxml import etree
 
 from ._clean import is_missing
-from ._xml import parse_bytes
+from ._xml import PyTbparseError, parse_bytes
 from .parser import TwbParser
 from .rename import _insert_column, _serialize_workbook
 from .templates import (
@@ -54,7 +54,7 @@ _PARAMETERS = "Parameters"
 _MAPPED = ("matched", "close match")
 
 
-class LibraryError(ValueError):
+class LibraryError(PyTbparseError):
     """The library cannot be made, read or applied as asked."""
 
 
