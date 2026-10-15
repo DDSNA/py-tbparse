@@ -20,12 +20,13 @@ refuse the file, and nothing here was checked by opening a workbook in Tableau.
 from __future__ import annotations
 
 import re
-from typing import Iterable, Iterator, Optional
+from typing import Iterable, Iterator, Optional, Union
 
 import pandas as pd
 from lxml import etree
 
 from .findings import Subject, finding, rule, rule_ids, rules, run_rules
+from ._xml import PathLike
 from .parser import TwbParser
 from .sql import custom_sql_relations
 from .templates import _FILE_CLASSES, _KEYED_SECRET, _USERINFO, _base_name
@@ -46,7 +47,7 @@ def audit_rule_ids() -> list[str]:
     return rule_ids(SCOPE)
 
 
-def audit(source, only: Optional[Iterable[str]] = None, skip: Iterable[str] = ()) -> pd.DataFrame:
+def audit(source: Union[TwbParser, PathLike], only: Optional[Iterable[str]] = None, skip: Iterable[str] = ()) -> pd.DataFrame:
     """Audit a workbook (a path or a `TwbParser`); return the findings (`findings.FINDING_COLUMNS`), sorted so the
     same workbook always gives the same frame. `only`/`skip` take rule ids; an unknown id is an error. Nothing is
     written."""

@@ -19,6 +19,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
+from ._xml import PathLike
 from .connections import is_target_file
 from .templates import (
     Template,
@@ -77,7 +78,7 @@ def read_inputs(path: Union[str, os.PathLike], template: Template) -> dict[str, 
     return out
 
 
-def _find_inputs(directory: str, patterns: Iterable[str]) -> list[str]:
+def _find_inputs(directory: PathLike, patterns: Iterable[str]) -> list[str]:
     """The files matching `patterns`; a `*.target.json` file is always taken (a bad one becomes an error row, it does
     not vanish); any other `.json` file only if it is a target file (a database table), so a stray settings file is not
     turned into a workbook."""
@@ -163,9 +164,9 @@ def _apply_one(job: dict) -> dict:
 
 
 def apply_template_folder(
-    template: Union[Template, str],
-    directory: str,
-    output_dir: Optional[str] = None,
+    template: Union[Template, PathLike],
+    directory: PathLike,
+    output_dir: Optional[PathLike] = None,
     patterns: Iterable[str] = DEFAULT_PATTERNS,
     mapping: Union[str, os.PathLike, pd.DataFrame, None] = None,
     params: Optional[dict[str, str]] = None,

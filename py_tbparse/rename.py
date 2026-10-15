@@ -24,7 +24,7 @@ import pandas as pd
 from lxml import etree
 
 from ._clean import is_missing
-from ._xml import check_package, read_member
+from ._xml import PathLike, check_package, read_member
 from .parser import TwbParser
 
 STYLES = ("title", "snake", "lower", "keep")
@@ -191,7 +191,7 @@ def _reference_names(reference) -> list[str]:
 
 def suggest_field_renames(
     fields: Union[pd.DataFrame, TwbParser],
-    reference: Union[pd.DataFrame, TwbParser, str, Iterable[str], None] = None,
+    reference: Union[pd.DataFrame, TwbParser, PathLike, Iterable[str], None] = None,
     style: str = "title",
     fuzzy_cutoff: float = 0.85,
     acronyms: Iterable[str] = DEFAULT_ACRONYMS,
@@ -361,7 +361,7 @@ def _reference_inventory(reference) -> Optional[dict[str, list[dict]]]:
 
 def suggest_renames(
     parser: TwbParser,
-    reference: Union[pd.DataFrame, TwbParser, str, Iterable[str], None] = None,
+    reference: Union[pd.DataFrame, TwbParser, PathLike, Iterable[str], None] = None,
     kinds: Union[str, Iterable[str]] = KINDS,
     style: str = "title",
     fuzzy_cutoff: float = 0.85,
@@ -511,7 +511,7 @@ SCHEMA_COLUMNS = ["side", "datasource", "name", "closest"]
 
 def compare_field_schemas(
     fields: Union[pd.DataFrame, TwbParser],
-    reference: Union[pd.DataFrame, TwbParser, str, Iterable[str]],
+    reference: Union[pd.DataFrame, TwbParser, PathLike, Iterable[str]],
     datasource: Union[str, Iterable[str], None] = None,
     **kwargs,
 ) -> pd.DataFrame:
@@ -798,7 +798,7 @@ def default_renamed_path(parser: TwbParser) -> str:
 def apply_field_renames(
     parser: TwbParser,
     renames: Optional[pd.DataFrame] = None,
-    output_path: Optional[str] = None,
+    output_path: Optional[PathLike] = None,
     overwrite: bool = False,
     **kwargs,
 ) -> str:

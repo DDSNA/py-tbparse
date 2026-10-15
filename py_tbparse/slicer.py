@@ -30,6 +30,7 @@ import copy
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
+from ._xml import PathLike
 from .dashboards import integrity_check
 from .parser import TwbParser
 from .prune import _drop, _el_values, prune_doc
@@ -193,9 +194,9 @@ def slice_doc(doc, dashboards: Union[str, Iterable[str]], strict: bool = False, 
 
 
 def slice_workbook(
-    workbook: Union[TwbParser, str],
+    workbook: Union[TwbParser, PathLike],
     dashboards: Union[str, Iterable[str]],
-    output_path: Optional[str] = None,
+    output_path: Optional[PathLike] = None,
     strict: bool = False,
     prune: bool = True,
     overwrite: bool = False,

@@ -35,6 +35,7 @@ import pandas as pd
 from .findings import Subject, finding, rule, rule_ids, rules, run_rules
 from .multifile import MAX_FILES, FilePart, MultiSource, read_many
 from .rename import _match_key
+from ._xml import PathLike
 from .templates import (
     ANSWERS_NAME,
     MANIFEST_NAME,
@@ -406,7 +407,7 @@ def unreadable_file(s: Subject):
 
 # ------------------------------------------------------------------- API --
 
-def check_drift(source, files, answers=None, datasource: Optional[str] = None, sheet: Union[str, int, None] = None,
+def check_drift(source, files: Union[PathLike, Iterable[PathLike]], answers: Union[PathLike, dict, None] = None, datasource: Optional[str] = None, sheet: Union[str, int, None] = None,
                 only: Optional[Iterable[str]] = None, skip: Iterable[str] = (), max_files: int = MAX_FILES) -> pd.DataFrame:
     """Compare a folder, glob or list of data files with a template (a path or `Template`) or with answers (a path
     or dict), and return the findings (`findings.FINDING_COLUMNS`). `answers=` adds saved answers to a template. The

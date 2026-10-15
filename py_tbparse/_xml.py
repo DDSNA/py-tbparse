@@ -12,7 +12,7 @@ import os
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Union
 
 import pandas as pd
 from lxml import etree
@@ -20,6 +20,9 @@ from lxml import etree
 # XPath step for a <relation> element in either spelling. Tableau writes some relations with a feature-flag tag,
 # `_.fcp.ObjectModelEncapsulateLegacy.true...relation` (also `.false...`), which `relation` alone never matches.
 # Use as `.//{ANY_RELATION}[@type='table']`, not `.//relation[...]`.
+# Any filesystem path a public function accepts: a str or a pathlib.Path (any os.PathLike). Defined once here.
+PathLike = Union[str, os.PathLike[str]]
+
 ANY_RELATION = "*[self::relation or substring(name(), string-length(name()) - 10) = '...relation']"
 
 _WORKBOOK_EXT = {"twb"}
@@ -109,10 +112,11 @@ def _classify(name: str) -> str:
     return "other"
 
 
-def twbx_list(twbx_path: str) -> pd.DataFrame:
+def twbx_list(twbx_path: PathLike) -> pd.DataFrame:
     """Port of `twbx_list()`. Lists the contents of a .twbx archive."""
     if not twbx_path or not os.path.exists(twbx_path):
         raise FileNotFoundError(f"File not found: {twbx_path}")
+    twbx_path = os.fspath(twbx_path)
 
     rows = []
     with zipfile.ZipFile(twbx_path) as zf:
@@ -140,7 +144,7 @@ def _largest_twb_member(manifest: pd.DataFrame) -> str:
     return twb_rows.iloc[0]["name"]
 
 
-def read_twb_from_twbx(twbx_path: str) -> dict:
+def read_twb_from_twbx(twbx_path: PathLike) -> dict:
     """Parse the largest `.twb` member of a `.twbx` straight from the zip.
 
     Unlike `extract_twb_from_twbx()`, nothing is written to disk, so
@@ -149,6 +153,7 @@ def read_twb_from_twbx(twbx_path: str) -> dict:
     """
     if not twbx_path or not os.path.exists(twbx_path):
         raise FileNotFoundError(f"File not found: {twbx_path}")
+    twbx_path = os.fspath(twbx_path)
 
     manifest = twbx_list(twbx_path)
     twb_rel = _largest_twb_member(manifest)
@@ -165,8 +170,8 @@ def read_twb_from_twbx(twbx_path: str) -> dict:
 
 
 def extract_twb_from_twbx(
-    twbx_path: str,
-    extract_dir: Optional[str] = None,
+    twbx_path: PathLike,
+    extract_dir: Optional[PathLike] = None,
     extract_all: bool = False,
 ) -> dict:
     """Port of `extract_twb_from_twbx()`.
@@ -177,6 +182,7 @@ def extract_twb_from_twbx(
     """
     if not twbx_path or not os.path.exists(twbx_path):
         raise FileNotFoundError(f"File not found: {twbx_path}")
+    twbx_path = os.fspath(twbx_path)
 
     manifest = twbx_list(twbx_path)
     twb_rel = _largest_twb_member(manifest)
@@ -186,6 +192,7 @@ def extract_twb_from_twbx(
         stem = Path(twbx_path).stem
         extract_dir = os.path.join(tempfile.gettempdir(), f"twbx_{stem}_{stamp}")
 
+    extract_dir = os.fspath(extract_dir)
     os.makedirs(extract_dir, exist_ok=True)
     with zipfile.ZipFile(twbx_path) as zf:
         check_package(zf)
@@ -209,17 +216,18 @@ def extract_twb_from_twbx(
 
 
 def twbx_extract_files(
-    twbx_path: str,
+    twbx_path: PathLike,
     files: Optional[Iterable[str]] = None,
     pattern: Optional[str] = None,
     types: Optional[Iterable[str]] = None,
-    exdir: Optional[str] = None,
+    exdir: Optional[PathLike] = None,
 ) -> pd.DataFrame:
     """Port of `twbx_extract_files()`."""
     import re as _re
 
     if not twbx_path or not os.path.exists(twbx_path):
         raise FileNotFoundError(f"File not found: {twbx_path}")
+    twbx_path = os.fspath(twbx_path)
 
     man = twbx_list(twbx_path)
     sel = man
@@ -236,6 +244,7 @@ def twbx_extract_files(
     if exdir is None:
         stamp = _dt.datetime.now().strftime("%Y%m%d%H%M%S")
         exdir = os.path.join(tempfile.gettempdir(), f"twbx_extract_{stamp}")
+    exdir = os.fspath(exdir)
     os.makedirs(exdir, exist_ok=True)
 
     with zipfile.ZipFile(twbx_path) as zf:
@@ -254,8 +263,9 @@ def twbx_extract_files(
     )
 
 
-def load_workbook_xml(path: str) -> etree._ElementTree:
+def load_workbook_xml(path: PathLike) -> etree._ElementTree:
     """Load a .twb/.twbx path into a parsed lxml ElementTree."""
+    path = os.fspath(path)
     ext = Path(path).suffix.lower().lstrip(".")
     if ext == "twbx":
         return read_twb_from_twbx(path)["xml_doc"]

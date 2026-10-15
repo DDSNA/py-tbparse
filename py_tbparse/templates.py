@@ -37,7 +37,7 @@ import pandas as pd
 from lxml import etree
 
 from ._clean import is_missing
-from ._xml import check_package, parse_file, read_member
+from ._xml import PathLike, check_package, parse_file, read_member
 from .parser import TwbParser
 from .rename import _match_key, _words
 from .usage import field_usage
@@ -350,14 +350,14 @@ def default_template_path(parser: TwbParser) -> str:
 
 
 def make_template(
-    parser: Union[TwbParser, str],
-    output_path: Optional[str] = None,
+    parser: Union[TwbParser, PathLike],
+    output_path: Optional[PathLike] = None,
     name: Optional[str] = None,
     description: Optional[str] = None,
     keep_data: bool = False,
     overwrite: bool = False,
     template_id: Optional[str] = None,
-    revision_of: Union["Template", str, None] = None,
+    revision_of: Union["Template", PathLike, None] = None,
     tokens: Optional[dict] = None,
 ) -> str:
     """Save a template made from a finished workbook; return its path.
@@ -501,7 +501,7 @@ def _fill_version_1(manifest: dict) -> None:
             f.setdefault("alias", None)
 
 
-def load_template(path: str) -> Template:
+def load_template(path: PathLike) -> Template:
     """Open a template made by `make_template`."""
     if not str(path).lower().endswith(".twbx"):
         raise TemplateError(f"not a template (.twbx expected): {path}")
@@ -686,7 +686,7 @@ def _read_excel(p: Path, sheet: Union[str, int, None]) -> DataSource:
         book.close()
 
 
-def read_data(path: str, datasource: Optional[str] = None, sheet: Union[str, int, None] = None,
+def read_data(path: PathLike, datasource: Optional[str] = None, sheet: Union[str, int, None] = None,
               experimental: bool = False) -> DataSource:
     """Describe new data for `apply_template`: a CSV file, an Excel file
     (`.xlsx`/`.xlsm`, needs `py-tbparse[excel]`; `sheet=` picks a worksheet by
@@ -1477,8 +1477,8 @@ class ApplyPlan:
 
 
 def resolve_apply(
-    template: Union[Template, str],
-    data: Union[DataSource, str, None] = None,
+    template: Union[Template, PathLike],
+    data: Union[DataSource, PathLike, None] = None,
     mapping: Optional[pd.DataFrame] = None,
     params: Optional[dict[str, str]] = None,
     datasource: Optional[str] = None,
@@ -1576,11 +1576,11 @@ def _replace_connection(ds_el, conn, extras) -> None:
 
 
 def apply_template(
-    template: Union[Template, str],
-    data: Union[DataSource, str, None] = None,
+    template: Union[Template, PathLike],
+    data: Union[DataSource, PathLike, None] = None,
     mapping: Optional[pd.DataFrame] = None,
     params: Optional[dict[str, str]] = None,
-    output_path: Optional[str] = None,
+    output_path: Optional[PathLike] = None,
     datasource: Optional[str] = None,
     data_datasource: Optional[str] = None,
     allow_missing: bool = False,

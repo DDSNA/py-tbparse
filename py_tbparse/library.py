@@ -28,7 +28,7 @@ import pandas as pd
 from lxml import etree
 
 from ._clean import is_missing
-from ._xml import parse_bytes
+from ._xml import PathLike, parse_bytes
 from .parser import TwbParser
 from .rename import _insert_column, _serialize_workbook
 from .templates import (
@@ -832,7 +832,7 @@ def plan_import(
     parser: TwbParser,
     library: dict,
     datasource: Optional[str] = None,
-    mapping: Union[dict, str, pd.DataFrame, None] = None,
+    mapping: Union[dict, PathLike, pd.DataFrame, None] = None,
     on_clash: Union[str, _NotPassed] = _NOT_PASSED,
 ) -> pd.DataFrame:
     """What `import_library` would do, one row per required item (`action` `mapped` or `unmapped`) and per
@@ -943,7 +943,7 @@ def build_imported_workbook(
     parser: TwbParser,
     library: dict,
     datasource: Optional[str] = None,
-    mapping: Union[dict, str, pd.DataFrame, None] = None,
+    mapping: Union[dict, PathLike, pd.DataFrame, None] = None,
     on_clash: Union[str, _NotPassed] = _NOT_PASSED,
     report: Optional[dict] = None,
 ) -> bytes:
@@ -972,9 +972,9 @@ def import_library(
     parser: TwbParser,
     library: Union[dict, str, os.PathLike],
     datasource: Optional[str] = None,
-    mapping: Union[dict, str, pd.DataFrame, None] = None,
+    mapping: Union[dict, PathLike, pd.DataFrame, None] = None,
     on_clash: Union[str, _NotPassed] = _NOT_PASSED,
-    output_path: Optional[str] = None,
+    output_path: Optional[PathLike] = None,
     overwrite: bool = False,
     report: Optional[dict] = None,
 ) -> str:

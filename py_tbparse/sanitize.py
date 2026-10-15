@@ -25,7 +25,7 @@ from typing import Iterable, Optional, Union
 
 from lxml import etree
 
-from ._xml import ANY_RELATION, check_package, read_member
+from ._xml import ANY_RELATION, PathLike, check_package, read_member
 from .parser import TwbParser
 from .templates import (
     DataSource,
@@ -457,8 +457,8 @@ def _write_zip(parser: TwbParser, twb: bytes, extra: dict[str, bytes], run: _Run
 
 
 def sanitize(
-    workbook: Union[TwbParser, str],
-    output_path: str,
+    workbook: Union[TwbParser, PathLike],
+    output_path: PathLike,
     keep: Iterable[str] = (),
     placeholders: bool = False,
     fake_data: bool = False,

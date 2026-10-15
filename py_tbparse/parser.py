@@ -12,7 +12,7 @@ import pandas as pd
 from lxml import etree
 
 from ._clean import internal_last
-from ._xml import parse_file, read_twb_from_twbx
+from ._xml import PathLike, parse_file, read_twb_from_twbx
 from .calculated_fields import _CALC_COLUMNS, _RAW_COLUMNS, extract_calculated_fields, extract_raw_fields
 from .dashboards import (_DASHBOARD_COLUMNS, _SHEETS_COLUMNS, _SUMMARY_COLUMNS, dashboard_sheets,
                          dashboard_summary, list_dashboards)
@@ -47,7 +47,8 @@ class TwbParser:
     class this is ported from.
     """
 
-    def __init__(self, path: str):
+    def __init__(self, path: PathLike):
+        path = os.fspath(path)
         if not os.path.exists(path):
             raise FileNotFoundError(f"File not found: {path}")
 
