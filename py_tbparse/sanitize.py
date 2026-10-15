@@ -25,7 +25,7 @@ from typing import Iterable, Optional, Union
 
 from lxml import etree
 
-from ._xml import ANY_RELATION, check_package, read_member
+from ._xml import ANY_RELATION, PyTbparseError, check_package, read_member
 from .parser import TwbParser
 from .templates import (
     DataSource,
@@ -95,7 +95,7 @@ _PLACEHOLDER_SQL = "SELECT 1"
 _MAX_LISTED = 50
 
 
-class SanitizeError(ValueError):
+class SanitizeError(PyTbparseError):
     """The workbook cannot be sanitized as asked."""
 
 

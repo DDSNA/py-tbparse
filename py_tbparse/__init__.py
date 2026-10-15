@@ -89,9 +89,10 @@ from .template_update import diff_template_revisions, template_update_report, up
 from .usage import field_usage
 from .validators import validate_relationships
 from .verify import validate_workbook
-from ._xml import extract_twb_from_twbx, twbx_extract_files, twbx_list
+from ._xml import PyTbparseError, extract_twb_from_twbx, twbx_extract_files, twbx_list
 
 __all__ = [
+    "PyTbparseError",
     "TwbParser",
     "extract_calculated_fields",
     "extract_raw_fields",

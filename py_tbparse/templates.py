@@ -37,7 +37,7 @@ import pandas as pd
 from lxml import etree
 
 from ._clean import is_missing
-from ._xml import check_package, parse_file, read_member
+from ._xml import PyTbparseError, check_package, parse_file, read_member
 from .parser import TwbParser
 from .rename import _match_key, _words
 from .usage import field_usage
@@ -72,7 +72,7 @@ _NUMERIC = {"integer", "real"}
 _DATES = {"date", "datetime"}
 
 
-class TemplateError(ValueError):
+class TemplateError(PyTbparseError):
     """The template cannot be made or applied as asked."""
 
 

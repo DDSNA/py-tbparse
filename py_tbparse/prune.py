@@ -34,6 +34,7 @@ from typing import Optional, Union
 
 from lxml import etree
 
+from ._xml import PyTbparseError
 from .findings import Subject
 from .parser import TwbParser
 from .rename import _serialize_workbook
@@ -46,7 +47,7 @@ TRACE_KINDS = ("columns", "column_instances", "metadata_records", "folder_items"
                "style_entries", "dependency_entries", "sheets", "windows", "thumbnails", "datasources")
 
 
-class PruneError(ValueError):
+class PruneError(PyTbparseError):
     pass
 
 

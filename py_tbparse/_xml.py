@@ -54,7 +54,15 @@ MAX_RATIO = 1000
 _RATIO_FLOOR = 8 * 1024 * 1024  # small members are never judged by ratio (tiny XML compresses well)
 
 
-class PackageTooLargeError(ValueError):
+class PyTbparseError(ValueError):
+    """Common base of every error py-tbparse raises on purpose.
+
+    It is a ``ValueError`` on purpose: existing ``except ValueError`` handlers keep working. Catch this
+    class to handle all of them at once. Messages are unchanged and carry no error codes.
+    """
+
+
+class PackageTooLargeError(PyTbparseError):
     """A zip package would unpack to more than the limits allow."""
 
 

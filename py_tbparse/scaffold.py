@@ -23,7 +23,7 @@ import pandas as pd
 from lxml import etree
 
 from .dashboards import CONTAINER_KINDS, _dashboard_xpath, integrity_check, zone_kind
-from ._xml import parse_bytes
+from ._xml import PyTbparseError, parse_bytes
 from .parser import TwbParser
 from .rename import _serialize_workbook
 from .sheetcopy_core import add_window, new_uuid as _new_uuid
@@ -37,7 +37,7 @@ DROPPED_COLUMNS = ["id", "kind", "name", "reason"]
 _TYPE_ATTRS = ("type", "type-v2")
 
 
-class ScaffoldError(ValueError):
+class ScaffoldError(PyTbparseError):
     """A dashboard cannot be a scaffold, or a scaffold cannot be applied as asked."""
 
 
