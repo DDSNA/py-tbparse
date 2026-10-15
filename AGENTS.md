@@ -223,6 +223,8 @@ pre-push hook that blocks pushes to `main` exists (`docs/development.md`).
 
 ## Architecture
 
+The public API (`py_tbparse.__all__`) is listed by task in `docs/api.md`. Add a new public name there as a bullet `- `name`: summary` in the same change; `tests/test_api_doc.py` fails otherwise, and it runs the page's examples.
+
 Each `py_tbparse/*.py` module is a direct port of one R source file in
 the upstream package, function-for-function:
 
