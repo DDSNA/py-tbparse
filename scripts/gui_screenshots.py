@@ -6,7 +6,7 @@
 
 States: start screen, overview (light and dark), fields (light and dark), field renames, relationship
 graph, the overview and fields at phone width (390 px), the Templates view, and Audit, Libraries, Styles and
-Slice and copy, each in light, dark and at phone width (files 12 to 23). Needs Playwright and Chromium (see the
+Slice and copy, each in light, dark and at phone width (files 12 to 23), and the Dashboards cards (files 24 to 26). Needs Playwright and Chromium (see the
 browser-test setup in AGENTS.md); if `.browser-libs/` exists at the repo root its libraries, fonts and
 keyboard data are used, exactly as the browser tests do.
 
@@ -174,6 +174,29 @@ def _newer_views(browser, url, workbook, shot) -> None:
                 page.close()
 
 
+def _cards_states(browser, url, workbook, shot) -> None:
+    """The Dashboards view as cards, in light, dark and at 390 px (files 24 to 26). A workbook with no dashboards
+    shows the empty state instead of cards."""
+    number = 24
+    for suffix, scheme, width in (("light", "light", 1360), ("dark", "dark", 1360), ("phone", "light", 390)):
+        page = browser.new_page(viewport={"width": width, "height": 800}, color_scheme=scheme)
+        page.goto(url)
+        page.fill("#path", workbook)
+        page.click("#loadBtn")
+        page.wait_for_selector("#tableWrap .health, #tableWrap table", timeout=20000)
+        nav = page.locator('.nav-item[data-table="dashboards"]')
+        if nav.is_visible():
+            nav.click()
+        else:
+            page.select_option("#tableSel", "dashboards")
+        page.click("#viewCards")
+        page.wait_for_selector("#dashCards .dcard, #tableWrap .empty-state", timeout=10000)
+        _wait_settled(page)
+        shot(page, f"{number}-dashboard-cards-{suffix}.png")
+        number += 1
+        page.close()
+
+
 def capture(workbook: str, out: Path) -> list[str]:
     from playwright.sync_api import sync_playwright
 
@@ -234,6 +257,7 @@ def capture(workbook: str, out: Path) -> list[str]:
         page.close()
         _templates_states(browser, url, shot)
         _newer_views(browser, url, workbook, shot)
+        _cards_states(browser, url, workbook, shot)
         browser.close()
     srv.shutdown()
     return names

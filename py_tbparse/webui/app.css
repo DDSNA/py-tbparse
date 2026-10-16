@@ -556,3 +556,53 @@ button.stat:hover { border-color: var(--primary); transform: translateY(-2px); b
 
 /* slice and copy view (reuses the .lib-* layout of the libraries view) */
 .lib-policy-box, .cpy-list { display: grid; gap: var(--space-2); min-width: 0; }
+
+/* Dashboards as cards (#84, cards.js) */
+.seg { display: inline-flex; }
+.seg .btn { border-radius: 0; margin-left: -1px; }
+.seg .btn:first-child { border-radius: 99px 0 0 99px; margin-left: 0; }
+.seg .btn:last-child { border-radius: 0 99px 99px 0; }
+.seg[hidden] { display: none; }
+.dgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr)); gap: var(--space-4);
+         padding: var(--space-4) var(--space-5) var(--space-3); }
+.dgrid:focus { outline: none; }
+.dcard { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--panel); box-shadow: var(--shadow-1);
+         display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--space-3); padding: var(--space-3); min-width: 0; }
+.dcard-name { grid-column: 1 / -1; margin: 0; font: 600 var(--text-md)/1.3 var(--font-display); display: flex;
+              justify-content: space-between; gap: var(--space-2); overflow-wrap: anywhere; }
+.dcard-name small { font: 400 var(--text-xs) var(--font); color: var(--muted); white-space: nowrap; }
+.dthumb { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px; align-self: start; min-width: 0; }
+.dthumb svg { display: block; width: 100%; height: auto; }
+.dthumb.empty { aspect-ratio: 3 / 2; display: grid; place-items: center; text-align: center; padding: var(--space-2);
+                color: var(--muted); font-size: var(--text-xs); }
+.dcap { margin: 4px 0 0; font-size: var(--text-xs); color: var(--muted); }
+.dchips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: var(--space-2); }
+.dchip { font-size: var(--text-xs); padding: 1px 8px; border-radius: 99px; background: var(--hover); color: var(--text); }
+.dlist { margin: 0; font-size: var(--text-sm); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px var(--space-2); }
+.dlist dt { color: var(--muted); }
+.dlist dd { margin: 0; overflow-wrap: anywhere; }
+.dfoot { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3);
+         border-top: 1px solid var(--border); padding-top: var(--space-2); }
+.dfoot .note { max-width: none; }
+.dpager { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); align-items: center; padding: 0 var(--space-5) var(--space-3); }
+.dpager .note { max-width: none; }
+.dlegend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center; font-size: var(--text-xs);
+           color: var(--muted); padding: 0 var(--space-5) var(--space-5); }
+.dlegend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; border: 1px solid var(--muted); }
+.dlegend .dnote { flex-basis: 100%; }
+/* kind by fill, outline style and the letter drawn in the zone, so colour is not the only cue */
+.dk-sheet { fill: var(--primary-soft); stroke: var(--primary); background: var(--primary-soft); border-color: var(--primary); }
+.dk-filter { fill: var(--accent-soft); stroke: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+.dk-param { fill: var(--accent-soft); stroke: var(--accent); stroke-dasharray: 3 2; background: var(--accent-soft); border-style: dashed; }
+.dk-text { fill: var(--hover); stroke: var(--muted); background: var(--hover); }
+.dk-bitmap { fill: var(--code-bg); stroke: var(--muted); background: var(--code-bg); }
+.dk-web { fill: none; stroke: var(--muted); stroke-dasharray: 4 3; background: transparent; border-style: dashed; }
+.dk-other { fill: none; stroke: var(--faint); stroke-dasharray: 1 2; background: transparent; border-style: dotted; }
+.dzone { stroke-width: 1; }
+.dthumb text { font: 600 9px var(--font); fill: var(--text); }
+@media (max-width: 760px) {
+  .dgrid { grid-template-columns: 1fr; padding-left: var(--space-3); padding-right: var(--space-3); }
+  .dcard { grid-template-columns: 1fr; }
+  .dthumb { max-width: 220px; }
+  .dpager, .dlegend { padding-left: var(--space-3); padding-right: var(--space-3); }
+}

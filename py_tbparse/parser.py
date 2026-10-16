@@ -14,8 +14,8 @@ from lxml import etree
 from ._clean import internal_last
 from ._xml import PathLike, parse_file, read_twb_from_twbx
 from .calculated_fields import _CALC_COLUMNS, _RAW_COLUMNS, extract_calculated_fields, extract_raw_fields
-from .dashboards import (_DASHBOARD_COLUMNS, _SHEETS_COLUMNS, _SUMMARY_COLUMNS, dashboard_sheets,
-                         dashboard_summary, list_dashboards)
+from .dashboards import (_DASHBOARD_COLUMNS, _LAYOUT_COLUMNS, _SHEETS_COLUMNS, _SUMMARY_COLUMNS, dashboard_layout,
+                         dashboard_sheets, dashboard_summary, list_dashboards)
 from .datasources import (
     _DATASOURCE_COLUMNS,
     _PARAMETER_COLUMNS,
@@ -199,6 +199,11 @@ class TwbParser:
             self.xml_doc,
             dashboard,
         ))
+
+    def get_dashboard_layout(self, dashboard: Optional[str] = None) -> pd.DataFrame:
+        """Every zone of a dashboard's main layout with kind, name, x, y, w, h; see `dashboards.dashboard_layout`."""
+        return internal_last(_safe_call(
+            dashboard_layout, pd.DataFrame(columns=_LAYOUT_COLUMNS), self.xml_doc, dashboard))
 
     def get_relationship_graph_dot(self, include_inferred: bool = False) -> str:
         """Render joins + relationships (and optionally inferred

@@ -118,6 +118,8 @@ The app shows what the workbook *describes*, not your data itself, and it does n
 
 One row per dashboard: how many worksheets it shows and which, its size, and how many filters, parameter controls and actions it has. For the example, Dashboard 1 shows Sheet 1 to Sheet 4, has an automatic size and 2 filters.
 
+Click **Cards** above the table for one card per dashboard instead: a small sketch of its layout, counts, the sheet, filter and parameter names, and a button that opens Dashboard sheets for just that dashboard. **Table** switches back; the app remembers your choice.
+
 ![The Dashboards table: Dashboard 1, 4 worksheets, Sheet 1; Sheet 2; Sheet 3; Sheet 4, size automatic, 2 filters, 0 parameters](https://raw.githubusercontent.com/DDSNA/py-tbparse/main/docs/guide-dashboards.png)
 
 </details>
@@ -418,7 +420,7 @@ p.get_calculated_fields()        # each calculation and its formula
 p.get_relationships()            # how the tables connect
 ```
 
-Every getter returns a DataFrame. The others are `get_datasources`, `get_parameters`, `get_fields`, `get_raw_fields`, `get_joins`, `get_relations`, `get_inferred_relationships`, `get_dashboards`, `get_dashboard_sheets`, `get_custom_sql`, `get_initial_sql`, `get_published_refs` and `get_field_usage`. `get_relationship_graph_dot()` returns the data model as Graphviz text and `validate()` looks for problems in the relationships. In Jupyter, a bare `p` shows the overview.
+Every getter returns a DataFrame. The others are `get_datasources`, `get_parameters`, `get_fields`, `get_raw_fields`, `get_joins`, `get_relations`, `get_inferred_relationships`, `get_dashboards`, `get_dashboard_sheets`, `get_dashboard_layout` (every zone of a dashboard's main layout, with kind and position), `get_custom_sql`, `get_initial_sql`, `get_published_refs` and `get_field_usage`. `get_relationship_graph_dot()` returns the data model as Graphviz text and `validate()` looks for problems in the relationships. In Jupyter, a bare `p` shows the overview.
 
 From the command line:
 

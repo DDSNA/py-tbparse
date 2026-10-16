@@ -1,5 +1,7 @@
 # Design options for #84: cards and layout preview in the Dashboards view
 
+**Status:** the owner chose option A and it is built (the Cards view of the Dashboards table, `py_tbparse/webui/cards.js`; see `docs/gui.md`). The table stays the default view, which settles question 3 for now. Option B is not built. What follows is the original design note.
+
 Mockups only. Nothing here is wired into the app; the data is made up. The pages link the app's own
 `tokens.css`, so they follow the real colours, spacing and type. Open them from a checkout.
 

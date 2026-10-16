@@ -25,7 +25,7 @@ const INFO = {
   'relations': ['Relations', 'Physical tables, custom SQL relations, the joins that combine them and collections (the group of tables under one logical model, listed by member).'],
   'relationships': ['Relationships', 'Logical-layer relationships (Tableau 2020.2+).'],
   'inferred-relationships': ['Inferred relationships', 'Likely links guessed from matching field names.'],
-  'dashboards': ['Dashboards', 'One row per dashboard: its worksheets, size, quick filters, parameter controls and actions.'],
+  'dashboards': ['Dashboards', 'One row per dashboard: its worksheets, size, quick filters, parameter controls and actions. Switch to Cards for a layout sketch of each.'],
   'dashboard-sheets': ['Dashboard sheets', 'Sheets placed on each dashboard, with positions.'],
   'custom-sql': ['Custom SQL', 'Relations defined by custom SQL.'],
   'initial-sql': ['Initial SQL', 'SQL run when a connection opens.'],
@@ -201,6 +201,7 @@ function selectTable(name) {
   closeMenu(false);
   closeDrawer(false);
   if (changed) {
+    DashCards.reset();
     $('filter').value = ''; state.sortCol = -1; state.sortDir = 0; state.fresh = true;
     $('colsBtn').textContent = 'Columns';   // the old table hidden count must not linger while the new one loads
   }
@@ -286,6 +287,7 @@ async function openWorkbook(label, request) {
     LibrariesView.reset();
     StylesView.reset();
     CopyView.reset();
+    DashCards.reset();
     const dsSel = $('renameDs');
     dsSel.innerHTML = '<option value="">(all datasources)</option>';
     (data.datasources || []).forEach((name) => {
@@ -365,15 +367,19 @@ async function showTable() {
   $('viewTitle').textContent = titleOf(name);
   $('viewDesc').textContent = (INFO[name] || ['', ''])[1];
   $('dashboardWrap').hidden = name !== 'dashboard-sheets';
+  const cardsMode = name === 'dashboards' && DashCards.getMode() === 'cards';
+  $('dashViewWrap').hidden = name !== 'dashboards';
+  $('viewCards').setAttribute('aria-pressed', String(cardsMode));
+  $('viewTable').setAttribute('aria-pressed', String(name === 'dashboards' && !cardsMode));
   $('paramsWrap').hidden = name !== 'calculated-fields';
   $('inferredWrap').hidden = !isGraph;
   $('copyBtn').hidden = !isGraph;
   $('renameTools').hidden = name !== 'field-renames';
   $('filter').hidden = isGraph || isOverview || isAudit;
-  $('hint').hidden = isGraph || isOverview || isAudit;
+  $('hint').hidden = isGraph || isOverview || isAudit || cardsMode;
   $('exportBtn').textContent = isGraph ? 'Export DOT' : 'Export CSV';
-  $('colsBtn').hidden = isGraph || isOverview || isAudit;
-  $('densityBtn').hidden = isGraph || isOverview || isAudit;
+  $('colsBtn').hidden = isGraph || isOverview || isAudit || cardsMode;
+  $('densityBtn').hidden = isGraph || isOverview || isAudit || cardsMode;
   if (isGraph || isOverview || isAudit) $('chips').hidden = true;
   const req = ++state.req;
   const fresh = state.fresh;
@@ -469,12 +475,52 @@ async function showTable() {
     resetCaches();
     if (name === 'field-renames') RenameReview.load(state.columns, state.data);
     if (isOverview) renderOverview();
+    else if (cardsMode) { scheduleHay(); await renderCards(); if (req !== state.req) return; }
     else { renderTable(); scheduleHay(); }
     finishView(fresh, $('tableWrap'),
-               'Showing ' + titleOf(name) + (isOverview ? '' : ', ' + plural(state.data.length, 'row')));
+               'Showing ' + titleOf(name) + (isOverview ? '' : ', ' + plural(state.data.length, cardsMode ? 'dashboard' : 'row')));
   } catch (e) {
     failed(e);
   }
+}
+
+// The Dashboards table as cards (cards.js): the same rows, filtered by the same box and column filters, one page
+// of them at a time.
+async function renderCards() {
+  const wrap = $('tableWrap');
+  const v = viewFor(state.table);
+  const total = state.data.length;
+  const order = total ? computeOrder() : [];
+  const filtered = $('filter').value.trim() !== '' || liveFilters(v).length > 0;
+  $('meta').textContent = filtered ? order.length + ' of ' + total + ' dashboard(s)' : total + ' dashboard(s)';
+  renderChips();
+  if (!total) {
+    wrap.innerHTML = '';
+    wrap.appendChild(emptyState('Nothing here yet', 'This workbook has no dashboards.'));
+    return;
+  }
+  await DashCards.render(wrap, order.length, (i) => rowObject(order[i]));
+}
+
+// Redraw the open table after the filter changed: cards go back to their first page.
+function redrawFiltered(after) {
+  if (state.table === 'dashboards' && DashCards.getMode() === 'cards') {
+    DashCards.reset();
+    renderCards().then(() => { if (after) after(); });
+  } else renderTable(false, false, after);
+}
+
+function openDashboardSheets(name) {
+  $('dashboardSel').value = name;
+  selectTable('dashboard-sheets');
+}
+
+function setDashboardView(mode) {
+  DashCards.setMode(mode);
+  DashCards.reset();
+  closeDrawer(false);
+  closeMenu(false);
+  showTable();
 }
 
 function renameOptions() {
@@ -1414,7 +1460,7 @@ function renderChips() {
     chip.append(el('span', '', f.col + ': ' + f.text), el('span', 'chip-x', '×'));
     chip.addEventListener('click', () => {
       v.filters = v.filters.filter((x) => x !== f);
-      renderTable(false, false, () => { (document.querySelector('#chips .chip') || $('filter')).focus(); });
+      redrawFiltered(() => { (document.querySelector('#chips .chip') || $('filter')).focus(); });
     });
     box.appendChild(chip);
   });
@@ -1423,7 +1469,7 @@ function renderChips() {
   clear.addEventListener('click', () => {
     v.filters = [];
     $('filter').value = '';
-    renderTable(false, false, () => $('filter').focus());
+    redrawFiltered(() => $('filter').focus());
   });
   box.appendChild(clear);
   box.hidden = false;
@@ -1509,12 +1555,14 @@ $('themeBtn').title = 'Theme: ' + THEME_LABELS[document.documentElement.dataset.
 $('path').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadWorkbook(); });
 $('tableSel').addEventListener('change', () => selectTable($('tableSel').value));
 $('dashboardSel').addEventListener('change', showTable);
+$('viewCards').addEventListener('click', () => { if (DashCards.getMode() !== 'cards') setDashboardView('cards'); });
+$('viewTable').addEventListener('click', () => { if (DashCards.getMode() !== 'table') setDashboardView('table'); });
 $('includeParams').addEventListener('change', showTable);
 $('includeInferred').addEventListener('change', showTable);
 $('copyBtn').addEventListener('click', copyDot);
 $('filter').addEventListener('input', () => {
   clearTimeout(filterTimer);
-  filterTimer = setTimeout(() => renderTable(false), 120);
+  filterTimer = setTimeout(() => redrawFiltered(), 120);
 });
 ['renameStyle', 'renameDs', 'renameKinds', 'renameRef', 'renameChanged'].forEach((id) =>
   $(id).addEventListener('change', showTable));
@@ -1576,7 +1624,7 @@ $('tableWrap').addEventListener('scroll', () => {
 }, {passive: true});
 window.addEventListener('resize', () => closeMenu(false));
 $('filter').addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { clearTimeout(filterTimer); $('filter').value = ''; renderTable(false); }
+  if (e.key === 'Escape') { clearTimeout(filterTimer); $('filter').value = ''; redrawFiltered(); }
 });
 document.addEventListener('keydown', (e) => {
   const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
@@ -1600,6 +1648,7 @@ populateTables();
 AuditView.init({$: $, el: el, fetchJSON: fetchJSON, fail: fail, plural: plural, labelCells: labelCells});
 LibrariesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural, labelCells: labelCells});
 StylesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural, labelCells: labelCells});
+DashCards.init({$: $, el: el, fetchJSON: fetchJSON, fail: fail, plural: plural, open: openDashboardSheets});
 CopyView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural, labelCells: labelCells});
 TemplatesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural});
 if (location.hash === '#templates') setTemplatesMode(true);
