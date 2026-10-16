@@ -32,7 +32,6 @@ import gc
 import io
 import json
 import os
-import resource
 import shutil
 import signal
 import statistics
@@ -48,11 +47,16 @@ sys.path.insert(0, str(ROOT))
 
 import pandas as pd  # noqa: E402
 
+try:
+    import resource
+except ImportError:      # Windows: no memory cap and no peak-memory figure
+    resource = None
+
 from py_tbparse import TwbParser  # noqa: E402
 from py_tbparse.xmldiff import diff_line_count  # noqa: E402
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
-STOP_FILE = Path(os.environ.get("MEASURE_STOP_FILE", "/tmp/measure_writer_diffs.stop"))
+STOP_FILE = Path(os.environ.get("MEASURE_STOP_FILE", str(Path(tempfile.gettempdir()) / "measure_writer_diffs.stop")))
 LOAD_PAUSE = 3.5            # pause while the 1-minute load is above this
 MEM_PAUSE_MB = 1500         # pause while less than this is available
 MAX_PAUSE_S = 300           # give up (stop the run) after pausing this long in a row
@@ -303,12 +307,16 @@ class _Alarm:
         self.seconds = seconds
 
     def __enter__(self):
+        if not hasattr(signal, "setitimer"):      # Windows: no per-writer timeout
+            return
         def boom(signum, frame):
             raise WriterTimeout
         self._old = signal.signal(signal.SIGALRM, boom)
         signal.setitimer(signal.ITIMER_REAL, self.seconds)
 
     def __exit__(self, *exc):
+        if not hasattr(signal, "setitimer"):
+            return False
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, self._old)
         return False
@@ -445,6 +453,8 @@ def format_table(title: str, files: int, result: dict) -> str:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    if resource is None:
+        return _main(argv)
     old_limit = resource.getrlimit(resource.RLIMIT_AS)
     try:
         return _main(argv)
@@ -469,7 +479,7 @@ def _main(argv: Optional[list[str]] = None) -> int:
     unknown = [w for w in writers if w not in WRITERS]
     if unknown:
         ap.error(f"unknown writer(s): {', '.join(unknown)}; choose from {', '.join(WRITERS)}")
-    if args.mem_limit_mb > 0:
+    if args.mem_limit_mb > 0 and resource is not None:
         limit = args.mem_limit_mb * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (limit, resource.getrlimit(resource.RLIMIT_AS)[1]))
     corpus, fixtures = collect_files(args)
@@ -497,7 +507,7 @@ def _main(argv: Optional[list[str]] = None) -> int:
             w: {**summarise(slot["rows"]), "not_applicable": slot["not_applicable"], "failed": slot["failed"],
                 "timeout": slot["timeout"]} for w, slot in result.items()}}
     print("\n\n".join(tables))
-    peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024 if resource else 0
     summary["run"] = {"seconds": round(time.time() - started), "peak_rss_mb": round(peak_mb),
                       "peak_load1": peaks["load1"], "skipped_over_20mb": peaks["skipped_big"],
                       "unreadable": peaks["unreadable"], "stopped_early": bool(peaks.get("stopped_early"))}

@@ -130,5 +130,5 @@ Options: `--max-files N` caps the corpus (and fixture) files, `--writers rename,
 `--files A.twb B.twbx` measures only those files, `--no-fixtures`, `--corpus-dir`, `--workdir`. It pauses while the
 1-minute load is above 3.5 or less than 1.5 GB of memory is available, skips files over 20 MB, stops on a low disk
 (under 500 MB free), and stops after the current file when the stop file exists
-(`touch /tmp/measure_writer_diffs.stop`, or set `MEASURE_STOP_FILE`). It prints aggregates only, never file names or
+(`touch /tmp/measure_writer_diffs.stop` on Linux, or set `MEASURE_STOP_FILE`). It prints aggregates only, never file names or
 content, and removes its scratch folders. The test is `tests/test_measure_writer_diffs.py`.
