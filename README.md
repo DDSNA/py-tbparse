@@ -324,7 +324,7 @@ Press **Theme** at the top right. Pick one of 34 colour themes, and at the end o
 
 The files the app makes are checked against Tableau's published file format and for broken links, on 200 real public workbooks. That is not the same as opening them in Tableau. A template filled with a CSV was opened in Tableau once, for one workbook, and drew its sheets. Nothing else here (renamed copies, sliced copies, copied sheets, added libraries and palettes) has been opened in Tableau Desktop.
 
-So: open every new file in Tableau Desktop and look at each sheet and dashboard before you use or share it. If something looks wrong, keep using your original and tell us at [github.com/DDSNA/py-tbparse/issues](https://github.com/DDSNA/py-tbparse/issues). Details per feature are in [docs/verify-in-tableau.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/verify-in-tableau.md).
+So: open every new file in Tableau Desktop and look at each sheet and dashboard before you use or share it. If something looks wrong, keep using your original and tell us at [github.com/DDSNA/py-tbparse/issues](https://github.com/DDSNA/py-tbparse/issues). Details per feature are in [docs/verify-in-tableau.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/verify-in-tableau.md); a 30-minute check list for someone with Tableau Desktop is [docs/tableau-check.md](https://github.com/DDSNA/py-tbparse/blob/main/docs/tableau-check.md) (not yet run).
 
 </details>
 
