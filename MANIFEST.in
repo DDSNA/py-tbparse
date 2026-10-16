@@ -8,6 +8,11 @@ recursive-include docs *.png
 recursive-include py_tbparse/webui *
 recursive-include tests/schemas *
 include scripts/make_verification_pack.py
+include scripts/make_tableau_check_pack.py
+include docs/tableau-check.md
 include docs/verify-in-tableau.md
 recursive-include tests/fixtures/public *
 recursive-include tests/fixtures/templates *
+recursive-include tests/fixtures/library *
+recursive-include tests/fixtures/style *
+include docs/demo/coffee-shop.twb

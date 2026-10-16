@@ -2,6 +2,8 @@
 
 Part of [py-tbparse](https://github.com/DDSNA/py-tbparse).
 
+Short on time? [tableau-check.md](tableau-check.md) is a 30-minute list covering every kind of file the tool writes, made from committed workbooks with one script (`scripts/make_tableau_check_pack.py`). It has not been run yet.
+
 Everything py-tbparse writes (renamed workbooks, templates, templates applied to new data) is checked by tests
 against two things, and **never against Tableau itself**:
 
