@@ -22,6 +22,7 @@ import pandas as pd
 
 from ._xml import PathLike
 from .templates import (
+    DataSource,
     Template,
     TemplateError,
     _answers_entries,
@@ -307,7 +308,7 @@ def template_update_report(
     template: Union[Template, PathLike],
     workbook: Union[str, os.PathLike, dict],
     old: Union[Template, dict, PathLike, None] = None,
-    data=None,
+    data: Union[PathLike, DataSource, None] = None,
 ) -> pd.DataFrame:
     """What a newer template revision changes for a workbook made from an older one. Writes nothing.
 
@@ -333,7 +334,7 @@ def update_from_answers(
     allow_missing: bool = False,
     mapping: Union[str, os.PathLike, pd.DataFrame, None] = None,
     old: Union[Template, dict, PathLike, None] = None,
-    data=None,
+    data: Union[PathLike, DataSource, None] = None,
     datasource: Optional[str] = None,
     sheet: Union[str, int, None] = None,
     experimental: bool = False,

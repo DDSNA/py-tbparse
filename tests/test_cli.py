@@ -281,3 +281,44 @@ def test_style_check_exit_codes(tmp_path, capsys):
     assert cli.main(["style", "check", str(tmp_path / "nope.tps")]) == 1
     assert cli.main(["style", "show", str(tmp_path / "nope.tps")]) == 1
     assert cli.main(["style", "export", str(STYLE_DIR / "palettes.twb"), "-o", str(tmp_path / "x.json")]) == 1
+
+
+# --- `rename --acronyms` that does nothing (issue #200): a warning on stderr, same exit code and output ---
+
+def _rename(wenjie_path, capsys, *args):
+    rc = cli.main(["rename", wenjie_path, *args])
+    return rc, capsys.readouterr()
+
+
+@pytest.mark.parametrize("style", ["snake", "lower", "keep"])
+def test_rename_warns_when_acronyms_meets_a_style_that_ignores_them(wenjie_path, capsys, style):
+    rc, cap = _rename(wenjie_path, capsys, "--style", style, "--acronyms", "roi")
+    assert rc == 0
+    assert f"warning: --acronyms is ignored with --style {style}" in cap.err
+
+
+def test_rename_stays_quiet_when_acronyms_is_used(wenjie_path, capsys):
+    rc, cap = _rename(wenjie_path, capsys, "--acronyms", "roi,cpc")
+    assert rc == 0
+    assert "warning" not in cap.err
+    rc, cap = _rename(wenjie_path, capsys, "--style", "snake")
+    assert "warning" not in cap.err
+
+
+def test_rename_warns_for_acronyms_with_missing_and_apply(wenjie_path, capsys, tmp_path):
+    rc, cap = _rename(wenjie_path, capsys, "--reference", wenjie_path, "--missing", "--acronyms", "roi")
+    assert rc == 0
+    assert "--acronyms is ignored with --missing" in cap.err
+    mapping = tmp_path / "m.csv"
+    rc, cap = _rename(wenjie_path, capsys, "-f", "csv", "-o", str(mapping))
+    out = tmp_path / "applied.twb"
+    rc, cap = _rename(wenjie_path, capsys, "--apply", str(mapping), "--write-workbook", str(out), "--acronyms", "roi")
+    assert rc == 0 and out.exists()
+    assert "--acronyms is ignored with --apply" in cap.err
+
+
+def test_rename_warns_about_an_acronym_with_a_space(wenjie_path, capsys):
+    rc, cap = _rename(wenjie_path, capsys, "--acronyms", "foo bar,roi")
+    assert rc == 0
+    assert "can never match" in cap.err and "'foo bar'" in cap.err
+    assert "'roi'" not in cap.err
