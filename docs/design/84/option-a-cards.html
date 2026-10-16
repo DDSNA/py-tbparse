@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#84 Option A: dashboard cards</title>
+<link rel="stylesheet" href="../../../py_tbparse/webui/tokens.css">
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: var(--text-md)/var(--leading) var(--font); }
+.top { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-5); background: var(--panel); border-bottom: 1px solid var(--border); }
+.top b { font: 700 var(--text-lg) var(--font-display); } .top small { color: var(--muted); }
+.mock-note { margin-left: auto; font-size: var(--text-xs); color: var(--muted); border: 1px dashed var(--border); padding: 2px 8px; border-radius: 99px; }
+.shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-5); padding: var(--space-5); max-width: 1360px; margin: 0 auto; }
+.nav, .main { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.nav { padding: var(--space-3); align-self: start; font-size: var(--text-md); }
+.nav h6 { margin: var(--space-3) var(--space-2) var(--space-1); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.nav div { display: flex; justify-content: space-between; padding: 8px var(--space-2); border-radius: var(--radius-sm); }
+.nav div span { color: var(--muted); font-size: var(--text-xs); }
+.nav .on { background: var(--primary-soft); color: var(--primary-on-soft); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+.main { padding: var(--space-5); min-width: 0; }
+h1 { margin: 0; font: 600 var(--text-xl)/1.2 var(--font-display); }
+.sub { color: var(--muted); font-size: var(--text-sm); margin: var(--space-1) 0 var(--space-4); }
+.bar { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); align-items: center; }
+.btn, .seg button { font: inherit; font-size: var(--text-sm); height: 36px; padding: 0 var(--space-4); border: 1px solid var(--border); border-radius: 99px; background: var(--panel); color: var(--text); }
+.field { height: 36px; width: 220px; border: 1px solid var(--border); border-radius: 99px; background: var(--bg); padding: 0 var(--space-4); font-size: var(--text-sm); color: var(--muted); display: flex; align-items: center; }
+.seg { margin-left: auto; display: flex; } .seg button { border-radius: 0; margin-left: -1px; } .seg button:first-child { border-radius: 99px 0 0 99px; margin: 0; } .seg button:last-child { border-radius: 0 99px 99px 0; }
+.seg .on { background: var(--primary); color: var(--primary-text); border-color: var(--primary); position: relative; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr)); gap: var(--space-4); }
+.card { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--panel); box-shadow: var(--shadow-1); display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--space-3); padding: var(--space-3); }
+.card h2 { grid-column: 1 / -1; margin: 0; font: 600 var(--text-md)/1.3 var(--font-display); display: flex; justify-content: space-between; gap: var(--space-2); }
+.card h2 small { font: 400 var(--text-xs) var(--font); color: var(--muted); white-space: nowrap; }
+.thumb { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px; align-self: start; }
+.thumb svg { display: block; width: 100%; height: auto; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: var(--space-2); }
+.chip { font-size: var(--text-xs); padding: 1px 8px; border-radius: 99px; background: var(--hover); color: var(--text); }
+.chip.f { background: var(--accent-soft); color: var(--accent); } .chip.p { background: var(--primary-soft); color: var(--primary-on-soft); }
+dl { margin: 0; font-size: var(--text-sm); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px var(--space-2); }
+dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
+.open { grid-column: 1 / -1; display: flex; gap: var(--space-2); border-top: 1px solid var(--border); padding-top: var(--space-2); font-size: var(--text-sm); }
+.open a { color: var(--primary); text-decoration: underline; }
+.legend { display: flex; gap: var(--space-4); flex-wrap: wrap; font-size: var(--text-xs); color: var(--muted); margin-top: var(--space-4); align-items: center; }
+.legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+.k-sheet { fill: var(--primary-soft); stroke: var(--primary); } .k-filter { fill: var(--accent-soft); stroke: var(--accent); }
+.k-param { fill: var(--accent-soft); stroke: var(--accent); stroke-dasharray: 3 2; } .k-text { fill: var(--hover); stroke: var(--muted); }
+.k-bitmap { fill: var(--code-bg); stroke: var(--muted); } .k-web { fill: none; stroke: var(--muted); stroke-dasharray: 4 3; }
+.zone { stroke-width: 1; } svg text { font: 600 9px var(--font); fill: var(--text); }
+.note { margin-top: var(--space-4); font-size: var(--text-sm); color: var(--muted); max-width: 80ch; }
+@media (max-width: 760px) { .shell { grid-template-columns: 1fr; padding: var(--space-3); } .card { grid-template-columns: 1fr; } .thumb { max-width: 220px; } }
+</style>
+</head>
+<body>
+<div class="top"><b>py-tbparse</b><small>v0.5.4</small><span class="mock-note">Mockup, option A: cards. Not the real app; sample data.</span></div>
+<div class="shell">
+  <nav class="nav" aria-label="Tables (mock)">
+    <h6>Data</h6><div>Relations <span>10</span></div><div>Relationship graph</div>
+    <h6>Dashboards</h6><div class="on">Dashboards <span>4</span></div><div>Dashboard sheets <span>31</span></div>
+    <h6>Other</h6><div>Actions <span>3</span></div>
+  </nav>
+  <main class="main">
+    <h1>Dashboards</h1>
+    <p class="sub">One card per dashboard: a sketch of its layout, what is on it, and which filters and parameters it uses.</p>
+    <div class="bar">
+      <div class="field">Filter dashboards ( / )</div><button class="btn">Sort: workbook order</button>
+      <div class="seg" role="group" aria-label="View"><button class="on" aria-pressed="true">Cards</button><button aria-pressed="false">Table</button></div>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div class="legend" aria-label="Legend">
+      <span><i style="background:var(--primary-soft);border:1px solid var(--primary)"></i>Worksheet (S)</span>
+      <span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>Quick filter (F)</span>
+      <span><i style="background:var(--accent-soft);border:1px dashed var(--accent)"></i>Parameter control (P)</span>
+      <span><i style="background:var(--hover);border:1px solid var(--muted)"></i>Text (T)</span>
+      <span><i style="background:var(--code-bg);border:1px solid var(--muted)"></i>Image (I)</span>
+      <span><i style="border:1px dashed var(--muted)"></i>Web page (W)</span>
+    </div>
+    <p class="note">Sketch is the main layout only (not phone or tablet), drawn from zone x, y, w, h. Letters are in the shapes so the kinds do not depend on colour. A card is a button: Enter opens the Dashboard sheets table filtered to that dashboard.</p>
+  </main>
+</div>
+<script>
+const D = [
+ {name:'Sales overview', size:'1200 x 800', sheets:['Sales by region','Profit trend','Top customers','Category mix'], filters:['Region','Order date'], params:['Top N'], actions:2, img:1, txt:1, web:0,
+  z:[['I',0,0,12,8],['T',12,0,88,8],['S',0,8,60,52],['S',60,8,40,52],['S',0,60,50,40],['S',50,60,50,40]]},
+ {name:'Customer detail', size:'automatic', sheets:['Customer list','Orders','Returns'], filters:['Segment','Customer name','Country'], params:[], actions:1, img:0, txt:0, web:1,
+  z:[['F',0,0,24,50],['F',0,50,24,50],['S',24,0,76,46],['S',24,46,38,54],['W',62,46,38,54]]},
+ {name:'Executive summary', size:'1000 x 600', sheets:['KPI strip','Sales by region','Margin by segment'], filters:[], params:['Currency','Target margin'], actions:0, img:1, txt:1, web:0,
+  z:[['I',0,0,18,14],['T',18,0,82,14],['S',0,14,100,26],['S',0,40,50,60],['S',50,40,50,48],['P',50,88,50,12]]},
+ {name:'Returns review', size:'automatic', sheets:['Return rate','Returns by reason'], filters:['Reason'], params:[], actions:1, img:0, txt:0, web:0,
+  z:[['F',0,0,20,100],['S',20,0,80,50],['S',20,50,80,50]]}
+];
+const KIND = {S:'sheet',F:'filter',P:'param',T:'text',I:'bitmap',W:'web'};
+function thumb(zs){
+  const W=150,H=100;
+  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Layout sketch">';
+  zs.forEach(z=>{ if(!z[3]) return; const x=z[1]*1.5,y=z[2],w=z[3]*1.5,h=z[4];
+    s+='<rect class="zone k-'+KIND[z[0]]+'" x="'+(x+1)+'" y="'+(y+1)+'" width="'+(w-2)+'" height="'+(h-2)+'" rx="2"/>';
+    if(w>20&&h>14) s+='<text x="'+(x+w/2)+'" y="'+(y+h/2+3)+'" text-anchor="middle">'+z[0]+'</text>'; });
+  return s+'</svg>';
+}
+const grid=document.getElementById('grid');
+D.forEach(d=>{
+  const c=document.createElement('article'); c.className='card'; c.tabIndex=0;
+  const chip=(n,t,k)=>n?'<span class="chip '+(k||'')+'">'+n+' '+t+(n>1&&!/^(web)$/.test(t)?'s':'')+'</span>':'';
+  c.innerHTML='<h2>'+d.name+'<small>'+d.size+'</small></h2>'
+   +'<div class="thumb">'+thumb(d.z)+'</div><div>'
+   +'<div class="chips">'+chip(d.sheets.length,'worksheet')+chip(d.filters.length,'filter','f')+chip(d.params.length,'parameter','p')+chip(d.actions,'action')+chip(d.img,'image')+chip(d.txt,'text')+chip(d.web,'web page')+'</div>'
+   +'<dl><dt>Worksheets</dt><dd>'+d.sheets.join(', ')+'</dd>'
+   +(d.filters.length?'<dt>Filters on</dt><dd>'+d.filters.join(', ')+'</dd>':'')
+   +(d.params.length?'<dt>Parameters</dt><dd>'+d.params.join(', ')+'</dd>':'')+'</dl></div>'
+   +'<div class="open"><a href="#">Show its sheets and positions</a><span style="color:var(--muted)">(opens Dashboard sheets, filtered)</span></div>';
+  grid.appendChild(c);
+});
+</script>
+</body>
+</html>
