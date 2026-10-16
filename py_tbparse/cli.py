@@ -68,6 +68,7 @@ from .template_drift import check_drift, rules_help as drift_rules_help, save_un
 from .templates import TemplateError, _token_values
 from .xmldiff import normalised_diff
 from .rename import (
+    DEFAULT_ACRONYMS,
     STYLES,
     apply_field_renames,
     compare_field_schemas,
@@ -217,6 +218,11 @@ def build_rename_arg_parser() -> argparse.ArgumentParser:
         help="0..1 similarity needed to match a reference name approximately (default: 0.85)",
     )
     ap.add_argument(
+        "--acronyms", action="append", metavar="WORD[,WORD...]",
+        help="words to keep in capitals with --style title (e.g. ROI,SKU), added to the built-in list "
+        "(id, url, sku, sql, ...); repeat the option or separate with commas",
+    )
+    ap.add_argument(
         "--kinds", metavar="KIND[,KIND...]",
         help="rename more than fields: any of " + ", ".join(KINDS) + ", or 'all' (default: field)",
     )
@@ -283,6 +289,9 @@ def _run_rename(argv: list[str]) -> int:
         return 0
 
     kwargs = dict(reference=ref, style=args.style, fuzzy_cutoff=args.cutoff, datasource=args.datasource)
+    if args.acronyms:
+        extra = [w.strip() for chunk in args.acronyms for w in chunk.split(",") if w.strip()]
+        kwargs["acronyms"] = DEFAULT_ACRONYMS | {w.lower() for w in extra}
     kinds = None
     if args.all or args.kinds:
         kinds = KINDS if args.all or args.kinds.strip() == "all" else tuple(
