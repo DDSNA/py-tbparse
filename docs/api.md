@@ -123,7 +123,7 @@ More: [prune.md](prune.md), [slice.md](slice.md), [sanitize.md](sanitize.md). Al
 - `SliceError`: slicing cannot be done as asked.
 - `sanitize`: write a share-safe copy (connection details, SQL, extracts, comments and more removed).
 - `SanitizeError`: the workbook cannot be sanitized as asked.
-- `PyTbparseError`: the base of every error raised on purpose (bad input, a refused write). It is a `ValueError`, so `except ValueError` keeps working; catch it to handle all of them. Messages are unchanged.
+- `PyTbparseError`: the common base of the library's own exception classes (`SliceError`, `ScaffoldError`, `SanitizeError`, `SheetCopyError`, `StyleError`, `TemplateError`, `LibraryError`, `PruneError`, `PackageTooLargeError`). It is a `ValueError`, so `except ValueError` keeps working. Plain `ValueError` and `FileExistsError` raised elsewhere (for example a bad `table` name or a refused overwrite) are not instances of it, so catch those separately. Messages are unchanged.
 
 ## Calculation libraries
 
