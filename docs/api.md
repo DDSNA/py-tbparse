@@ -147,9 +147,12 @@ Read, check and copy custom colour palettes (`Preferences.tps`, workbooks, style
 - `palette_records`: every palette, valid or not, with a status.
 - `palette_problems`: the check lines for palette records.
 - `palettes_from_bytes`: palette records from uploaded file bytes.
-- `make_style`: a style dict holding palettes.
+- `make_style`: a style dict holding palettes and, optionally, `fonts`, `workbook_rules`, `dashboard` and `sheet_defaults` (version 2 when any of them is filled, else version 1).
+- `extract_style`: the name-free fonts, workbook style rules and dashboard zone styles by role of a workbook, as a style dict (reads only; sheets scope is not available yet).
+- `format_table`: one row per format found in a workbook, style dict or style file.
+- `style_warnings`: things worth a look in a style, for example a font that may not exist on the target machine.
 - `save_style`: write a style dict as JSON.
-- `load_style`: read and check a style file.
+- `load_style`: read and check a style file (version 1 or 2).
 - `check_style_file`: problems in a `.tps` or style file; empty means none found.
 - `tps_bytes`: a fresh `Preferences.tps` as bytes.
 - `plan_palette_import`: what importing palettes into a target would do.

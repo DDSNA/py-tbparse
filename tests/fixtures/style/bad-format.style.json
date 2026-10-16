@@ -1,0 +1,89 @@
+{
+  "created": "2026-10-16T00:00:00+00:00",
+  "dashboard": {
+    "background": "#F5F5F5",
+    "roles": {
+      "container": {
+        "margin": "8"
+      },
+      "footer": {
+        "margin": "8"
+      },
+      "root": {
+        "margin": "8"
+      },
+      "sheet": {
+        "border-color": "#CCCCCC",
+        "border-style": "solid",
+        "border-width": "1",
+        "margin": "4"
+      },
+      "title": {
+        "background-color": "#1A3A5C",
+        "padding": "0"
+      }
+    },
+    "rules": [
+      {
+        "element": "dash-title",
+        "formats": [
+          {
+            "attr": "font-family",
+            "value": "Segoe UI Semibold"
+          }
+        ]
+      }
+    ]
+  },
+  "description": "",
+  "fonts": {
+    "all": {
+      "font-family": "Segoe UI",
+      "font-size": "10"
+    },
+    "title": {
+      "color": "#1A3A5C",
+      "font-family": "Segoe UI Semibold",
+      "font-size": "14"
+    }
+  },
+  "format": "py-tbparse-style",
+  "name": "Acme",
+  "palettes": [
+    {
+      "attrs": {},
+      "colors": [
+        "#1A3A5C"
+      ],
+      "name": "Acme Brand",
+      "type": "regular"
+    }
+  ],
+  "py_tbparse_version": "0.0.0",
+  "sheet_defaults": [
+    {
+      "element": "header",
+      "formats": [
+        {
+          "attr": "font-weight",
+          "value": "bold"
+        }
+      ]
+    }
+  ],
+  "sources": [
+    "Brand.twb"
+  ],
+  "version": 2,
+  "workbook_rules": [
+    {
+      "element": "worksheet",
+      "formats": [
+        {
+          "attr": "background-color",
+          "value": "#FFFFFF"
+        }
+      ]
+    }
+  ]
+}
