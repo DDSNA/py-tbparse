@@ -176,7 +176,7 @@ because a duplicate name is ambiguous, here a skip loses nothing). `--force` and
 5. Palettes in a v2 file are **ignored by `style apply`** unless `--palettes` is given, then handled by the slice 1
    planner with its own `--palette-on-clash` (default `fail`). `style import` stays the palette verb and ignores formatting.
 6. Output and refusal rules are slice 1's: new file `<stem>_styled<ext>` beside the target, same suffix, never the input,
-   never an existing file, `xb` unless `--overwrite`; `.twbx` members copied untouched through `rename._workbook_bytes`.
+   never an existing file, `xb` unless `--overwrite`; `.twbx` members copied untouched through `rename._serialize_workbook`, as slice 1 does.
 7. Extraction from a dashboard takes, per role and attribute, the **most frequent value** among that role's zones, ties by
    document order, and lists every attribute that had more than one value in the report (`mixed`). It is a summary of what
    the source does, not a record of one zone. No fonts or colours are invented when the source has none.
