@@ -250,9 +250,30 @@ def build_rename_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _acronym_warnings(args) -> list[str]:
+    """Why `--acronyms` has no effect (or only partly), one message each. Empty when it does what it says."""
+    if not args.acronyms:
+        return []
+    out = []
+    if args.apply:
+        out.append("--acronyms is ignored with --apply: the names come from the mapping file")
+    elif args.missing:
+        out.append("--acronyms is ignored with --missing: nothing is renamed")
+    elif args.style != "title":
+        out.append(f"--acronyms is ignored with --style {args.style}: acronyms only apply to --style title")
+    entries = [w.strip() for chunk in args.acronyms for w in chunk.split(",") if w.strip()]
+    spaced = [w for w in entries if any(ch.isspace() for ch in w)]
+    if spaced:
+        out.append("--acronyms entries with a space can never match, names are split into words first: "
+                   + ", ".join(repr(w) for w in spaced))
+    return out
+
+
 def _run_rename(argv: list[str]) -> int:
     ap = build_rename_arg_parser()
     args = ap.parse_args(argv)
+    for msg in _acronym_warnings(args):
+        print(f"warning: {msg}", file=sys.stderr)
     if args.missing and not args.reference:
         ap.error("--missing needs --reference")
     if args.missing and args.apply:

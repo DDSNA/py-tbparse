@@ -184,7 +184,8 @@ NOT_A_PATH = {
     ("export_library", "folder"): "a folder of the datasource (Tableau's own), not a directory",
 }
 PATH_PARAM_NAMES = {"path", "twbx_path", "extract_dir", "exdir", "directory", "output_dir", "output_path",
-                    "workbook", "wb", "source", "reference", "template", "data", "mapping", "answers", "inputs"}
+                    "workbook", "wb", "source", "reference", "template", "data", "mapping", "answers", "inputs",
+                    "library", "scaffold", "palettes", "target", "files", "sources"}
 
 
 def _public_callables():
@@ -211,31 +212,66 @@ def _names_pathlike(types) -> bool:
     return any(t is os.PathLike or typing.get_origin(t) is os.PathLike for t in types)
 
 
-def _hints(fn) -> dict:
-    """`typing.get_type_hints(fn)`, one parameter at a time: on Python 3.9 an unrelated `X | None` annotation
-    elsewhere in a signature cannot be evaluated and would otherwise hide the path parameters."""
-    out = {}
-    for param, ann in getattr(fn, "__annotations__", {}).items():
-        if isinstance(ann, str):
-            try:
-                ann = eval(ann, getattr(fn, "__globals__", {}))  # noqa: S307 - our own annotation strings
-            except TypeError:
-                continue
-        out[param] = ann
-    return out
+def _hint(fn, param):
+    """The evaluated annotation of one parameter, or `_UNTYPED`. An annotation that cannot be evaluated raises:
+    a path parameter must not escape the check silently. Only the parameters we check are evaluated, so an
+    unrelated `X | None` elsewhere in a signature (a TypeError on Python 3.9) cannot hide the path ones."""
+    ann = getattr(fn, "__annotations__", {}).get(param, _UNTYPED)
+    if isinstance(ann, str):
+        ann = eval(ann, getattr(fn, "__globals__", {}))  # noqa: S307 - our own annotation strings
+    return ann
 
 
-def test_no_public_path_parameter_is_a_plain_str():
+_UNTYPED = object()
+
+
+def _path_param_problems():
+    """Returns (offenders, checked): every path parameter that names `str` without `os.PathLike`, has no type
+    hint, or has a hint that cannot be evaluated."""
     offenders = []
     checked = 0
     for name, fn in _public_callables():
-        hints = _hints(fn)
         for param in inspect.signature(fn).parameters:
-            if (name, param) in NOT_A_PATH or param not in PATH_PARAM_NAMES or param not in hints:
+            if (name, param) in NOT_A_PATH or param not in PATH_PARAM_NAMES:
                 continue
             checked += 1
-            types = set(_flat_types(hints[param]))
+            try:
+                hint = _hint(fn, param)
+            except Exception as e:  # noqa: BLE001 - any failure to evaluate is a finding
+                offenders.append(f"{name}({param}): annotation cannot be evaluated ({type(e).__name__}: {e})")
+                continue
+            if hint is _UNTYPED:
+                offenders.append(f"{name}({param}): no type hint")
+                continue
+            types = set(_flat_types(hint))
             if str in types and not _names_pathlike(types):
                 offenders.append(f"{name}({param})")
+    return offenders, checked
+
+
+def test_no_public_path_parameter_is_a_plain_str():
+    offenders, checked = _path_param_problems()
     assert checked > 20  # the introspection found the public path parameters
-    assert not offenders, f"a path parameter that names str must also accept os.PathLike: {offenders}"
+    assert not offenders, f"a path parameter must be typed and, if it names str, also accept os.PathLike: {offenders}"
+
+
+def test_the_path_check_fails_on_untyped_and_unevaluable_parameters(monkeypatch):
+    """The check itself: a missing hint, a broken annotation and a plain `str` each make it report."""
+    def untyped(path): ...
+    def broken(path: "NoSuchName"): ...  # noqa: F821
+    def plain(path: str): ...
+    def fine(path: typing.Union[str, os.PathLike]): ...
+    monkeypatch.setattr(sys.modules[__name__], "_public_callables",
+                        lambda: [("untyped", untyped), ("broken", broken), ("plain", plain), ("fine", fine)])
+    offenders, checked = _path_param_problems()
+    assert checked == 4
+    assert len(offenders) == 3
+    assert "untyped(path): no type hint" in offenders
+    assert any(o.startswith("broken(path): annotation cannot be evaluated") for o in offenders)
+    assert "plain(path)" in offenders
+
+
+def test_the_named_path_parameters_are_checked():
+    """Names the review found unchecked (#200) stay in the list, so they cannot slip out of it again."""
+    for name in ("library", "scaffold", "palettes", "target", "files", "sources"):
+        assert name in PATH_PARAM_NAMES

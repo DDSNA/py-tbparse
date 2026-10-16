@@ -19,7 +19,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Optional, Union
+from typing import Iterable, Optional, Union
 
 import pandas as pd
 from lxml import etree
@@ -28,6 +28,9 @@ from . import templates as _templates
 from ._xml import PathLike, PyTbparseError, parse_bytes, parse_file
 from .parser import TwbParser
 from .rename import _serialize_workbook
+
+# What the palette functions take as palettes: records, a style dict, a path or workbook, or a list of those.
+_Palettes = Union[PathLike, TwbParser, dict, list]
 
 
 class StyleError(PyTbparseError):
@@ -155,7 +158,7 @@ def _classify(raw: list[dict], label: str) -> list[dict]:
     return out
 
 
-def palette_records(source) -> list[dict]:
+def palette_records(source: Union[PathLike, TwbParser]) -> list[dict]:
     """Every palette of a source (path or `TwbParser`), valid or not, as records with `status` (ok, warning,
     duplicate, invalid) and `reason`; `palette_problems` turns them into `check` lines."""
     return _collect(source)
@@ -227,7 +230,7 @@ def palettes_table(source_or_palettes) -> pd.DataFrame:
 # ------------------------------------------------------------ style files --
 
 def make_style(palettes: list[dict], name: Optional[str] = None, description: Optional[str] = None,
-               sources=()) -> dict:
+               sources: Iterable[Union[PathLike, TwbParser]] = ()) -> dict:
     """A `py-tbparse-style` dict (version 1) holding `palettes`."""
     names = set()
     for p in palettes:
@@ -526,7 +529,7 @@ def _load_target(target):
     return kind, parser, path, doc
 
 
-def plan_palette_import(target, palettes, on_clash: str = "fail", select=None) -> pd.DataFrame:
+def plan_palette_import(target: Union[PathLike, TwbParser], palettes: _Palettes, on_clash: str = "fail", select=None) -> pd.DataFrame:
     """What importing `palettes` into `target` would do, one row per palette (`PLAN_COLUMNS`). Actions: `add`,
     `skip-identical`, `skip`, `rename`, `replace`, `invalid`, and `fail` (a clash under `on_clash="fail"`).
     Nothing is written. A name that differs only in case from another is not a clash; it is noted in `reason`."""
@@ -535,7 +538,7 @@ def plan_palette_import(target, palettes, on_clash: str = "fail", select=None) -
     return pd.DataFrame(rows, columns=PLAN_COLUMNS)
 
 
-def build_with_palettes(target, palettes, on_clash: str = "fail", select=None, report: Optional[dict] = None) -> bytes:
+def build_with_palettes(target: Union[PathLike, TwbParser], palettes: _Palettes, on_clash: str = "fail", select=None, report: Optional[dict] = None) -> bytes:
     """Bytes of a copy of `target` (a `.tps`, `.twb` or `.twbx`) with `palettes` added. Existing content,
     including unknown elements and the workbook's marks and formats, is kept as it is. A `.twbx` keeps every
     other member untouched. With `on_clash="fail"` any clash raises `StyleError` before anything is built."""
@@ -565,7 +568,7 @@ def build_with_palettes(target, palettes, on_clash: str = "fail", select=None, r
     return _serialize_workbook(parser, doc)
 
 
-def import_palettes(target, palettes, output_path: Optional[PathLike] = None, on_clash: str = "fail", select=None,
+def import_palettes(target: Union[PathLike, TwbParser], palettes: _Palettes, output_path: Optional[PathLike] = None, on_clash: str = "fail", select=None,
                     overwrite: bool = False, report: Optional[dict] = None) -> str:
     """Write a copy of `target` with `palettes` added and return its path. `palettes` is a list of dicts, a
     style dict, or a path to anything `read_palettes` reads. The output defaults to `<name>_palettes<ext>` beside
