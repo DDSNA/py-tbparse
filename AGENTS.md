@@ -258,7 +258,7 @@ beyond the R package's scope:
 |---|---|
 | `_tables.py` | Name → `TwbParser`-accessor registry shared by `cli.py`, `webgui.py`, `diff.py`, and `batch.py`. Adding a new extractor to `TwbParser`? Add it here too so it's automatically available everywhere else. |
 | `cli.py` | `py-tbparse` command-line entry point, plus the `diff`/`batch`/`rename`/`template`/`library`/`style`/`scaffold`/`audit`/`docs` (`dictionary`)/`diff-xml`/`sanitize`/`prune`/`slice` subcommands (dispatched on `sys.argv[1]` before the normal single-workbook argparse parser runs) |
-| `webgui.py` + `webui/` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. The server is `webgui.py`; the page is `webui/` (`index.html`, `tokens.css`, `themes.css`, `app.css`, `table.js`, `graph.js`, `rename.js`, `audit.js`, `libraries.js`, `styles.js`, `copy.js`, `app.js`). Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
+| `webgui.py` + `webui/` | `py-tbparse-gui`: stdlib-only (`http.server` + vanilla JS) local browser GUI, no GUI toolkit dependency. The server is `webgui.py`; the page is `webui/` (`index.html`, `tokens.css`, `themes.css`, `app.css`, `table.js`, `graph.js`, `rename.js`, `audit.js`, `libraries.js`, `styles.js`, `copy.js`, `cards.js`, `app.js`). Loosely fills the role of the R package's `run_twbparser_app`/Shiny inspector. |
 | `graph.py` | `to_dot()`: Graphviz DOT export of joins/relationships (+ optional inferred, as dashed edges); `graph_data()` is the same edges as plain data, which the GUI lays out and draws itself (`webui/graph.js`: layered layout, SVG, pan/zoom, keyboard). Replaces the R package's igraph/ggraph-based `plot_dependency_graph`/`plot_relationship_graph` with a dependency-free text format any Graphviz-compatible tool can render. |
 | `diff.py` | `diff_tables()`/`diff_workbooks()`: row-level added/removed diff between two workbooks' same-named table, via `_tables.TABLE_SPECS`. No "changed" classification without a natural key — a changed row shows as one removed + one added row. |
 | `xmldiff.py` | (also used by `template apply --xml-diff` and the verification pack, `diffs/`) `normalised_diff()` / `canonical_lines()` / `diff_line_count()` (WP8 minimum; CLI `diff-xml A B`, exit 0 same, 1 different, 2 unreadable; doc `docs/diff-xml.md`): both XML trees written one node per line with sorted attributes, double quotes, Canonical-XML escapes, open+close empty elements, inter-element whitespace dropped (leaf text kept exactly), comments kept (also before the root), then `difflib.unified_diff`. Not lxml's c14n output (one line, undiffable). `.twbx` compares the workbook member only. Parser has entities off. `scripts/measure_roundtrip_diff.py` measures a no-edit save over the corpus (0 normalised lines on all 200). The stretch (text-level patching of the original) is not built. |
@@ -389,12 +389,12 @@ one runs); column `MIN_WIDTH` is 80; per-table view settings are keyed by column
 `aria-disabled` so they stay focusable.
 
 The page is real files, not a Python string: `py_tbparse/webui/index.html`, `tokens.css` (the design
-tokens), `themes.css` (the colour themes), `app.css`, `table.js`, `graph.js`, `templates.js` (the Templates view: `window.TemplatesView = {init, show, hide, acceptDrop, dropHint, getState}`), `rename.js` (rename review in Field renames: `window.RenameReview = {init, load, check, body}`; the checkbox column itself is the `check` option of `VTable` in `table.js`), `audit.js` (the Audit view: `window.AuditView = {init, render, reset, pageSize}`), `libraries.js` (the Libraries view: `window.LibrariesView = {init, render, reset, pageSize}`), `styles.js` (the Styles view: `window.StylesView = {init, render, reset, pageSize}`), `copy.js` (the Slice and copy view: `window.CopyView = {init, render, reset, pageSize}`) and `app.js`. They are served by `webgui.py` from a fixed whitelist under
+tokens), `themes.css` (the colour themes), `app.css`, `table.js`, `graph.js`, `templates.js` (the Templates view: `window.TemplatesView = {init, show, hide, acceptDrop, dropHint, getState}`), `rename.js` (rename review in Field renames: `window.RenameReview = {init, load, check, body}`; the checkbox column itself is the `check` option of `VTable` in `table.js`), `audit.js` (the Audit view: `window.AuditView = {init, render, reset, pageSize}`), `libraries.js` (the Libraries view: `window.LibrariesView = {init, render, reset, pageSize}`), `styles.js` (the Styles view: `window.StylesView = {init, render, reset, pageSize}`), `copy.js` (the Slice and copy view: `window.CopyView = {init, render, reset, pageSize}`), `cards.js` (the Cards view of the Dashboards table: `window.DashCards = {init, render, reset, getMode, setMode, PAGE}`) and `app.js`. They are served by `webgui.py` from a fixed whitelist under
 `/static/` (`_ASSETS`), so a request can never reach any other file; add a new asset to
 `_ASSETS` and to the `webui/*` package-data (pyproject and MANIFEST.in) or it will not ship.
 `index.html` is the only thing that gets server values: `_render_index()` replaces
 `<!--APP_CONFIG-->` (now in `<head>`, so the saved theme is on `<html>` before the first paint) with the single
-inline `<script>`. Keep it that way (one inline script plus the nine external ones, `table.js`, `graph.js`, `templates.js`, `rename.js`, `audit.js`, `libraries.js`, `styles.js`, `copy.js`, then
+inline `<script>`. Keep it that way (one inline script plus the ten external ones, `table.js`, `graph.js`, `templates.js`, `rename.js`, `audit.js`, `libraries.js`, `styles.js`, `copy.js`, `cards.js`, then
 `app.js`); a test counts them. `populateTables();` must appear exactly once
 in `app.js`, and the structural tests (unterminated string literals, bracket balance) read both served scripts.
 Keep apostrophes out of JS strings and comments (the test counts quotes per line).
@@ -419,6 +419,17 @@ at most `MAX_STYLE_BYTES`, `.style.json` or `.tps`, parsed in memory by `style.p
 `/style/clear`). No endpoint takes a path or writes a file, so it cannot touch the open workbook or a real `Preferences.tps`: bytes come from
 `style.build_export` and `style.build_with_palettes`, never `export_palettes`/`import_palettes`. The default policy is `fail` and `plan_palette_import`
 lists every clash itself. Chips carry the hex in `aria-label`. Tests: `tests/test_webgui_styles.py`, `tests/test_gui_styles.py`.
+
+The Dashboards table can be shown as cards (#84, design in `docs/design/84/`, owner chose option A): the **Cards / Table** switch
+(`#dashViewWrap`, only on Dashboards) is remembered in `localStorage` (`py-tbparse.dashview`, default `table`). In cards mode `showTable()` still loads
+the table, then `renderCards()` in `app.js` takes the rows the filter box and column filters leave (`computeOrder()`) and hands `cards.js` the count and a
+row getter. `DashCards.render()` draws one page of `PAGE` = 24 cards (Previous/Next, never all at once) and asks `GET /dashboard-cards?name=A&name=B` (at most
+`CARD_PAGE_MAX` = 50 names) for their sketches only. The sketch is `dashboards.dashboard_layout()` (every zone of the main layout with kind, name, x, y,
+w, h; `TwbParser.get_dashboard_layout()`), without layout containers, at most `CARD_ZONES_MAX` = 40 zones (the largest are kept, `total` says how many
+there were and the card says so), drawn flat from stored positions with SVG built by `createElementNS`, never `innerHTML`. A dashboard without stored
+positions shows an empty state. Kind is shown by fill, outline style and a letter (a letter only in a shape big enough). The zone coordinates are read
+as stored; nested and floating zones have not been checked against the corpus. Tests: `tests/test_dashboard_cards.py` (no browser), `tests/test_gui_cards.py`
+(Chromium; workbooks from `tests/cards_fixtures.py`).
 
 The Slice and copy view (`#copy`, sidebar Workbook group, a pseudo-table like `styles`) is `copy.js` plus `/copy/*` in `webgui.py`: `GET /copy/dashboards` and
 `/copy/sheets` (paged at `COPY_PAGE` = 100, `names=1` for select all), `GET /copy/state`, `POST /copy/upload` (the target workbook as raw bytes, streamed to a
@@ -506,7 +517,7 @@ README images must use absolute `https://raw.githubusercontent.com/DDSNA/py-tbpa
 
 `scripts/gui_screenshots.py WORKBOOK OUT_DIR [--compare BASELINE_DIR]` captures the GUI states (start,
 overview and fields in light and dark, renames, graph, phone width, the Templates view: empty, mapping, review, make, and
-Audit, Libraries, Styles and Slice and copy, each in light, dark and 390 px: files 12 to 23) deterministically. Use it for GUI
+Audit, Libraries, Styles and Slice and copy, each in light, dark and 390 px: files 12 to 23; the Dashboards cards: files 24 to 26) deterministically. Use it for GUI
 refactors: a pure refactor must compare all-identical to the baseline taken before it; a redesign is expected to
 differ, so review the new look and re-capture the baseline. The redesign plan and its decisions are in
 `docs/ui-redesign-plan.md`.

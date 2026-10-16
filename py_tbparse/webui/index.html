@@ -72,6 +72,10 @@
         <label id="dashboardWrap" class="check" hidden>Dashboard
           <select id="dashboardSel" class="field"><option value="">(all)</option></select>
         </label>
+        <span id="dashViewWrap" class="seg" role="group" aria-label="Show the dashboards as" hidden>
+          <button id="viewCards" class="btn" type="button" aria-pressed="false">Cards</button>
+          <button id="viewTable" class="btn" type="button" aria-pressed="true">Table</button>
+        </span>
         <label id="paramsWrap" class="check" hidden>
           <input type="checkbox" id="includeParams"> Include parameters
         </label>
@@ -177,6 +181,7 @@
 <script src="/static/libraries.js"></script>
 <script src="/static/styles.js"></script>
 <script src="/static/copy.js"></script>
+<script src="/static/cards.js"></script>
 <script src="/static/app.js"></script>
 
 </body>

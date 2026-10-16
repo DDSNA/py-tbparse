@@ -17,6 +17,7 @@ _DASHBOARD_COLUMNS = ["name"]
 _SUMMARY_COLUMNS = ["name", "worksheets", "sheets", "size", "filters", "parameters", "actions",
                     "images", "texts", "webs", "filter_fields", "parameter_names"]
 _SHEETS_COLUMNS = ["dashboard", "sheet", "zone_id", "x", "y", "w", "h"]
+_LAYOUT_COLUMNS = ["dashboard", "zone_id", "kind", "name", "x", "y", "w", "h"]
 # Zones of these kinds are named after the worksheet they show or control (`sheet` and `worksheet` are what some
 # generated workbooks write; Tableau itself writes no type for a sheet).
 _SHEET_ZONE_TYPES = {"sheet", "filter", "color", "size", "shape", "highlighter", "map", "legend"}
@@ -144,6 +145,27 @@ def dashboard_sheets(xml_doc, dashboard: Optional[str] = None) -> pd.DataFrame:
 
     df = pd.DataFrame(rows, columns=_SHEETS_COLUMNS)
     return df.sort_values(["dashboard", "sheet"]).reset_index(drop=True)
+
+
+def dashboard_layout(xml_doc, dashboard: Optional[str] = None) -> pd.DataFrame:
+    """Every zone of the main layout of a dashboard (or of all of them), in document order, with its `kind`
+    (see `zone_kind`; layout containers are included), the sheet or field `name` it carries if any, and its
+    position `x, y, w, h` as Tableau stores it (whole numbers; a missing or unreadable one is `<NA>`). Unlike
+    `dashboard_sheets` it is not limited to worksheets, so text, image, web page and filter zones are here too.
+    Device (phone, tablet) layouts are left out, as in the counts of `dashboard_summary`. Nothing is drawn or
+    checked here: nested and floating zones are listed flat at their stored position."""
+    rows = []
+    for db in xml_doc.xpath(_dashboard_xpath(dashboard)):
+        for z in db.xpath("./zones//zone"):
+            rows.append({
+                "dashboard": db.get("name"), "zone_id": z.get("id"), "kind": zone_kind(z),
+                "name": z.get("worksheet") or z.get("name"),
+                "x": _int_attr(z, "x"), "y": _int_attr(z, "y"), "w": _int_attr(z, "w"), "h": _int_attr(z, "h"),
+            })
+    df = pd.DataFrame(rows, columns=_LAYOUT_COLUMNS)
+    for col in ("x", "y", "w", "h"):
+        df[col] = df[col].astype("Int64")
+    return df
 
 
 def _size_text(db) -> str:

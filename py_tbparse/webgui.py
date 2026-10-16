@@ -625,6 +625,7 @@ _ASSETS = {
     "libraries.js": "text/javascript; charset=utf-8",
     "styles.js": "text/javascript; charset=utf-8",
     "copy.js": "text/javascript; charset=utf-8",
+    "cards.js": "text/javascript; charset=utf-8",
 }
 
 
@@ -693,6 +694,47 @@ def _open_response(parser: TwbParser, path: str, uploaded: bool = False, name: s
         "datasource_labels": _datasource_labels(parser),
         "dashboards": dashboards_df["name"].tolist() if "name" in dashboards_df.columns else [],
     }
+
+
+# ---- the Dashboards card view (/dashboard-cards) ----
+# The sketch on each card: the zones of one dashboard's main layout, from `dashboards.dashboard_layout`. The page asks
+# for one page of cards at a time (at most CARD_PAGE_MAX names), and a sketch never has more than CARD_ZONES_MAX
+# zones: when a dashboard has more, the largest are kept and `total` says how many there were, so the card can say
+# so. Layout containers are not drawn (they would only cover the zones inside them), so `total` counts the others.
+CARD_PAGE_MAX = 50
+CARD_ZONES_MAX = 40
+_CARD_KINDS = {"sheet": "sheet", "filter": "filter", "paramctrl": "param", "text": "text", "title": "text",
+               "bitmap": "bitmap", "web": "web"}
+
+
+def _cards_answer(qs: dict) -> dict:
+    names = list(dict.fromkeys(n for n in (qs.get("name") or []) if n))
+    if len(names) > CARD_PAGE_MAX:
+        raise ValueError(f"Ask for at most {CARD_PAGE_MAX} dashboards at a time.")
+    parser = _STATE["parser"]
+    known = set(parser.get_dashboards()["name"])
+    cards = []
+    for name in names:
+        if name not in known:
+            continue
+        zones = []
+        for z in parser.get_dashboard_layout(name).itertuples():
+            if z.kind in ("layout-basic", "layout-flow") or any(pd.isna(v) for v in (z.x, z.y, z.w, z.h)):
+                continue
+            if z.w <= 0 or z.h <= 0:
+                continue
+            zones.append((_CARD_KINDS.get(z.kind, "other"), int(z.x), int(z.y), int(z.w), int(z.h)))
+        total = len(zones)
+        if total > CARD_ZONES_MAX:
+            keep = sorted(sorted(range(total), key=lambda i: -(zones[i][3] * zones[i][4]))[:CARD_ZONES_MAX])
+            shown = [zones[i] for i in keep]
+        else:
+            shown = zones
+        cards.append({
+            "name": name, "total": total, "zones": [list(z) for z in shown],
+            "width": max((z[1] + z[3] for z in zones), default=0), "height": max((z[2] + z[4] for z in zones), default=0),
+        })
+    return {"cards": cards, "zone_cap": CARD_ZONES_MAX}
 
 
 # ---- the Audit view (/audit, /audit/export, /dictionary) ----
@@ -1530,6 +1572,18 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/copy/state":
             cpy = _STATE["cpy"]
             self._send_json({"target": cpy.get("summary") if cpy else None})
+            return
+
+        if parsed.path == "/dashboard-cards":
+            if _STATE["parser"] is None:
+                self._send_json({"error": "No workbook loaded"}, 400)
+                return
+            try:
+                self._send_json(_cards_answer(qs))
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                self._send_json({"error": f"could not read the dashboard layouts: {e}"}, 500)
             return
 
         if parsed.path == "/dashboards":
