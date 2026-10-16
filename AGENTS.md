@@ -430,6 +430,11 @@ there were and the card says so), drawn flat from stored positions with SVG buil
 positions shows an empty state. Kind is shown by fill, outline style and a letter (a letter only in a shape big enough). The zone coordinates are read
 as stored; nested and floating zones have not been checked against the corpus. Tests: `tests/test_dashboard_cards.py` (no browser), `tests/test_gui_cards.py`
 (Chromium; workbooks from `tests/cards_fixtures.py`).
+`GET /dashboard-layout?name=X` (#84 WP1, the server side of the planned layout preview, `docs/plan-84-layout-preview.md`; no page uses it yet) answers
+for exactly one dashboard (none or several names: 400; no workbook: 400; unknown name: 404): `{name, total, zones: [[kind, x, y, w, h, label, zone_id]...],
+width, height, unplaced, unplaced_zones: [[kind, label, zone_id]...], cap}`, at most `PREVIEW_ZONES_MAX` = 200 zones (the largest, in layout order). It
+shares `_layout_zones()` and `_largest()` with the cards, so the two cannot disagree. `label` is the field of a filter zone or the parameter of a control
+(`dashboards.dashboard_zone_labels()`), else the sheet or zone name, `""` when there is none. Tests: `tests/test_dashboard_layout_preview.py`.
 
 The Slice and copy view (`#copy`, sidebar Workbook group, a pseudo-table like `styles`) is `copy.js` plus `/copy/*` in `webgui.py`: `GET /copy/dashboards` and
 `/copy/sheets` (paged at `COPY_PAGE` = 100, `names=1` for select all), `GET /copy/state`, `POST /copy/upload` (the target workbook as raw bytes, streamed to a

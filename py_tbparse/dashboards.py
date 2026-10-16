@@ -199,6 +199,21 @@ def _zone_field_name(xml_doc, param: str) -> str:
     return base
 
 
+def dashboard_zone_labels(xml_doc, dashboard: str) -> list:
+    """What each zone of a dashboard's main layout should be called on screen, in the order of
+    `dashboard_layout(xml_doc, dashboard)` (row for row): the field a filter zone is on, the parameter a
+    parameter-control zone sets (both read the way `filter_fields` and `parameter_names` do), otherwise the sheet
+    or zone name; `""` when the zone has none (text, image, web page, containers)."""
+    labels = []
+    for db in xml_doc.xpath(_dashboard_xpath(dashboard)):
+        for z in db.xpath("./zones//zone"):
+            if zone_kind(z) in ("filter", "paramctrl") and z.get("param"):
+                labels.append(_zone_field_name(xml_doc, z.get("param")))
+            else:
+                labels.append(_zone_sheet(z) or "")
+    return labels
+
+
 def _zone_names(xml_doc, db, kind: str) -> str:
     """Names of the fields (or parameters) the `kind` zones of a dashboard's main layout point at,
     `; `-separated, each once, in layout order."""

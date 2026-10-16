@@ -34,7 +34,7 @@ import pandas as pd
 
 from . import __version__, template_gui
 from ._tables import TABLE_NAMES, TABLE_SPECS
-from .dashboards import dashboard_targets
+from .dashboards import dashboard_targets, dashboard_zone_labels
 from .docgen import workbook_markdown
 from .findings import SEVERITY, exceeds, rules as _audit_rules, format_findings, summary as findings_summary
 from .parser import TwbParser
@@ -707,6 +707,35 @@ _CARD_KINDS = {"sheet": "sheet", "filter": "filter", "paramctrl": "param", "text
                "bitmap": "bitmap", "web": "web"}
 
 
+def _layout_zones(parser, name: str, labels: bool = False):
+    """The zones of one dashboard's main layout, shared by the cards and the layout preview so they cannot
+    disagree: `(placed, unplaced)`. `placed` is `(kind, x, y, w, h)` per zone with a full position and a positive
+    size, in layout order, containers left out; with `labels` each also ends in `label, zone_id`. `unplaced` is
+    `(kind, label, zone_id)` for the other non-container zones (only with `labels`; empty otherwise)."""
+    df = parser.get_dashboard_layout(name)
+    names = dashboard_zone_labels(parser.xml_doc, name) if labels else None
+    placed, unplaced = [], []
+    for i, z in enumerate(df.itertuples()):
+        if z.kind in ("layout-basic", "layout-flow"):
+            continue
+        kind = _CARD_KINDS.get(z.kind, "other")
+        if any(pd.isna(v) for v in (z.x, z.y, z.w, z.h)) or z.w <= 0 or z.h <= 0:
+            if labels:
+                unplaced.append((kind, names[i], z.zone_id))
+            continue
+        row = (kind, int(z.x), int(z.y), int(z.w), int(z.h))
+        placed.append(row + (names[i], z.zone_id) if labels else row)
+    return placed, unplaced
+
+
+def _largest(zones: list, cap: int) -> list:
+    """At most `cap` zones: the largest by area, kept in layout order."""
+    if len(zones) <= cap:
+        return zones
+    keep = sorted(sorted(range(len(zones)), key=lambda i: -(zones[i][3] * zones[i][4]))[:cap])
+    return [zones[i] for i in keep]
+
+
 def _cards_answer(qs: dict) -> dict:
     names = list(dict.fromkeys(n for n in (qs.get("name") or []) if n))
     if len(names) > CARD_PAGE_MAX:
@@ -717,24 +746,38 @@ def _cards_answer(qs: dict) -> dict:
     for name in names:
         if name not in known:
             continue
-        zones = []
-        for z in parser.get_dashboard_layout(name).itertuples():
-            if z.kind in ("layout-basic", "layout-flow") or any(pd.isna(v) for v in (z.x, z.y, z.w, z.h)):
-                continue
-            if z.w <= 0 or z.h <= 0:
-                continue
-            zones.append((_CARD_KINDS.get(z.kind, "other"), int(z.x), int(z.y), int(z.w), int(z.h)))
-        total = len(zones)
-        if total > CARD_ZONES_MAX:
-            keep = sorted(sorted(range(total), key=lambda i: -(zones[i][3] * zones[i][4]))[:CARD_ZONES_MAX])
-            shown = [zones[i] for i in keep]
-        else:
-            shown = zones
+        zones, _ = _layout_zones(parser, name)
         cards.append({
-            "name": name, "total": total, "zones": [list(z) for z in shown],
+            "name": name, "total": len(zones), "zones": [list(z) for z in _largest(zones, CARD_ZONES_MAX)],
             "width": max((z[1] + z[3] for z in zones), default=0), "height": max((z[2] + z[4] for z in zones), default=0),
         })
     return {"cards": cards, "zone_cap": CARD_ZONES_MAX}
+
+
+# ---- the layout preview of one dashboard (/dashboard-layout) ----
+# The same zones as the cards, for one dashboard, with a label each (sheet name, the field of a filter, the
+# parameter of a control) and the zone id, up to PREVIEW_ZONES_MAX (the largest are kept, `total` says how many there
+# were). Zones without a usable position are not drawn: `unplaced` counts them and `unplaced_zones` names them
+# (kind, label, zone id; at most PREVIEW_ZONES_MAX), so a list can still show them. Layout containers are in neither.
+# An unknown name is a 404 (a page that kept a selection across a reload can tell). It takes one name, never a path.
+PREVIEW_ZONES_MAX = 200
+
+
+def _layout_answer(qs: dict) -> dict:
+    names = [n for n in (qs.get("name") or []) if n]
+    if len(names) != 1:
+        raise ValueError("Ask for exactly one dashboard name.")
+    name = names[0]
+    parser = _STATE["parser"]
+    if name not in set(parser.get_dashboards()["name"]):
+        raise KeyError(name)
+    zones, unplaced = _layout_zones(parser, name, labels=True)
+    return {
+        "name": name, "total": len(zones), "zones": [list(z) for z in _largest(zones, PREVIEW_ZONES_MAX)],
+        "width": max((z[1] + z[3] for z in zones), default=0), "height": max((z[2] + z[4] for z in zones), default=0),
+        "unplaced": len(unplaced), "unplaced_zones": [list(z) for z in unplaced[:PREVIEW_ZONES_MAX]],
+        "cap": PREVIEW_ZONES_MAX,
+    }
 
 
 # ---- the Audit view (/audit, /audit/export, /dictionary) ----
@@ -1584,6 +1627,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(e)}, 400)
             except Exception as e:
                 self._send_json({"error": f"could not read the dashboard layouts: {e}"}, 500)
+            return
+
+        if parsed.path == "/dashboard-layout":
+            if _STATE["parser"] is None:
+                self._send_json({"error": "No workbook loaded"}, 400)
+                return
+            try:
+                self._send_json(_layout_answer(qs))
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except KeyError:
+                self._send_json({"error": "No dashboard with that name in this workbook"}, 404)
+            except Exception as e:
+                self._send_json({"error": f"could not read the dashboard layout: {e}"}, 500)
             return
 
         if parsed.path == "/dashboards":
