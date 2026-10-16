@@ -35,7 +35,7 @@ Non-goals (not done in this slice, and the guide says so):
 | Slice | Content | Status |
 |---|---|---|
 | 1, 1b | palette library; unnamed inline ramps | 1 done; 1b still open |
-| **2** | **fonts, workbook rules, dashboard defaults, sheet whitelist (this page)** | **plan** |
+| **2** | **fonts, workbook rules, dashboard defaults, sheet whitelist (this page)** | **plan; 2a (read side: `style extract`, style file v2) built, 2b onwards not started** |
 | 3 | `apply_template(style=)`, `template make --with-style` | after slice 2 |
 | never | per-value marks, device layouts, bitmaps, column formats | not transferable |
 

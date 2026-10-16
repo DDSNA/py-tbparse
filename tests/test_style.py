@@ -112,10 +112,10 @@ def test_style_json_roundtrip(tmp_path):
     with pytest.raises(StyleError, match="not a style file"):
         load_style(bad(format="other"))
     with pytest.raises(StyleError, match="newer"):
-        load_style(bad(version=2))
+        load_style(bad(version=3))
     with pytest.raises(StyleError, match="unknown key"):
         load_style(bad(surprise=1))
-    with pytest.raises(StyleError, match="reserved"):
+    with pytest.raises(StyleError, match="need style version 2"):
         load_style(bad(fonts=[]))
     dup = [_pal("A"), _pal("A", ("#000000",))]
     with pytest.raises(StyleError, match="two palettes"):

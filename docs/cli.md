@@ -49,7 +49,7 @@ This table is the one place that lists every exit code, per command. The codes a
 | `template apply-folder TEMPLATE DIR` | every file written | any file skipped or failed, or an error | usage error | not used |
 | `library export`, `show` | done | any error | usage error | not used |
 | `library import` | done, or a dry run (also with entries that cannot be imported) | any error, including `--on-clash fail` meeting a clash | with `--write`: some entry failed or was skipped as a dependent; the others are written | not used |
-| `style show`, `check` | `check`: no problem (warnings do not count) | any error; `check`: a problem found (an unreadable file counts as a problem) | usage error | not used |
+| `style show`, `extract`, `check` | `check`: no problem (warnings do not count) | any error; `check`: a problem found (an unreadable file counts as a problem) | usage error | not used |
 | `style export`, `import` | done | any error; a dry run of `import` where a palette name clashes under `--on-clash fail` (nothing is written) | some palette was invalid; the others are written | not used |
 | `scaffold make`, `show`, `apply` | done | any error | usage error | not used |
 | `sanitize IN OUT` | written | not used | any error: input unreadable, `OUT` exists without `--overwrite`, unknown `--keep`, bad extension; or usage error | not used |
@@ -132,7 +132,7 @@ py-tbparse library import other.twb kpis.library.json --mapping map.csv --on-cla
 
 ## Colour palettes
 
-`py-tbparse style` has four subcommands: `show`, `export`, `import` and `check`. They move named colour palettes between workbooks, `Preferences.tps` files and `*.style.json` files; [styles.md](styles.md) explains the clash handling. Palettes become selectable in the colour picker; nothing is recoloured. The output was never opened in Tableau: check a copy first.
+`py-tbparse style` has five subcommands: `show`, `export`, `import`, `check` and `extract`. They move named colour palettes between workbooks, `Preferences.tps` files and `*.style.json` files; [styles.md](styles.md) explains the clash handling. Palettes become selectable in the colour picker; nothing is recoloured. The output was never opened in Tableau: check a copy first.
 
 ```bash
 py-tbparse style show brand.twb Preferences.tps                  # also --format csv|json
@@ -140,11 +140,14 @@ py-tbparse style export brand.twb -o acme.style.json             # or acme.tps; 
 py-tbparse style import acme.style.json Preferences.tps          # the plan only
 py-tbparse style import acme.style.json Preferences.tps --on-clash replace --write
 py-tbparse style check Preferences_palettes.tps
+py-tbparse style extract brand.twb -o brand.style.json           # fonts, workbook rules, dashboard zone styles (and palettes); reads only
+py-tbparse style show brand.twb --what formats                   # the formats extract would take; also --what all, --scope
 ```
 
 - `import` writes nothing without `--write`. It always writes a new file (default `<name>_palettes.<ext>` beside the target) and never replaces the input or an existing `Preferences.tps`; there is no in-place option.
 - `--on-clash` is `fail` (default), `skip`, `rename` or `replace`.
-- Exit codes: 0, 1 (an error, a clash under `--on-clash fail`, or problems found by `check`), 2 (some palette was invalid; the others are written). All commands: [Exit codes](#exit-codes).
+- `extract SRC -o OUT.style.json` reads a `.twb` or `.twbx` and writes a new version 2 style file: the workbook-level fonts and style rules (`all`, `worksheet`, `title`, `tooltip`), the dashboards' zone styles summed up by role (`root`, `container`, `sheet`, `title`, most frequent value) and the `dash-title`, `dash-subtitle`, `dash-text` rules. Options: `--dashboard NAME`, `--scope workbook,dashboards`, `--no-palettes`, `--name`, `--overwrite`. It never overwrites an input or an existing output without `--overwrite`. Formats bound to a field, colour encodings and `_.fcp.*` feature flags are not read and are counted on stderr; roles with more than one value are listed as `mixed`. Nothing is invented for a workbook without such formatting. Applying a style file to another workbook is not built yet.
+- Exit codes: 0, 1 (an error, a clash under `--on-clash fail`, or problems found by `check`), 2 (some palette was invalid; the others are written). `extract` and `show` use only 0 and 1. All commands: [Exit codes](#exit-codes).
 
 ## The GUI command
 
