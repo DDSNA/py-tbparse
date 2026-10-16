@@ -345,6 +345,8 @@ beyond the R package's scope:
   change anything that reads workbook XML: it found a Unicode matching bug the hand-made
   fixtures could not. Add to the corpus only from repositories whose licence permits
   redistribution, and record the licence text.
+  `scripts/layout_census.py` re-measures dashboard layouts over it (overlap, odd sizes, nesting; results in
+  `docs/layout-census.md`; test `tests/test_layout_census.py`). Run it with `nice`, a `timeout` and `--cap`/`--stop-file`.
 - `tests/conftest.py` provides `wenjie_xml`, `wenjie_path`,
   `zip_twbx_path` fixtures and an `xml_from_string()` helper. Tests import
   it with `from conftest import xml_from_string` (no `tests/__init__.py`,
