@@ -34,7 +34,7 @@ from typing import Optional, Union
 
 from lxml import etree
 
-from ._xml import PyTbparseError
+from ._xml import PathLike, PyTbparseError
 from .findings import Subject
 from .parser import TwbParser
 from .rename import _serialize_workbook
@@ -369,8 +369,8 @@ def prune_doc(
 
 
 def prune(
-    workbook: Union[TwbParser, str],
-    output_path: Optional[str] = None,
+    workbook: Union[TwbParser, PathLike],
+    output_path: Optional[PathLike] = None,
     sheets: bool = False,
     calculations: bool = True,
     parameters: bool = True,

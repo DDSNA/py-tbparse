@@ -23,7 +23,7 @@ import pandas as pd
 from lxml import etree
 
 from .dashboards import CONTAINER_KINDS, _dashboard_xpath, integrity_check, zone_kind
-from ._xml import PyTbparseError, parse_bytes
+from ._xml import PathLike, PyTbparseError, parse_bytes
 from .parser import TwbParser
 from .rename import _serialize_workbook
 from .sheetcopy_core import add_window, new_uuid as _new_uuid
@@ -312,7 +312,7 @@ def build_scaffold_workbook(parser: TwbParser, scaffold: dict, name: str, sheets
 
 
 def apply_scaffold(wb: Union[TwbParser, str, os.PathLike], scaffold: Union[dict, str, os.PathLike], name: str,
-                   sheets=None, output_path: Optional[str] = None, overwrite: bool = False,
+                   sheets=None, output_path: Optional[PathLike] = None, overwrite: bool = False,
                    allow_empty: bool = False, report: Optional[dict] = None) -> str:
     """Write a copy of the workbook with a new dashboard `name` laid out like the scaffold, and return its path.
     The output defaults to `<name>_scaffold.<ext>` beside the source, keeps the source's extension, and the

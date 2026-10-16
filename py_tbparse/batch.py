@@ -13,13 +13,14 @@ import warnings
 import pandas as pd
 
 from ._tables import TABLE_SPECS
+from ._xml import PathLike
 from .parser import TwbParser
 
 DEFAULT_PATTERNS = ("*.twb", "*.twbx")
 
 
 def scan_folder(
-    directory: str,
+    directory: PathLike,
     table: str = "overview",
     patterns=DEFAULT_PATTERNS,
     **kwargs,
@@ -36,6 +37,7 @@ def scan_folder(
         raise ValueError(f"unknown table '{table}'")
     getter = TABLE_SPECS[table]
 
+    directory = os.fspath(directory)
     paths: list[str] = []
     for pattern in patterns:
         paths.extend(glob.glob(os.path.join(glob.escape(directory), pattern)))

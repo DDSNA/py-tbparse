@@ -23,6 +23,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 
 from . import tokens as _tokens
+from ._xml import PathLike
 from .findings import Subject, finding, rule, rule_ids, rules, run_rules
 from .templates import (
     ANSWERS_NAME,
@@ -52,7 +53,7 @@ def template_rule_ids() -> list[str]:
     return rule_ids(SCOPE)
 
 
-def check_template(source: Union[str, Template], only: Optional[Iterable[str]] = None,
+def check_template(source: Union[PathLike, Template], only: Optional[Iterable[str]] = None,
                    skip: Iterable[str] = ()) -> pd.DataFrame:
     """Lint a template (a path or a loaded `Template`); return the findings
     (`findings.FINDING_COLUMNS`), sorted so the same template always gives the same frame.

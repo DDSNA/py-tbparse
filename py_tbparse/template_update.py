@@ -20,6 +20,7 @@ from typing import Optional, Union
 
 import pandas as pd
 
+from ._xml import PathLike
 from .templates import (
     Template,
     TemplateError,
@@ -295,7 +296,7 @@ def _prepare(template, workbook, old, data):
     return new, answers, before, saved
 
 
-def diff_template_revisions(old: Union[Template, dict, str], new: Union[Template, dict, str]) -> pd.DataFrame:
+def diff_template_revisions(old: Union[Template, dict, PathLike], new: Union[Template, dict, PathLike]) -> pd.DataFrame:
     """What changed between two revisions of a template, with no workbook involved (the `impact` column
     stays empty). Fields are matched by `uid`, then by name, then a field that kept its source column or
     caption but changed its local name counts as renamed. See `template_update_report` for the columns."""
@@ -303,9 +304,9 @@ def diff_template_revisions(old: Union[Template, dict, str], new: Union[Template
 
 
 def template_update_report(
-    template: Union[Template, str],
+    template: Union[Template, PathLike],
     workbook: Union[str, os.PathLike, dict],
-    old: Union[Template, dict, str, None] = None,
+    old: Union[Template, dict, PathLike, None] = None,
     data=None,
 ) -> pd.DataFrame:
     """What a newer template revision changes for a workbook made from an older one. Writes nothing.
@@ -324,14 +325,14 @@ def template_update_report(
 
 
 def update_from_answers(
-    template: Union[Template, str],
+    template: Union[Template, PathLike],
     workbook: Union[str, os.PathLike, dict],
-    output_path: Optional[str] = None,
+    output_path: Optional[PathLike] = None,
     overwrite: bool = False,
     report: Optional[dict] = None,
     allow_missing: bool = False,
     mapping: Union[str, os.PathLike, pd.DataFrame, None] = None,
-    old: Union[Template, dict, str, None] = None,
+    old: Union[Template, dict, PathLike, None] = None,
     data=None,
     datasource: Optional[str] = None,
     sheet: Union[str, int, None] = None,

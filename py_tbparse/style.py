@@ -25,7 +25,7 @@ import pandas as pd
 from lxml import etree
 
 from . import templates as _templates
-from ._xml import PyTbparseError, parse_bytes, parse_file
+from ._xml import PathLike, PyTbparseError, parse_bytes, parse_file
 from .parser import TwbParser
 from .rename import _serialize_workbook
 
@@ -565,7 +565,7 @@ def build_with_palettes(target, palettes, on_clash: str = "fail", select=None, r
     return _serialize_workbook(parser, doc)
 
 
-def import_palettes(target, palettes, output_path=None, on_clash: str = "fail", select=None,
+def import_palettes(target, palettes, output_path: Optional[PathLike] = None, on_clash: str = "fail", select=None,
                     overwrite: bool = False, report: Optional[dict] = None) -> str:
     """Write a copy of `target` with `palettes` added and return its path. `palettes` is a list of dicts, a
     style dict, or a path to anything `read_palettes` reads. The output defaults to `<name>_palettes<ext>` beside
@@ -609,7 +609,7 @@ def build_export(sources: list, fmt: str, select=None, on_clash: str = "fail", n
     return (json.dumps(style, indent=2, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
 
 
-def export_palettes(sources: list, output_path, select=None, on_clash: str = "fail", name: Optional[str] = None,
+def export_palettes(sources: list, output_path: PathLike, select=None, on_clash: str = "fail", name: Optional[str] = None,
                     overwrite: bool = False, report: Optional[dict] = None) -> str:
     """Merge the palettes of `sources` (in argument order; `on_clash` also applies between sources) and write a
     `Preferences.tps` (output ending `.tps`) or a style file (`.style.json`). Never replaces an input or an
