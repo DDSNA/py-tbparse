@@ -46,7 +46,7 @@ def test_the_table_is_the_default_and_the_switch_only_shows_on_dashboards(page, 
     assert page.locator("#dashViewWrap").is_visible()
     assert page.get_attribute("#viewTable", "aria-pressed") == "true"
     assert page.get_attribute("#viewCards", "aria-pressed") == "false"
-    assert page.locator("#tableWrap table, #tableWrap [role=grid]").count() > 0
+    page.wait_for_selector("#tableWrap table, #tableWrap [role=grid]", state="attached", timeout=10_000)
     assert page.locator("#dashCards").count() == 0
     _open(page, "dashboard-sheets")
     assert page.locator("#dashViewWrap").is_hidden()
