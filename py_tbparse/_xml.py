@@ -58,10 +58,11 @@ _RATIO_FLOOR = 8 * 1024 * 1024  # small members are never judged by ratio (tiny 
 
 
 class PyTbparseError(ValueError):
-    """Common base of every error py-tbparse raises on purpose.
+    """Common base of the library's own exception classes (SliceError, TemplateError, StyleError, ...).
 
-    It is a ``ValueError`` on purpose: existing ``except ValueError`` handlers keep working. Catch this
-    class to handle all of them at once. Messages are unchanged and carry no error codes.
+    It is a ``ValueError`` on purpose: existing ``except ValueError`` handlers keep working. Many checks
+    still raise a plain ``ValueError`` or ``FileExistsError``; those are not instances of this class.
+    Messages are unchanged and carry no error codes.
     """
 
 
