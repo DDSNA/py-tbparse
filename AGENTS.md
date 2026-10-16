@@ -374,6 +374,12 @@ Chromium via Playwright and fails on any uncaught JS error. The cheap
 structural guards in `test_webgui.py` (unterminated string literals,
 bracket balance) are a backstop, not a substitute.
 
+The table logic that needs no DOM (search, column filters, sorting in `app.js`; the rename review in `rename.js`)
+also has Node unit tests in `tests/js/` (`node --test tests/js/*.test.js`, CI job `js-unit`; built-in `node:test`,
+no npm packages, no `package.json`). `tests/js/load.js` cuts the named top-level functions out of `app.js` and runs
+them in a `vm` context with stand-ins for `state`, `views` and `$`; a function that moves off column 0 or is renamed
+makes the lookup throw, so update the test list then. They support the browser tests, they do not replace them.
+
 The browser suite is split by concern, all sharing the fixtures in `tests/test_gui_browser.py`:
 `test_gui_table.py` (windowing invariants, pipeline vs. a Python oracle, a seeded random walk;
 `PYTBPARSE_WALK_SEEDS`/`PYTBPARSE_WALK_STEPS` widen it), `test_gui_a11y.py` (roles, keyboard, focus, rendered

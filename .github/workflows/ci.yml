@@ -61,6 +61,22 @@ jobs:
       - name: Run browser GUI tests
         run: pytest -q tests/test_gui_*.py
 
+  js-unit:
+    # The GUI's table logic (search, filters, sort, rename review) with Node's built-in test runner:
+    # no browser, no npm packages, no package.json. tests/js/load.js explains how app.js is loaded.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "24.11.0"
+
+      - name: Run JavaScript unit tests
+        run: node --test tests/js/*.test.js
+
   docker:
     # Builds the server image and drives it the way a TLS proxy would: forwarded Host, https Origin, cookie.
     runs-on: ubuntu-24.04
@@ -167,7 +183,7 @@ jobs:
     # above; a PR that only changes prose gets it from ci-docs-only.yml, because paths-ignore
     # above skips this whole workflow for such a PR (a skipped workflow reports nothing).
     if: always()
-    needs: [test, gui, docker, build]
+    needs: [test, gui, js-unit, docker, build]
     runs-on: ubuntu-24.04
     steps:
       - name: Every job succeeded
