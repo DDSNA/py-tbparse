@@ -15,6 +15,7 @@ py-tbparse diff-xml old.twb new.twb           # unified diff of the XML, formatt
 py-tbparse batch ./workbooks datasources
 py-tbparse rename new.twb --reference old.twb --only-changed   # suggested clean field names
 py-tbparse rename new.twb -r old.twb --datasource federated.abc123 --write-workbook   # and save new_renamed.twb
+py-tbparse rename new.twb --acronyms ROI,CPC --acronyms vat   # keep these words in capitals (added to id, url, sku, ...)
 py-tbparse rename report.twb --all --write-workbook       # sheets, dashboards, datasources, ... too
 py-tbparse template make sales.twbx                        # see templates.md
 py-tbparse template apply sales.template.twbx --data q3.csv --write
@@ -25,7 +26,7 @@ py-tbparse template apply sales.template.twbx --answers sales_q3.twbx --explain 
 
 Tables: `overview`, `datasources`, `parameters`, `fields`, `raw-fields`, `calculated-fields`, `joins`, `relations`, `relationships`, `inferred-relationships`, `dashboards`, `dashboard-sheets`, `custom-sql`, `initial-sql`, `published-refs`, `field-usage`, `missing-references`, `field-renames`, `report-renames`.
 
-`--format` takes `table` (default), `csv` or `json`; `validate`, `audit` and `template check` also take `junit`, `sarif` and `github` for CI (see [ci.md](ci.md)). `graph` always prints Graphviz text. `rename` takes `--reference`, `--datasource`, `--write-workbook [PATH]`, `--style`, `--cutoff`, `--only-changed`, `--all`, `--kinds`, `--apply MAPPING.csv`, `--missing`, `--format` and `--output`. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
+`--format` takes `table` (default), `csv` or `json`; `validate`, `audit` and `template check` also take `junit`, `sarif` and `github` for CI (see [ci.md](ci.md)). `graph` always prints Graphviz text. `rename` takes `--reference`, `--datasource`, `--write-workbook [PATH]`, `--style`, `--cutoff`, `--acronyms`, `--only-changed`, `--all`, `--kinds`, `--apply MAPPING.csv`, `--missing`, `--format` and `--output`. `diff` and `batch` accept the same table names except `graph`, `validate` and `tables`.
 
 `py-tbparse diff-xml A B [-U N] [-o FILE]` compares the XML of two `.twb`/`.twbx` files (the workbook member of a `.twbx`) and exits 0 (no differences), 1 (differences) or 2 (unreadable file, or `-o` names an input). See [diff-xml.md](diff-xml.md) and [Exit codes](#exit-codes).
 

@@ -213,3 +213,20 @@ def test_reference_workbook_lends_its_sheet_names(report, tmp_path):
     ref2.write_text(WORKBOOK.replace("sales by region", "SALES_BY_REGION"), encoding="utf-8")
     df = suggest_renames(TwbParser(str(report)), reference=str(ref2), kinds="worksheet")
     assert _rows(df, "worksheet")["sales by region"] == "SALES_BY_REGION"
+
+
+def _cli_names(capsys, *extra):
+    import json
+
+    assert main(["rename", str(extra[0]), "--all", "-f", "json", *extra[1:]]) == 0
+    return {r["name"]: r["suggested"] for r in json.loads(capsys.readouterr().out)}
+
+
+def test_cli_acronyms_repeatable_and_comma_separated(report, capsys):
+    plain = _cli_names(capsys, report)
+    assert plain["sales by region"] == "Sales By Region"
+    assert plain["[order_id]"] == "Order ID"  # built-in acronyms still apply
+    got = _cli_names(capsys, report, "--acronyms", "By", "--acronyms", "region,  foo ,")
+    assert got["sales by region"] == "Sales BY REGION"
+    assert got["[order_id]"] == "Order ID"
+    assert _cli_names(capsys, report, "--acronyms", "by,region")["sales by region"] == "Sales BY REGION"
