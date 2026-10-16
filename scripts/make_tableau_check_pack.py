@@ -117,7 +117,10 @@ def main(argv=None) -> int:
     def go(name: str, argv: list[str]) -> None:
         nonlocal failed
         code, text = run(argv)
-        commands.append("py-tbparse " + " ".join(f'"{a}"' if " " in a else a for a in argv).replace(str(out), "OUT").replace(str(ROOT) + "/", ""))
+        line = "py-tbparse " + " ".join(f'"{a}"' if " " in a else a for a in argv)
+        # forward slashes everywhere, so commands.txt reads the same on Windows
+        line = line.replace("\\", "/").replace(out.as_posix(), "OUT").replace(ROOT.as_posix() + "/", "")
+        commands.append(line)
         status = "ok" if code == 0 else f"EXIT {code}"
         if code:
             failed += 1
