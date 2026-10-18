@@ -22,7 +22,7 @@ teams that share a corporate palette, not in corpus frequency.
 |---|---|---|
 | 1 | palette library: `style show/export/import/check` | **build now** (sections 2-6) |
 | 1b | export unnamed inline ramps (`encoding/color-palette name=""`, 10 wbs) as named palettes | next, small (section 7) |
-| 2 | name-free formatting transfer (workbook style rules, dashboard zone-style by role, whitelist of sheet formats) | planned in `wp7-style-plan-slice2.md`; 2a (read side) built |
+| 2 | name-free formatting transfer (workbook style rules, dashboard zone-style by role, whitelist of sheet formats) | planned in `wp7-style-plan-slice2.md`; 2a (read side) and 2b (`style apply`, workbook scope) built |
 | 3 | template integration (`apply_template(style=)`, `template make --with-style`) | deferred until slice 2 |
 | never | per-value mark colours, device layouts, bitmap/logo zones, column `default-format` | not transferable (section 7) |
 

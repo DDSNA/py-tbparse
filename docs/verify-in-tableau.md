@@ -85,6 +85,10 @@ Palettes written by `py-tbparse style` have not been opened in Tableau. A five-m
 2. `py-tbparse style import brand.twb other.twb --write`, open `other_palettes.twb` on a machine whose `Preferences.tps` lacks the palette. Is it offered in Edit Colors? Do the marks that were already coloured keep their colours?
 3. Note any repair or "unsupported feature" message, and what happens when a workbook palette and a `.tps` palette have the same name.
 
+## Fonts and workbook style rules (`style apply`)
+
+Status: not run. `py-tbparse style apply STYLE TARGET --scope workbook --write` adds a workbook `<style>` and `style-rule`s with fonts. Open the result next to the original and check: (1) it opens with no dialog; (2) Format > Workbook shows the fonts; (3) after save, close and reopen the fonts are still there (Tableau may drop a block it does not recognise); (4) a format the target already set (default run) is unchanged and is replaced with `--force`; (5) on a workbook whose only style is a feature-flagged `<_.fcp.*...style>` (most Tableau-written ones), the added plain `<style>` is not rejected. Files 42 and 44 of the check pack cover (1) to (4).
+
 ## Sliced workbooks (`slice`)
 
 Workbooks written by `py-tbparse slice` have not been opened in Tableau. The corpus is not in the repository (`python scripts/fetch_corpus.py` fetches it into `tests/corpus/files`). Make three files:

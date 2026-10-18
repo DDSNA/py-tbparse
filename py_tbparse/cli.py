@@ -487,47 +487,47 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
                     help="fill a {{token}} for every file (repeatable); the sidecar can override it per file")
     fo.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
 
-    ap_ = sub.add_parser(
+    ap_apply = sub.add_parser(
         "apply", help="map a template's fields to new data; with --write, make the workbook",
         description="Without --write this only prints the suggested mapping and what would break.",
     )
-    ap_.add_argument("template")
-    ap_.add_argument("--data", "-d", help="the new data: a .csv, an .xlsx/.xlsm (see --sheet; needs "
+    ap_apply.add_argument("template")
+    ap_apply.add_argument("--data", "-d", help="the new data: a .csv, an .xlsx/.xlsm (see --sheet; needs "
                                           "py-tbparse[excel]), a *.target.json that describes a database table "
                                           "('template target-make'), or a .twb/.twbx/.tds connected to it "
                                           "(leave out when --answers or --profile name the data)")
-    ap_.add_argument("--experimental", action="store_true",
+    ap_apply.add_argument("--experimental", action="store_true",
                      help="allow a connection class that was never checked against a workbook Tableau wrote (see 'template targets')")
-    ap_.add_argument("--sheet", help="the worksheet of an Excel --data file, by name or by index from 0 "
+    ap_apply.add_argument("--sheet", help="the worksheet of an Excel --data file, by name or by index from 0 "
                                      "(needed when several are visible)")
-    ap_.add_argument("--answers", "-a", metavar="PATH",
+    ap_apply.add_argument("--answers", "-a", metavar="PATH",
                      help="an answers file (*.answers.json) or a workbook made by 'template apply': "
                           "its saved mapping and parameters are the starting point")
-    ap_.add_argument("--profile", help="a named set of parameters and data inside the answers file")
-    ap_.add_argument("--explain", action="store_true",
+    ap_apply.add_argument("--profile", help="a named set of parameters and data inside the answers file")
+    ap_apply.add_argument("--explain", action="store_true",
                      help="also list what this changes besides the connection: new field types, dropped "
                           "fields and what they break (to stderr)")
-    ap_.add_argument("--xml-diff", action="store_true",
+    ap_apply.add_argument("--xml-diff", action="store_true",
                      help="also show the normalised XML diff of the template's workbook and the one this would "
                           "write (to stderr; see 'diff-xml'); builds the workbook in a temporary folder")
-    ap_.add_argument("--check", action="store_true",
+    ap_apply.add_argument("--check", action="store_true",
                      help="also check the new data: missing dimensions, empty columns, repeated keys (to stderr)")
-    ap_.add_argument("--deep", action="store_true", help="with --check, read the whole CSV, not its first 2000 rows")
-    ap_.add_argument("--token", "-t", action="append", default=[], metavar="NAME=VALUE", help="fill a template {{token}} (repeatable), e.g. --token customer=ACME")
-    ap_.add_argument("--datasource", help="which template datasource to fill (when it has several)")
-    ap_.add_argument("--data-datasource", help="which datasource of a --data workbook to use")
-    ap_.add_argument("--mapping", "-m", help="use this edited mapping CSV instead of the suggestion")
-    ap_.add_argument("--mapping-out", help="save the mapping as CSV, to edit and pass back with --mapping")
-    ap_.add_argument("--param", "-p", action="append", default=[], metavar="NAME=VALUE",
+    ap_apply.add_argument("--deep", action="store_true", help="with --check, read the whole CSV, not its first 2000 rows")
+    ap_apply.add_argument("--token", "-t", action="append", default=[], metavar="NAME=VALUE", help="fill a template {{token}} (repeatable), e.g. --token customer=ACME")
+    ap_apply.add_argument("--datasource", help="which template datasource to fill (when it has several)")
+    ap_apply.add_argument("--data-datasource", help="which datasource of a --data workbook to use")
+    ap_apply.add_argument("--mapping", "-m", help="use this edited mapping CSV instead of the suggestion")
+    ap_apply.add_argument("--mapping-out", help="save the mapping as CSV, to edit and pass back with --mapping")
+    ap_apply.add_argument("--param", "-p", action="append", default=[], metavar="NAME=VALUE",
                      help="set a parameter (repeatable), e.g. -p 'Top N=10'")
-    ap_.add_argument("--cutoff", type=float, default=0.85, help="0..1 similarity for approximate matches")
-    ap_.add_argument("--allow-missing", action="store_true",
+    ap_apply.add_argument("--cutoff", type=float, default=0.85, help="0..1 similarity for approximate matches")
+    ap_apply.add_argument("--allow-missing", action="store_true",
                      help="write even if required fields have no column (their sheets will break)")
-    ap_.add_argument(
+    ap_apply.add_argument(
         "--write", "-w", nargs="?", const="", metavar="PATH",
         help="make the workbook (default PATH: <template>_<data>.twbx beside the template; never overwrites)",
     )
-    ap_.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
+    ap_apply.add_argument("--format", "-f", choices=["table", "csv", "json"], default="table")
     return ap
 
 
@@ -985,7 +985,8 @@ def build_style_arg_parser() -> argparse.ArgumentParser:
                     "files and *.style.json files, export them, and add them to a new Preferences.tps or a copy "
                     "of a workbook. Palettes become selectable in the colour picker; nothing is recoloured. "
                     "'extract' saves the fonts, workbook style rules and dashboard zone styles of a workbook as a "
-                    "style file (it reads only; applying them comes later). Never opened in Tableau.",
+                    "style file; 'apply' writes the fonts and workbook rules of a style file onto a copy of a workbook "
+                    "and never replaces a format the workbook already has unless --force. Never opened in Tableau.",
     )
     sub = ap.add_subparsers(dest="action", required=True)
     clash = dict(choices=_style.CLASH_POLICIES, default="fail",
@@ -1039,6 +1040,31 @@ def build_style_arg_parser() -> argparse.ArgumentParser:
     im.add_argument("--write", action="store_true", help="write the file")
     im.add_argument("--format", choices=("table", "csv", "json"), default="table", help="plan format (default: table)")
 
+    ap_apply = sub.add_parser(
+        "apply", help="write the fonts and workbook rules of STYLE onto a copy of TARGET: print the plan; with --write, write a new file",
+        description="Without --write nothing is written. With --write a new file is written next to TARGET (or at "
+                    "--output): never over the input and never over an existing file unless --overwrite. A format "
+                    "the target already has is kept (even Tableau's own defaults) unless --force. This package "
+                    "writes the workbook scope only; dashboard and sheet formatting in the style file is listed "
+                    "as unsupported. Exit codes: 1 error or, under --on-clash fail, a format that would be kept; "
+                    "2 something was unsupported but the rest was written.",
+    )
+    ap_apply.add_argument("style", metavar="STYLE", help="a .style.json, or a .twb/.twbx whose formatting is extracted")
+    ap_apply.add_argument("target", metavar="TARGET", help=".twb or .twbx to restyle (it is not modified)")
+    ap_apply.add_argument("--scope", default="workbook,dashboards", metavar="LIST",
+                     help="workbook,dashboards,sheets (default workbook,dashboards); only workbook is written for now")
+    ap_apply.add_argument("--dashboard", action="append", default=[], metavar="NAME", help="only this dashboard of the target (repeatable, exact name)")
+    ap_apply.add_argument("--sheet", action="append", default=[], metavar="NAME", help="only this sheet of the target (repeatable, exact name)")
+    ap_apply.add_argument("--on-clash", choices=("skip", "fail"), default=None,
+                     help="a format the target already has with another value: skip (default, keep it and say so) or fail (write nothing)")
+    ap_apply.add_argument("--force", action="store_true", help="replace formats the target already has (in place)")
+    ap_apply.add_argument("--palettes", action="store_true", help="also add the style's palettes (ignored otherwise)")
+    ap_apply.add_argument("--palette-on-clash", **clash)
+    ap_apply.add_argument("--output", "-o", help="new file (default: <name>_styled.<ext> beside TARGET)")
+    ap_apply.add_argument("--overwrite", action="store_true", help="replace an earlier output (never the input)")
+    ap_apply.add_argument("--write", action="store_true", help="write the file")
+    ap_apply.add_argument("--format", choices=("table", "csv", "json"), default="table", help="plan format (default: table)")
+
     ck = sub.add_parser("check", help="look for problems in a .tps or .style.json file (exit 1 if any)")
     ck.add_argument("file")
     return ap
@@ -1084,6 +1110,45 @@ def _run_style(argv: list[str]) -> int:
             for w in _style.style_warnings(style):
                 print(f"warning: {w}", file=sys.stderr)
             print("a summary of what the workbook does, not a record of one zone; not opened in Tableau", file=sys.stderr)
+            return 0
+        if args.action == "apply":
+            scopes = tuple(x.strip() for x in args.scope.split(",") if x.strip())
+            opts = dict(scopes=scopes, dashboards=args.dashboard or None, sheets=args.sheet or None, force=args.force,
+                        on_clash=args.on_clash or "skip")
+            plan = _style.plan_style(args.target, args.style, **opts)
+            print(_df_text(plan, args.format))
+            kept = plan[plan["action"].isin(("skip", "fail"))]
+            if int((plan["action"] == "fail").sum()):
+                print(f"{len(kept)} format(s) already set in the target with another value; --on-clash fail writes nothing "
+                      "(--on-clash skip keeps them, --force replaces them)", file=sys.stderr)
+                return 1
+            if not args.write:
+                if len(kept):
+                    print(f"{len(kept)} format(s) would be kept because the target already sets them (any existing "
+                          "format counts, even Tableau's defaults); --force replaces them", file=sys.stderr)
+                print("plan only, nothing written; add --write to write a new file", file=sys.stderr)
+                return 0
+            report = {}
+            out = _style.apply_style(args.target, args.style, output_path=args.output, overwrite=args.overwrite,
+                                     palettes=args.palettes, palette_on_clash=args.palette_on_clash, report=report, **opts)
+            print(f"wrote {out}", file=sys.stderr)
+            for scope, c in report["counts"].items():
+                print(f"{scope}: applied {c['applied']} (added {c['added']}, forced {c['forced']}), same {c['same']}, "
+                      f"skipped {c['skipped']}, unsupported {c['unsupported']}, no target {c['no_target']}", file=sys.stderr)
+            if report["skipped"]:
+                print("kept (the target already sets them): " + ", ".join(report["skipped"]), file=sys.stderr)
+            if "palettes" in report:
+                pc = report["palettes"]["counts"]
+                print(f"palettes: added {pc['added']}, already there {pc['skipped_identical']}, renamed {pc['renamed']}, "
+                      f"replaced {pc['replaced']}, skipped {pc['skipped']}, invalid {pc['invalid']}", file=sys.stderr)
+            for w in report["warnings"]:
+                print(f"warning: {w}", file=sys.stderr)
+            print("formats were added to the workbook; marks keep their colours; nothing here has been opened in Tableau",
+                  file=sys.stderr)
+            if report["unsupported"] or report["no_target"]:
+                print("not written (unsupported or no target): " + ", ".join(report["unsupported"] + report["no_target"]),
+                      file=sys.stderr)
+                return 2
             return 0
         if args.action == "check":
             problems = _style.check_style_file(args.file)

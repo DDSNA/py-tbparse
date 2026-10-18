@@ -10,6 +10,7 @@ Nothing here has been opened in Tableau. The inputs are committed files, no corp
                                             (a workbook Tableau wrote; one CSV-style table)
     tests/fixtures/library/*.twb            library import
     tests/fixtures/style/palettes.twb       the palettes
+    tests/fixtures/style/format-*.twb       the fonts (copies of filtering.twb, hand-edited) and format.style.json
 
 The files are numbered; the list of what to look at is docs/tableau-check.md. A `results.csv` with one row per
 file is written for the person at Tableau to fill in, and `commands.txt` lists the exact command behind each
@@ -37,16 +38,19 @@ FILTERING = "tests/fixtures/public/filtering.twb"
 LIB_SOURCE = "tests/fixtures/library/source.twb"
 LIB_TARGET = "tests/fixtures/library/target.twb"
 PALETTES = "tests/fixtures/style/palettes.twb"
+FORMAT_STYLE = "tests/fixtures/style/format.style.json"
+FORMAT_BARE = "tests/fixtures/style/format-bare.twb"
+FORMAT_TARGET = "tests/fixtures/style/format-target.twb"
 
 
-INPUTS = (DEMO, FILTERING, LIB_SOURCE, LIB_TARGET, PALETTES)
+INPUTS = (DEMO, FILTERING, LIB_SOURCE, LIB_TARGET, PALETTES, FORMAT_STYLE, FORMAT_BARE, FORMAT_TARGET)
 
 
 def steps(out: Path) -> list[tuple[str, list[str]]]:
     """(output file, py-tbparse arguments) in the order the checklist uses. Paths in the arguments are relative to
     the repository root for the inputs and `out` for the outputs."""
     o = str
-    DEMO, FILTERING, LIB_SOURCE, LIB_TARGET, PALETTES = (str(ROOT / p) for p in INPUTS)
+    DEMO, FILTERING, LIB_SOURCE, LIB_TARGET, PALETTES, STYLE, BARE, TARGET = (str(ROOT / p) for p in INPUTS)
     return [
         ("10-rename.twb", ["rename", DEMO, "--all", "--write-workbook", o(out / "10-rename.twb")]),
         ("11-prune.twb", ["prune", DEMO, "--sheets", "--write", "-o", o(out / "11-prune.twb")]),
@@ -66,6 +70,11 @@ def steps(out: Path) -> list[tuple[str, list[str]]]:
                             "--write", "-o", o(out / "30-library.twb")]),
         ("40-palettes.twb", ["style", "import", PALETTES, DEMO, "--write", "-o", o(out / "40-palettes.twb")]),
         ("41-Preferences_new.tps", ["style", "export", PALETTES, "-o", o(out / "41-Preferences_new.tps")]),
+        ("42-fonts.twb", ["style", "apply", STYLE, BARE, "--scope", "workbook", "--write", "-o", o(out / "42-fonts.twb")]),
+        ("44-fonts-keep.twb", ["style", "apply", STYLE, TARGET, "--scope", "workbook", "--write",
+                               "-o", o(out / "44-fonts-keep.twb")]),
+        ("44-fonts-force.twb", ["style", "apply", STYLE, TARGET, "--scope", "workbook", "--force", "--write",
+                                "-o", o(out / "44-fonts-force.twb")]),
     ]
 
 

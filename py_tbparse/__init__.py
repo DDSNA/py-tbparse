@@ -33,7 +33,9 @@ from .scaffold import (
 )
 from .style import (
     StyleError,
+    apply_style,
     build_export,
+    build_styled,
     build_with_palettes,
     check_style_file,
     export_palettes,
@@ -47,6 +49,7 @@ from .style import (
     palettes_from_bytes,
     palettes_table,
     plan_palette_import,
+    plan_style,
     read_palettes,
     save_style,
     style_warnings,
@@ -197,6 +200,9 @@ __all__ = [
     "extract_style",
     "format_table",
     "style_warnings",
+    "plan_style",
+    "build_styled",
+    "apply_style",
 ]
 
 try:

@@ -122,6 +122,8 @@ def cases(tmp_path, monkeypatch):
         ("style show", ["style", "check", str(STYLE / "bad.tps")], 1),
         ("style export", ["style", "export", str(STYLE / "bad.tps"), "-o", str(tmp_path / "b.tps")], 2),
         ("style export", ["style", "show", missing], 1),
+        ("style apply", ["style", "apply", str(STYLE / "format.style.json"), str(STYLE / "format-bare.twb"), "--scope", "workbook"], 0),
+        ("style apply", ["style", "apply", str(STYLE / "format.style.json"), missing], 1),
         ("scaffold make", ["scaffold", "make", WENJIE, "-d", "nope", "-o", str(tmp_path / "s.json")], 1),
         ("sanitize IN OUT", ["sanitize", WENJIE, str(sanitized)], 0),
         ("sanitize IN OUT", ["sanitize", WENJIE, str(sanitized)], 2),       # now it exists
@@ -173,6 +175,13 @@ def test_sheet_copy_partial_refusal_is_2(tmp_path, capsys):
     assert code_of(["sheet", "copy", s, "--sheets", "Sheet 1,Sheet 2", "--to", d, "--write",
                     "-o", str(tmp_path / "p.twb")]) == 2
     assert not ROWS[row("sheet copy SRC")][2].lower().startswith("not used")
+
+
+def test_style_apply_partial_is_2(tmp_path):
+    out = tmp_path / "o.twb"
+    assert code_of(["style", "apply", str(STYLE / "format.style.json"), str(STYLE / "format-bare.twb"), "--write",
+                    "-o", str(out)]) == 2
+    assert out.exists() and not ROWS[row("style apply")][2].lower().startswith("not used")
 
 
 def test_every_row_has_a_case(tmp_path, monkeypatch):

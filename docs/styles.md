@@ -42,20 +42,22 @@ The **Styles** view of `py-tbparse-gui` does the same on the open workbook: list
 
 ## The style file
 
-`*.style.json` is UTF-8 JSON with sorted keys: `format` (`py-tbparse-style`), `version` (1 or 2, see [Formatting](#formatting-read-side-only-so-far)), `name`, `description`, `created`, `py_tbparse_version`, `sources` and `palettes` (a list of `name`, `type`, `colors` and `attrs`, in source order; `attrs` holds the other attributes of the palette, such as `custom`, as strings). A file with another format, a newer version or an unknown key is refused. A palette-only file is still written as version 1, so existing files and older py-tbparse keep working.
+`*.style.json` is UTF-8 JSON with sorted keys: `format` (`py-tbparse-style`), `version` (1 or 2, see [Formatting](#formatting-fonts-and-workbook-rules)), `name`, `description`, `created`, `py_tbparse_version`, `sources` and `palettes` (a list of `name`, `type`, `colors` and `attrs`, in source order; `attrs` holds the other attributes of the palette, such as `custom`, as strings). A file with another format, a newer version or an unknown key is refused. A palette-only file is still written as version 1, so existing files and older py-tbparse keep working.
 
 ## From Python
 
-`extract_style`, `format_table`, `style_warnings` (formatting, below), `read_palettes`, `palettes_table`, `export_palettes`, `import_palettes`, `plan_palette_import`, `build_with_palettes`, `tps_bytes`, `make_style`, `save_style`, `load_style`, `check_style_file`, and for bytes instead of files `build_export`, `palettes_from_bytes`, `palette_records` and `palette_problems`, all in `py_tbparse` (module `py_tbparse.style`; errors are `StyleError`, a `ValueError`).
+`extract_style`, `format_table`, `style_warnings`, `plan_style`, `build_styled`, `apply_style` (formatting, below), `read_palettes`, `palettes_table`, `export_palettes`, `import_palettes`, `plan_palette_import`, `build_with_palettes`, `tps_bytes`, `make_style`, `save_style`, `load_style`, `check_style_file`, and for bytes instead of files `build_export`, `palettes_from_bytes`, `palette_records` and `palette_problems`, all in `py_tbparse` (module `py_tbparse.style`; errors are `StyleError`, a `ValueError`).
 
-## Formatting (read side only so far)
+## Formatting (fonts and workbook rules)
 
-Slice 2 of the style work (plan: [wp7-style-plan-slice2.md](wp7-style-plan-slice2.md)) moves **name-free formatting**: fonts, workbook style rules and dashboard zone styles. Its first package is built: you can **read** that formatting out of a workbook into a style file. **Nothing writes it onto another workbook yet** (`style apply` is the next package), so a style file with these sections changes nothing when you `import` it, and `import` ignores them.
+Slice 2 of the style work (plan: [wp7-style-plan-slice2.md](wp7-style-plan-slice2.md)) moves **name-free formatting**: fonts, workbook style rules and dashboard zone styles. Two packages are built: you can **read** that formatting out of a workbook into a style file (`extract`), and **write the workbook-level part** (fonts and workbook style rules) onto a copy of another workbook (`apply`). Dashboard and sheet formatting is not written yet (later packages), and `import` still ignores every formatting section.
 
 ```bash
 py-tbparse style extract brand.twb -o brand.style.json     # --dashboard NAME, --scope workbook,dashboards, --no-palettes, --name, --overwrite
 py-tbparse style show brand.twb --what formats             # the same, as a table (--format csv|json)
 py-tbparse style check brand.style.json                    # also validates the formatting sections
+py-tbparse style apply brand.style.json other.twb          # the plan only, nothing written
+py-tbparse style apply brand.style.json other.twb --write  # writes other_styled.twb beside it
 ```
 
 What `extract` reads:
@@ -67,9 +69,20 @@ What `extract` reads:
 
 The version 2 file adds four optional sections, all values strings exactly as in the XML: `fonts` (`{element: {attribute: value}}`), `workbook_rules` (`[{element, formats: [{attr, value, scope?}]}]`), `dashboard` (`background`, `roles` as `{role: {attribute: value}}`, `rules` like `workbook_rules`) and `sheet_defaults` (like `workbook_rules`; validated, not extracted yet). `fonts` is a view of the same rules as `workbook_rules`, so one (element, attribute) may not be in both, and `dashboard.background` may not be repeated as `roles.root.background-color`. Allowed names are fixed lists in `py_tbparse.style`, and a test compares them with Tableau's schema. Colour attributes are `color` and `background-color` (there is no `font-color`). `check` refuses an unknown role, element or attribute, an empty value, a control character and anything with `_.fcp.` in it. A font family that is not one of the "Tableau *" faces is only a **warning**: it may not exist on the machine that opens the result, and what Tableau does then has not been checked.
 
+### Applying it (`style apply`)
+
+`apply` takes a style file (or any workbook, whose formatting is extracted on the fly) and a `.twb` or `.twbx` target. It prints a plan first, one row per format, and with `--write` saves a copy named `<name>_styled.<ext>`. The input is never modified, an existing output is never replaced without `--overwrite`, and the input itself never.
+
+- **A format the target already has is kept, whatever its value.** There is no marker in the XML that tells a choice from a default Tableau wrote, so even `margin 4` or a font Tableau picked counts as explicit. The plan shows these rows as `skip`, with the target's current value; `--force` replaces them in place (position and other attributes kept). So on a workbook that already sets a font, `apply` will say "kept" and change nothing for that font; this is intended, not a bug. Whether a workbook rule would even show through the sheets' own formats is not known (see the assumptions).
+- Actions per format: `add` (absent, written; the `<style>` block or the `style-rule` is created when missing), `same` (already that value; colours compare without case), `skip`, `force`, `unsupported`, `fail`. `--on-clash fail` turns every `skip` into `fail` and writes nothing, which suits CI. `--force` and `--on-clash fail` together are refused.
+- **Only the `workbook` scope is written.** Fonts (`fonts`) and `workbook_rules` become `<style><style-rule element=..><format attr=.. value=../>`. A new `<style>` goes after `preferences` (and `style-theme`) and before the datasources; a new rule goes after the last real `style-rule`; a new format goes at the end of its rule. Formats with a `field=`, `encoding` children, `_.fcp.*` elements and every other rule are left as they are. What the file holds for `dashboards` and `sheets` is listed as `unsupported` (work packages 2c and 2d) and makes the exit code 2 after `--write`.
+- **Feature-flagged style blocks.** Many Tableau workbooks (90 of the 200 in the corpus) keep their only workbook style as a flagged element `<_.fcp.X.false...style>`. `apply` never edits that element; it adds a plain `<style>` beside it and says so in the plan and the report. How Tableau combines the two is unknown.
+- Palettes in the style file are ignored unless `--palettes` is given (then `--palette-on-clash` decides, default `fail`). `.twbx` members other than the workbook are copied untouched. `--dashboard` and `--sheet` take exact names of the target and an unknown name is an error; they only matter once those scopes are written.
+- The report after `--write` gives, per scope, applied (added plus forced), same, skipped and unsupported counts, and ends with "formats were added to the workbook; marks keep their colours; nothing here has been opened in Tableau".
+
 ## Not covered
 
-Recolouring marks, per-value colours, device layouts, logos and number formats. Those are bound to fields, values or positions in a workbook (`docs/style-model.md` has the evidence). Writing fonts and formatting onto a workbook (`style apply`, with the rule that a format the target already has is never replaced without `--force`), the sheet whitelist, the GUI card and template integration are later packages of the slice 2 and 3 plans.
+Recolouring marks, per-value colours, device layouts, logos and number formats. Those are bound to fields, values or positions in a workbook (`docs/style-model.md` has the evidence). Writing dashboard formatting and the sheet whitelist, the GUI card and template integration are later packages of the slice 2 and 3 plans; `apply` lists them as `unsupported` for now.
 
 ## Assumptions nobody has checked in Tableau
 
@@ -81,3 +94,4 @@ Recolouring marks, per-value colours, device layouts, logos and number formats. 
 6. A `<preferences>` block inserted where the 2026.2 schema puts it also loads in older Tableau versions.
 7. A palette named like a built-in one (for example "Tableau 10") does not upset the picker.
 8. (Formatting, extract only) The "most frequent value per role" summary is a fair picture of a dashboard; the `all`, `worksheet`, `title` and `tooltip` workbook rules are the ones Tableau reads for Format > Workbook (which element it writes there is unknown); and a workbook `<style>` block that we did not write ourselves is what a later `apply` would imitate. None of this was opened in Tableau.
+9. (Applying fonts and workbook rules) A workbook `<style>` or `style-rule` added by py-tbparse is read and applied by Tableau and is not dropped when the workbook is saved; the `all`, `worksheet`, `title` and `tooltip` elements are the ones that carry Format > Workbook; a workbook rule shows through on sheets that have their own formats (Tableau's merge order between workbook, sheet and zone rules is unknown); a plain `<style>` added next to a feature-flagged `<_.fcp.*...style>` is accepted; a font missing on the machine is replaced silently; `font-weight` and `font-style` values copied as strings are valid. Checks 42 and 44 in [tableau-check.md](tableau-check.md) are meant to settle the first of these.
