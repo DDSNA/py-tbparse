@@ -981,17 +981,38 @@ def _run_library(argv: list[str]) -> int:
 def build_style_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="py-tbparse style",
-        description="Colour palettes: list the named custom palettes of workbooks, Preferences.tps files and "
-                    "*.style.json files, export them, and add them to a new Preferences.tps or a copy of a "
-                    "workbook. Palettes become selectable in the colour picker; nothing is recoloured. The "
-                    "output was never opened in Tableau.",
+        description="Colour palettes and formatting: list the named custom palettes of workbooks, Preferences.tps "
+                    "files and *.style.json files, export them, and add them to a new Preferences.tps or a copy "
+                    "of a workbook. Palettes become selectable in the colour picker; nothing is recoloured. "
+                    "'extract' saves the fonts, workbook style rules and dashboard zone styles of a workbook as a "
+                    "style file (it reads only; applying them comes later). Never opened in Tableau.",
     )
     sub = ap.add_subparsers(dest="action", required=True)
     clash = dict(choices=_style.CLASH_POLICIES, default="fail",
                  help="a palette name already used with other colours: fail (default), skip, rename or replace")
 
-    sh = sub.add_parser("show", help="list the palettes in each SRC")
+    sh = sub.add_parser("show", help="list the palettes (default) or formatting in each SRC")
     sh.add_argument("source", nargs="+", metavar="SRC", help=".twb, .twbx, .tps or .style.json")
+    sh.add_argument("--what", choices=("palettes", "formats", "all"), default="palettes",
+                    help="palettes (default), formats (fonts, workbook rules, dashboard roles; no .tps) or all")
+    sh.add_argument("--scope", default="workbook,dashboards", metavar="LIST",
+                    help="with --what formats on a workbook: workbook,dashboards (default both)")
+
+    xt = sub.add_parser(
+        "extract", help="save the name-free fonts, workbook rules and dashboard zone styles of SRC as a style file",
+        description="Reads SRC (.twb or .twbx) and writes a new version 2 *.style.json. Formats bound to a field, "
+                    "colour encodings, device layouts and feature-flag (_.fcp.*) elements are not read and are "
+                    "counted. Nothing is invented: a workbook without such formatting gives empty sections. "
+                    "Exit codes: 0 written, 1 error.",
+    )
+    xt.add_argument("source", metavar="SRC", help=".twb or .twbx")
+    xt.add_argument("--output", "-o", required=True, help="OUT.style.json (a new file)")
+    xt.add_argument("--dashboard", metavar="NAME", help="take dashboard styles from this dashboard only")
+    xt.add_argument("--scope", default="workbook,dashboards", metavar="LIST",
+                    help="workbook,dashboards (default both); sheets is not available yet")
+    xt.add_argument("--no-palettes", action="store_true", help="leave the palettes out")
+    xt.add_argument("--name", help="name stored in the style file (default: the workbook's name)")
+    xt.add_argument("--overwrite", action="store_true", help="replace the output if it exists (never an input)")
     sh.add_argument("--format", choices=("table", "csv", "json"), default="table", help="output format (default: table)")
 
     ex = sub.add_parser("export", help="save the palettes of the SRC files as a Preferences.tps or a style file")
@@ -1028,7 +1049,41 @@ def _run_style(argv: list[str]) -> int:
     args = ap.parse_args(argv)
     try:
         if args.action == "show":
-            print(_df_text(_style.palettes_table(args.source), args.format))
+            scopes = tuple(x.strip() for x in args.scope.split(",") if x.strip())
+            if args.what in ("palettes", "all"):
+                print(_df_text(_style.palettes_table(args.source), args.format))
+            if args.what in ("formats", "all"):
+                srcs = [x for x in args.source if not x.lower().endswith(".tps")]
+                print(_df_text(_style.format_table(srcs, scopes=scopes), args.format))
+            return 0
+        if args.action == "extract":
+            out = Path(args.output)
+            if not out.name.lower().endswith(".style.json"):
+                raise _style.StyleError(f"the output must end in .style.json, got {out.name}")
+            if out.exists() and Path(args.source).exists() and out.resolve() == Path(args.source).resolve():
+                raise FileExistsError(f"refusing to overwrite the input: {out}")
+            rep: dict = {}
+            style = _style.extract_style(
+                args.source, dashboard=args.dashboard, palettes=not args.no_palettes, name=args.name, report=rep,
+                scopes=tuple(x.strip() for x in args.scope.split(",") if x.strip()))
+            _style.save_style(style, out, overwrite=args.overwrite)
+            c = rep["counts"]
+            print(f"wrote {out}", file=sys.stderr)
+            print(f"read {c['fonts']} font format(s), {c['workbook_rules']} workbook rule format(s), "
+                  f"{c['dashboard_roles']} dashboard role format(s), {c['dashboard_rules']} dashboard rule "
+                  f"format(s), {c['palettes']} palette(s)", file=sys.stderr)
+            print(f"not read: {c['field_skipped']} bound to a field, {c['encoding_skipped']} colour encoding(s), "
+                  f"{c['fcp_skipped']} feature-flag element(s), {c['unsupported']} outside the whitelist",
+                  file=sys.stderr)
+            if not any(c[k] for k in ("fonts", "workbook_rules", "dashboard_roles", "dashboard_rules", "palettes")):
+                print("nothing to extract: the workbook has no such formatting (no defaults were invented)", file=sys.stderr)
+            for m in rep["mixed"]:
+                print(f"mixed (the most frequent value was kept): {m}", file=sys.stderr)
+            for w in rep["warnings"]:
+                print(f"warning: {w}", file=sys.stderr)
+            for w in _style.style_warnings(style):
+                print(f"warning: {w}", file=sys.stderr)
+            print("a summary of what the workbook does, not a record of one zone; not opened in Tableau", file=sys.stderr)
             return 0
         if args.action == "check":
             problems = _style.check_style_file(args.file)

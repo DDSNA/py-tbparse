@@ -37,6 +37,8 @@ from .style import (
     build_with_palettes,
     check_style_file,
     export_palettes,
+    extract_style,
+    format_table,
     import_palettes,
     load_style,
     make_style,
@@ -47,6 +49,7 @@ from .style import (
     plan_palette_import,
     read_palettes,
     save_style,
+    style_warnings,
     tps_bytes,
 )
 from .published import extract_published_refs
@@ -191,6 +194,9 @@ __all__ = [
     "palette_records",
     "palette_problems",
     "palettes_from_bytes",
+    "extract_style",
+    "format_table",
+    "style_warnings",
 ]
 
 try:

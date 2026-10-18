@@ -15,7 +15,7 @@
 > | WP4b part 1 database targets (MySQL, PostgreSQL, SQL Server, Snowflake) | done; leftovers in issue #39; part 2 (Oracle, Spark, Mongo, published data sources) has no samples and stays refused without `--experimental` |
 > | WP5 `template check`, `show --markdown`; WP19 tokens | done |
 > | WP6 libraries of calculated fields and parameters | first slice done; GUI Libraries view done |
-> | WP7 colour palettes | slice 1 done (`style show/export/import/check`); GUI Styles view done; fonts and formatting not started |
+> | WP7 colour palettes | slice 1 done (`style show/export/import/check`); GUI Styles view done; slice 2 (fonts and formatting) planned in `wp7-style-plan-slice2.md`: 2a (`style extract`, style file v2, read side only) built, 2b onwards not started |
 > | WP8 writer fidelity | minimum done (`diff-xml`, `template apply --xml-diff`) |
 > | WP9 GUI Templates view | done |
 > | WP10 audit (A001-A011), WP10b `prune`, WP11 data dictionary | done at the basic level; GUI Audit view done |

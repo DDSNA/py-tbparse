@@ -42,15 +42,34 @@ The **Styles** view of `py-tbparse-gui` does the same on the open workbook: list
 
 ## The style file
 
-`*.style.json` is UTF-8 JSON with sorted keys: `format` (`py-tbparse-style`), `version` (1), `name`, `description`, `created`, `py_tbparse_version`, `sources` and `palettes` (a list of `name`, `type`, `colors` and `attrs`, in source order; `attrs` holds the other attributes of the palette, such as `custom`, as strings). A file with another format, a newer version or an unknown key is refused.
+`*.style.json` is UTF-8 JSON with sorted keys: `format` (`py-tbparse-style`), `version` (1 or 2, see [Formatting](#formatting-read-side-only-so-far)), `name`, `description`, `created`, `py_tbparse_version`, `sources` and `palettes` (a list of `name`, `type`, `colors` and `attrs`, in source order; `attrs` holds the other attributes of the palette, such as `custom`, as strings). A file with another format, a newer version or an unknown key is refused. A palette-only file is still written as version 1, so existing files and older py-tbparse keep working.
 
 ## From Python
 
-`read_palettes`, `palettes_table`, `export_palettes`, `import_palettes`, `plan_palette_import`, `build_with_palettes`, `tps_bytes`, `make_style`, `save_style`, `load_style`, `check_style_file`, and for bytes instead of files `build_export`, `palettes_from_bytes`, `palette_records` and `palette_problems`, all in `py_tbparse` (module `py_tbparse.style`; errors are `StyleError`, a `ValueError`).
+`extract_style`, `format_table`, `style_warnings` (formatting, below), `read_palettes`, `palettes_table`, `export_palettes`, `import_palettes`, `plan_palette_import`, `build_with_palettes`, `tps_bytes`, `make_style`, `save_style`, `load_style`, `check_style_file`, and for bytes instead of files `build_export`, `palettes_from_bytes`, `palette_records` and `palette_problems`, all in `py_tbparse` (module `py_tbparse.style`; errors are `StyleError`, a `ValueError`).
+
+## Formatting (read side only so far)
+
+Slice 2 of the style work (plan: [wp7-style-plan-slice2.md](wp7-style-plan-slice2.md)) moves **name-free formatting**: fonts, workbook style rules and dashboard zone styles. Its first package is built: you can **read** that formatting out of a workbook into a style file. **Nothing writes it onto another workbook yet** (`style apply` is the next package), so a style file with these sections changes nothing when you `import` it, and `import` ignores them.
+
+```bash
+py-tbparse style extract brand.twb -o brand.style.json     # --dashboard NAME, --scope workbook,dashboards, --no-palettes, --name, --overwrite
+py-tbparse style show brand.twb --what formats             # the same, as a table (--format csv|json)
+py-tbparse style check brand.style.json                    # also validates the formatting sections
+```
+
+What `extract` reads:
+
+- **Workbook rules**: the workbook's `<style><style-rule>` for `all`, `worksheet`, `title` and `tooltip`. The font attributes (`font-family`, `font-size`, `font-weight`, `font-style`, `color`) go to `fonts`, keyed by element; every other format goes to `workbook_rules`. Only 7 of the 200 corpus workbooks have such a block, so most workbooks give nothing here: fonts usually live on titles, sheets and dashboards instead.
+- **Dashboards**: the `zone-style` formats (`background-color`, `border-color`, `border-style`, `border-width`, `margin`, `padding`) summed up **by zone role**: `root` (the zone directly under the dashboard's zones), `container` (other layout zones), `sheet` and `title`. For each role and attribute the most frequent value wins (a tie goes to the first in document order); the attributes that had more than one value are listed as `mixed` and in the `note` column of `show`. So the file is a summary of what the dashboards do, not a record of one zone. The root's background is stored as `dashboard.background`. The dashboards' own `dash-title`, `dash-subtitle` and `dash-text` rules go to `dashboard.rules`. Without `--dashboard` all dashboards of the workbook are pooled.
+- **Not read, and counted**: any format with a `field=` attribute, `encoding` children (per-value colours), every `_.fcp.*` feature-flag element, rules for other elements, other zone kinds (filters, text, images, legends), device layouts and sheet formats (the `sheets` scope is a later package and is refused for now).
+- **Nothing is invented.** A workbook without such formatting gives empty sections (and a version 1 file when it has no other formatting either). A value that Tableau wrote as boilerplate (`margin 4`, `border none`) is read like any other: the file cannot tell a choice from a default.
+
+The version 2 file adds four optional sections, all values strings exactly as in the XML: `fonts` (`{element: {attribute: value}}`), `workbook_rules` (`[{element, formats: [{attr, value, scope?}]}]`), `dashboard` (`background`, `roles` as `{role: {attribute: value}}`, `rules` like `workbook_rules`) and `sheet_defaults` (like `workbook_rules`; validated, not extracted yet). `fonts` is a view of the same rules as `workbook_rules`, so one (element, attribute) may not be in both, and `dashboard.background` may not be repeated as `roles.root.background-color`. Allowed names are fixed lists in `py_tbparse.style`, and a test compares them with Tableau's schema. Colour attributes are `color` and `background-color` (there is no `font-color`). `check` refuses an unknown role, element or attribute, an empty value, a control character and anything with `_.fcp.` in it. A font family that is not one of the "Tableau *" faces is only a **warning**: it may not exist on the machine that opens the result, and what Tableau does then has not been checked.
 
 ## Not covered
 
-Recolouring marks, fonts, borders, dashboard styling, device layouts, logos and number formats. Those are bound to fields, values or positions in a workbook (`docs/style-model.md` has the evidence); this release does only the palette library.
+Recolouring marks, per-value colours, device layouts, logos and number formats. Those are bound to fields, values or positions in a workbook (`docs/style-model.md` has the evidence). Writing fonts and formatting onto a workbook (`style apply`, with the rule that a format the target already has is never replaced without `--force`), the sheet whitelist, the GUI card and template integration are later packages of the slice 2 and 3 plans.
 
 ## Assumptions nobody has checked in Tableau
 
@@ -61,3 +80,4 @@ Recolouring marks, fonts, borders, dashboard styling, device layouts, logos and 
 5. Adding or replacing a palette leaves the marks that use it unchanged (strongly suggested by the corpus, not observed).
 6. A `<preferences>` block inserted where the 2026.2 schema puts it also loads in older Tableau versions.
 7. A palette named like a built-in one (for example "Tableau 10") does not upset the picker.
+8. (Formatting, extract only) The "most frequent value per role" summary is a fair picture of a dashboard; the `all`, `worksheet`, `title` and `tooltip` workbook rules are the ones Tableau reads for Format > Workbook (which element it writes there is unknown); and a workbook `<style>` block that we did not write ourselves is what a later `apply` would imitate. None of this was opened in Tableau.
