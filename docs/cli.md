@@ -158,6 +158,7 @@ py-tbparse style apply brand.style.json other.twb --scope workbook --write  # wr
 ```bash
 py-tbparse-gui workbook.twb                       # opens your browser with it loaded
 py-tbparse-gui --no-browser --port 8765           # --host defaults to 127.0.0.1; --port to a free one
+py-tbparse-gui --host 0.0.0.0 --allow-network-local   # local mode on the network: refused without the flag, see docs/gui.md
 py-tbparse-gui --server-mode --allowed-host tbparse.example.com --trust-proxy   # behind a TLS proxy
 ```
 

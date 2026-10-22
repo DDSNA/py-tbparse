@@ -18,6 +18,7 @@ import collections.abc
 import secrets
 import shutil
 import signal
+import sys
 import socket
 import re
 import tempfile
@@ -2539,6 +2540,40 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(_open_response(parser, path))
 
 
+def _is_loopback_host(host) -> bool:
+    """Whether binding to `host` keeps the server reachable from this machine only."""
+    host = (host or "").strip().lower()
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False  # a wildcard, a LAN address, or a name we do not resolve: treat as reachable
+
+
+def _network_exposure(host, server_mode, allow_network_local):
+    """Decide whether the GUI may start on `host`: returns (start, warning_lines).
+
+    Local mode (no --server-mode) lets any client that can reach the port load any workbook path on this
+    machine and save files beside it, so a non-loopback host is refused unless --allow-network-local is given
+    (and then starts with the warning). Server mode and loopback hosts return (True, []).
+    """
+    if server_mode or _is_loopback_host(host):
+        return True, []
+    shown = host or "all interfaces"
+    lines = [
+        "WARNING: py-tbparse-gui is in local mode and --host " + shown + " is not a loopback address.",
+        "  Anyone who can reach this port can load any .twb/.twbx path on this machine,",
+        "  and save files beside it. There is no login.",
+        "  Use the default --host 127.0.0.1, or run with --server-mode behind a proxy (docs/deployment.md).",
+    ]
+    if allow_network_local:
+        lines.append("  Starting anyway because --allow-network-local was given.")
+        return True, lines
+    lines.append("  Refusing to start. If you really want this on a trusted network, add --allow-network-local.")
+    return False, lines
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="py-tbparse-gui", description="Local browser GUI for py_tbparse."
@@ -2546,6 +2581,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("workbook", nargs="?", help="optional .twb/.twbx path to preload")
     ap.add_argument("--port", type=int, default=0, help="port to bind (default: pick a free one)")
     ap.add_argument("--host", default="127.0.0.1", help="host to bind (default: 127.0.0.1)")
+    ap.add_argument(
+        "--allow-network-local", action="store_true",
+        help="allow a non-loopback --host in local mode (no --server-mode); anyone on the network can then "
+        "open any workbook path on this machine",
+    )
     ap.add_argument("--no-browser", action="store_true", help="don't auto-open a browser tab")
     server = ap.add_argument_group(
         "server mode",
@@ -2586,6 +2626,12 @@ def _raise_interrupt(signum, frame):
 
 def main(argv=None) -> int:
     args = build_arg_parser().parse_args(argv)
+
+    start, warning = _network_exposure(args.host, args.server_mode, args.allow_network_local)
+    for line in warning:
+        print(line, file=sys.stderr)
+    if not start:
+        return 2
 
     _CONFIG.update(
         server_mode=args.server_mode,
