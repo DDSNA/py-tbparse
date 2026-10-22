@@ -165,7 +165,7 @@ Board cards that are out of date (for the owner to move; this page does not edit
 
 Decided questions are not repeated here. These block or shape the work above:
 
-1. Exit codes, dry runs (plan open question 5): should every dry run return the code its real run would? Plan default: `style import` dry-run clash becomes 5, `library import` dry run stays 0. Blocks A7.
+1. Exit codes, dry runs (plan open question 5): should every dry run return the code its real run would? Plan default: `style import` dry-run clash becomes 5, `library import` dry run stays 0. The plan does not cover `sheet copy`/`dashboard copy`: their dry run with a refused sheet returns 2 today, like `--write` (read in `cli.py`), and would become 7 if it follows the write. Blocks the last commit of A7.
 2. `webgui.py` errors (plan WP9, question 10): in 0.6.0 or dropped? Blocks A9.
 3. This page reads "exit-code scheme adopted as in the plan" as covering the plan's choices too: `validate` broken relationship = 6, unknown dashboard or sheet name = 4, precedence 3, 2, 4, 5, 6, 7, 1, 0 for the pre-commit wrapper, `apply-folder` with nothing written = 7, no compatibility switch, no `E001` codes, no `DashboardCopyError`. Confirm, or say which differs.
 4. WP7 slice 2 Q2: does any existing format count as explicit (Tableau's boilerplate `margin 4` included), so a default restyle skips it? PR #213 builds it that way for workbook rules; 2c is where it matters most.
@@ -173,6 +173,7 @@ Decided questions are not repeated here. These block or shape the work above:
 6. Release grouping: do WP7 slice 2 and the #84 preview ship in 0.6.0 with Track A, or in a 0.5.x before it? And does the unreleased work on `main` (cards, check list, 2a) get a 0.5.7 first?
 7. WP7 slice 1b (inline ramps): still wanted?
 8. Board hygiene: close or move the stale cards listed above?
+9. Screenshots: `AGENTS.md` retakes them at every major release. Does 0.6.0 (a breaking minor while 0.x) count?
 
 ## Proposed product direction (a proposal, not a decision)
 
