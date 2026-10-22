@@ -4,6 +4,7 @@ inputs by the same schema and reference checks the writers' own tests use."""
 
 import csv
 import runpy
+import shlex
 import sys
 from pathlib import Path
 
@@ -63,6 +64,18 @@ def test_pack_is_made_listed_and_not_worse_than_its_inputs(tmp_path, capsys):
     assert {"10-rename.twb", "22-scaffold.twb", "30-library.twb", "41-Preferences_new.tps",
             "templates/2-template-on-csv.twbx", "templates/56-template-update.twbx"} <= set(listed)
     assert not any(name.endswith(".json") for name in listed)
-    assert "OUT/10-rename.twb" in (out / "commands.txt").read_text(encoding="utf-8")
+    commands = (out / "commands.txt").read_text(encoding="utf-8")
+    assert "OUT/10-rename.twb" in commands
+
+    # file 56 needs template-rev2.twbx: the line that makes it is listed, before the line that uses it, and it runs
+    lines = commands.splitlines()
+    make = next(i for i, ln in enumerate(lines) if ln.startswith("python scripts/make_template_revision.py"))
+    use = next(i for i, ln in enumerate(lines) if "template update" in ln or ln.startswith("py-tbparse template update"))
+    assert make < use and "OUT/templates/_work/template-rev2.twbx" in lines[make]
+    args = shlex.split(lines[make].split("   #")[0])[2:]
+    args = [str(out / a[4:]) if a.startswith("OUT/") else str(ROOT / a) for a in args]
+    args[2] = str(tmp_path / "again-rev2.twbx")                  # the pack's own rev2 exists and is never overwritten
+    helper = runpy.run_path(str(ROOT / "scripts" / "make_template_revision.py"))
+    assert helper["main"](args) == 0 and Path(args[2]).is_file()
 
     assert pack["main"]([str(out)]) == 2                       # never writes into a folder with files

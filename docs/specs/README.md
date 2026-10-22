@@ -34,7 +34,7 @@ A6 and A7 may run in parallel after A4, but both edit `docs/cli.md` and `tests/t
 
 ## Common rules for every spec
 
-1. **Follow the agent rules file** `/home/claude-user/.claude/jobs/b5d69d0e/tmp/agent-rules.txt` exactly (worktree, identity, no version bump, one PR, push command, test command, machine limits, honest report). It is the authority; this list only adds what the specs share.
+1. **Follow the agent rules** in [agent-rules.md](agent-rules.md) exactly (worktree, identity, no version bump, one PR, push command, test command, machine limits, honest report). It is the authority; this list only adds what the specs share.
 2. Read `AGENTS.md` (module table, testing conventions, GUI rules) and the plan page the spec names before writing code.
 3. **Branch and PR.** Branch name is given in each spec. PR title: a plain sentence of what changes. PR body: plain and specific, starts with the issue line the spec gives (for example `Refs #127` or `Refs roadmap`), says what changed, what was verified, what was not (always: nothing was opened in Tableau Desktop) and any judgement calls. No `Co-Authored-By`, `Claude-Session` or "Generated with" lines anywhere. Not a draft unless the spec says so. Never merge.
 4. **Public names.** Every name added to `py_tbparse.__all__` needs a bullet `- `name`: summary` in `docs/api.md` in the same PR; `tests/test_api_doc.py` fails otherwise, and also fails for a documented name that is not public. Every public name needs a docstring (same test).

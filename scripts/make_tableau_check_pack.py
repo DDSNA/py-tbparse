@@ -14,7 +14,8 @@ Nothing here has been opened in Tableau. The inputs are committed files, no corp
 
 The files are numbered; the list of what to look at is docs/tableau-check.md. A `results.csv` with one row per
 file is written for the person at Tableau to fill in, and `commands.txt` lists the exact command behind each
-file. The template files (2x-5x) come from scripts/make_verification_pack.py, run into OUT_DIR/templates.
+file. The template files (2x-5x) come from scripts/make_verification_pack.py, run into OUT_DIR/templates;
+file 56 also needs a second template revision, made by scripts/make_template_revision.py (listed in commands.txt).
 """
 
 from __future__ import annotations
@@ -92,6 +93,11 @@ def template_steps(out: Path) -> list[tuple[str, list[str]]]:
     ]
 
 
+def _rel(arg: str, out: Path) -> str:
+    """An argument as commands.txt shows it: forward slashes, `OUT` for the pack folder, repo-relative inputs."""
+    return arg.replace("\\", "/").replace(out.as_posix(), "OUT").replace(ROOT.as_posix() + "/", "")
+
+
 def o_(path: Path) -> str:
     return str(path)
 
@@ -153,10 +159,15 @@ def main(argv=None) -> int:
         rows.append((f"templates/{template_file.name}", "ok"))
     commands.append(f"python scripts/make_verification_pack.py OUT/templates   # templates/0-5")
 
-    from py_tbparse import make_template
+    import make_template_revision
 
-    make_template(str(ROOT / FILTERING), output_path=str(out / "templates" / "_work" / "template-rev2.twbx"),
-                  revision_of=str(out / "templates" / "_work" / "template.twbx"))
+    work = out / "templates" / "_work"
+    revision = [str(ROOT / FILTERING), str(work / "template.twbx"), str(work / "template-rev2.twbx")]
+    if make_template_revision.main(revision):
+        print("template revision failed", file=sys.stderr)
+        return 1
+    commands.append("python scripts/make_template_revision.py " + " ".join(
+        f'"{a}"' if " " in a else a for a in (_rel(a, out) for a in revision)) + "   # template-rev2 for file 56")
     for name, argv in template_steps(out):
         go(name, argv)
 

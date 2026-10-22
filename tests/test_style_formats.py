@@ -77,6 +77,37 @@ def test_v1_files_still_load(tmp_path):
     assert extract_style(BARE)["version"] == 1
 
 
+def test_load_style_accepts_a_utf8_bom(tmp_path):
+    v1 = {"format": "py-tbparse-style", "version": 1, "name": "bom", "description": "", "created": "x",
+          "py_tbparse_version": "0", "sources": [], "palettes": [{"name": "A", "type": "regular", "colors": ["#112233"], "attrs": {}}]}
+    p = tmp_path / "bom.style.json"
+    p.write_bytes(b"\xef\xbb\xbf" + json.dumps(v1).encode("utf-8"))
+    assert load_style(p) == v1
+    assert check_style_file(p) == []
+
+
+def test_palette_output_that_is_a_hard_link_to_the_input_is_refused(tmp_path):
+    import os
+    from py_tbparse import export_palettes, import_palettes
+    pal = tmp_path / "Preferences.tps"
+    pal.write_bytes((Path(__file__).parent / "fixtures" / "style" / "Preferences.tps").read_bytes())
+    link = tmp_path / "Link.tps"
+    wb = tmp_path / "wb.twb"
+    wb.write_bytes(Path(BARE).read_bytes())
+    wlink = tmp_path / "wlink.twb"
+    try:
+        os.link(pal, link)
+        os.link(wb, wlink)
+    except (OSError, NotImplementedError, AttributeError):
+        pytest.skip("hard links are not available here")
+    before, wbefore = pal.read_bytes(), wb.read_bytes()
+    with pytest.raises(FileExistsError, match="the input"):
+        export_palettes([str(pal)], link, overwrite=True)
+    with pytest.raises(FileExistsError, match="the input"):
+        import_palettes(str(wb), str(pal), output_path=wlink, overwrite=True)
+    assert pal.read_bytes() == before and wb.read_bytes() == wbefore
+
+
 def test_v2_roundtrip(tmp_path):
     style = load_style(V2)
     assert style["version"] == 2

@@ -3,6 +3,7 @@ already has is explicit and is kept unless force; the output is always a new fil
 Tableau; the schema check proves structure only. Fixtures: tests/fixtures/style/format-*.twb (hand made)."""
 
 import json
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -297,6 +298,20 @@ def test_never_overwrites_files(tmp_path):
         plan_style(BARE, str(tps))
 
 
+def test_hard_link_to_the_input_is_refused(tmp_path):
+    work = tmp_path / "t.twb"
+    work.write_bytes(Path(BARE).read_bytes())
+    link = tmp_path / "link.twb"
+    try:
+        os.link(work, link)
+    except (OSError, NotImplementedError, AttributeError):
+        pytest.skip("hard links are not available here")
+    before = work.read_bytes()
+    with pytest.raises(FileExistsError, match="the input"):
+        apply_style(str(work), _fonts_only(), link, overwrite=True)
+    assert work.read_bytes() == before and link.read_bytes() == before
+
+
 def test_twbx_members_copied(tmp_path):
     out = apply_style(TWBX, _fonts_only(), tmp_path / "zip_styled.twbx", scopes=("workbook",))
     with zipfile.ZipFile(TWBX) as a, zipfile.ZipFile(out) as b:
@@ -326,6 +341,50 @@ def test_flagged_style_block_is_kept_and_reported(tmp_path):
     assert any("feature-flagged" in w for w in rep["warnings"])
     plan = plan_style(TWBX, _fonts_only(), scopes=("workbook",))
     assert "feature-flagged" in plan["reason"][0] and "unverified" in plan["reason"][0]
+
+
+FLAG = "_.fcp.AnimationOnByDefault.false..."
+
+
+def _flagged_wb(tmp_path):
+    """format-bare.twb with its only workbook style held as a flagged block that sets all/font-size=14."""
+    doc = etree.parse(BARE)
+    assert doc.getroot().find("style") is None
+    block = etree.Element(FLAG + "style")
+    rule = etree.SubElement(block, FLAG + "style-rule", element="all")
+    etree.SubElement(rule, FLAG + "format", attr="font-size", value="14")
+    doc.getroot().find("preferences").addnext(block)
+    p = tmp_path / "flagged.twb"
+    p.write_bytes(etree.tostring(doc, xml_declaration=True, encoding="utf-8"))
+    return str(p)
+
+
+def _size(value):
+    return _fonts_only(fonts={"all": {"font-size": value}})
+
+
+def test_flagged_block_value_is_current_and_skipped(tmp_path):
+    # the flagged block sets all/font-size=14; a plain <style> beside it would shadow that value
+    wb = _flagged_wb(tmp_path)
+    plan = plan_style(wb, _size("10"), scopes=("workbook",))
+    assert list(plan["action"]) == ["skip"] and list(plan["current"]) == ["14"]
+    assert "feature-flagged" in plan["reason"][0]
+    rep = {}
+    data = build_styled(wb, _size("10"), scopes=("workbook",), report=rep)
+    root = etree.fromstring(data)
+    assert root.find("style") is None                      # no plain <style> was added
+    assert rep["counts"]["workbook"]["skipped"] == 1 and rep["counts"]["workbook"]["applied"] == 0
+    assert etree.tostring(root.find(FLAG + "style")) == etree.tostring(etree.parse(wb).getroot().find(FLAG + "style"))
+    assert list(plan_style(wb, _size("10"), scopes=("workbook",), on_clash="fail")["action"]) == ["fail"]
+
+
+def test_flagged_block_same_value_and_force(tmp_path):
+    wb = _flagged_wb(tmp_path)
+    assert list(plan_style(wb, _size("14"), scopes=("workbook",))["action"]) == ["same"]
+    forced = plan_style(wb, _size("10"), scopes=("workbook",), force=True)
+    assert list(forced["action"]) == ["add"] and "feature-flagged" in forced["reason"][0]
+    other = plan_style(wb, _fonts_only(fonts={"all": {"font-family": "Arial"}}), scopes=("workbook",))
+    assert list(other["action"]) == ["add"]                # a key the flagged block does not set is still added
 
 
 def test_report_counts():
