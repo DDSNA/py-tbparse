@@ -23,7 +23,7 @@ How to keep this page true: when a pull request merges or the owner decides some
 | --- | --- | --- |
 | 0.5.5 (2026-10-16, tag at `40b6b57`) | bug fixes from the 0.5.4 review (#119, #120, #121, #122, #123, #129, #130, #134 to #139); GUI polish (#142 to #144); zone counts on the Dashboards table (refs #84); `DeprecationWarning` for the library `on_clash` default (#128); exit-code table in `docs/cli.md` (refs #127); corpus workflow (#124); build-once Docker release flow (#140) | #145 to #183 |
 | 0.5.6 (2026-10-16, tag at `e099787`) | `docs/api.md` public API reference (#185); `PyTbparseError` common base (#186, first part); `pathlib.Path` accepted everywhere (#187); Node unit tests for the GUI table (#184); `rename --acronyms` (#193) | #188 to #199 |
-| unreleased on `main` | Dashboards cards view (#84 option A, #197); Tableau check list and pack (#201, refs #82); review nits of 0.5.6 (#206); layout census (#209) and `GET /dashboard-layout` (#211) for #84; WP7-2a `style extract` and style file v2 (#210); WP8 writer measurement (#208, #214); plan pages #203, #204, #205, #207, #212 | #197 to #214 |
+| unreleased on `main` | Dashboards cards view (#84 option A, #197); Tableau check list and pack (#201, refs #82); review nits of 0.5.6 (#206); layout census (#209) and `GET /dashboard-layout` (#211) for #84; WP7-2a `style extract` and style file v2 (#210); WP7-2b `style apply` for the workbook scope (#213); #84 WP2 panel and drawing (#215); WP8 writer measurement (#208, #214); plan pages #203, #204, #205, #207, #212 | #197 to #215 |
 
 The owner decides when the unreleased work ships. Merged is not released (`AGENTS.md`, "Release rules").
 
@@ -58,9 +58,9 @@ Owner decisions (2026-10-16): build all of slice 2, one pull request per package
 | # | Item | Status | Spec | Blocked by |
 | --- | --- | --- | --- | --- |
 | B1 | 2a: style file v2, `style extract`, `style show --what` | built, unreleased (#210) | (plan) | |
-| B2 | 2b: `style apply` for the workbook scope (fonts, workbook rules) | in progress (PR #213, CI green at `0ffa408`) | (plan) | owner review and merge |
-| B3 | 2c: dashboard defaults by zone role | planned | `docs/specs/wp7-2c-dashboard-roles.md` | B2 merged; owner question Q2 (what counts as explicit) |
-| B4 | 2d: sheet whitelist (`--scope sheets`) | planned | `wp7-2d-sheet-whitelist.md` | B2 merged (B3 recommended first); owner question Q4 (title runs) only for one test |
+| B2 | 2b: `style apply` for the workbook scope (fonts, workbook rules) | built, unreleased (#213) | (plan) | |
+| B3 | 2c: dashboard defaults by zone role | planned | `docs/specs/wp7-2c-dashboard-roles.md` | B2 built; owner question Q2 (what counts as explicit) |
+| B4 | 2d: sheet whitelist (`--scope sheets`) | planned | `wp7-2d-sheet-whitelist.md` | B2 built (B3 recommended first); owner question Q4 (title runs) only for one test |
 | B5 | 2e: corpus smoke test and the GUI Formatting card | planned | `wp7-2e-corpus-and-gui.md` | B3 (and B4 if the GUI should show sheets) |
 | B6 | 2f: docs and Tableau check rows 43, 45 | planned | `wp7-2f-docs-and-tableau-check.md` | B3, B4, B5 |
 | B7 | slice 1b: inline ramps as named palettes | planned in the slice 1 plan, not scheduled | [wp7-style-plan.md](wp7-style-plan.md) section 7 | owner: still wanted? |
@@ -77,8 +77,8 @@ Owner decisions: option A cards shipped (#197); the preview panel replaces the r
 | --- | --- | --- | --- | --- |
 | C1 | WP0 layout census | built, unreleased (#209) | (plan) | |
 | C2 | WP1 `GET /dashboard-layout` | built, unreleased (#211) | (plan) | |
-| C3 | WP2 panel, drawing, list (also the row integration and two additive endpoint fields) | in progress (PR #215; at `a307526` all checks green except `gui`, still running when read) | (plan) | owner review and merge |
-| C4 | WP3 Dashboards table integration: sort/filter survival, debounced requests, Escape, reload | planned | `docs/specs/layout-wp3-table-integration.md` | C3 merged |
+| C3 | WP2 panel, drawing, list (also the row integration and two additive endpoint fields) | built, unreleased (#215) | (plan) | |
+| C4 | WP3 Dashboards table integration: sort/filter survival, debounced requests, Escape, reload | planned | `docs/specs/layout-wp3-table-integration.md` | C3 built |
 | C5 | WP4 phone layout, themes, docs | planned | `layout-wp4-phone-themes-docs.md` | C4 |
 | C6 | WP5 open the panel from a card | dropped (owner 2026-10-18) | | |
 | C7 | screen-reader pass and a comparison with Tableau Desktop | blocked | plan, "What is unverified" | the owner (no screen reader or Tableau here) |

@@ -325,10 +325,20 @@ def save_style(style: dict, path: Union[str, os.PathLike], overwrite: bool = Fal
     return str(path)
 
 
+def _is_same_file(out: Path, source: Path) -> bool:
+    """Whether `out` is the input: the same path, or (when `out` exists) the same file, e.g. a hard link."""
+    if out.exists():
+        try:
+            return os.path.samefile(out, source)
+        except OSError:
+            pass
+    return out.resolve() == source.resolve()
+
+
 def load_style(path: Union[str, os.PathLike]) -> dict:
     """Read and check a `*.style.json` file. Raises `StyleError` for anything but a valid version 1 or 2 file."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8-sig") as fh:
             style = json.load(fh)
     except json.JSONDecodeError as e:
         raise StyleError(f"{path} is not JSON: {e}") from e
@@ -609,7 +619,7 @@ def import_palettes(target: Union[PathLike, TwbParser], palettes: _Palettes, out
     out = Path(output_path) if output_path else source.with_name(f"{source.stem}_palettes{source.suffix}")
     if out.suffix.lower() != source.suffix.lower():
         raise StyleError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
-    if out.exists() and out.resolve() == source.resolve():
+    if out.exists() and _is_same_file(out, source):
         raise FileExistsError(f"refusing to overwrite the input: {out}")
     data = build_with_palettes(target, palettes, on_clash=on_clash, select=select, report=report)
     _open_new(out, data, overwrite)
@@ -655,7 +665,7 @@ def export_palettes(sources: list, output_path: PathLike, select=None, on_clash:
     if kind is None:
         raise StyleError(f"the output must end in .tps or .style.json, got {out.name}")
     for s in sources:
-        if not isinstance(s, (dict, list)) and out.exists() and not isinstance(s, TwbParser) and out.resolve() == Path(s).resolve():
+        if not isinstance(s, (dict, list)) and out.exists() and not isinstance(s, TwbParser) and _is_same_file(out, Path(s)):
             raise FileExistsError(f"refusing to overwrite the input: {out}")
     data = build_export(sources, kind, select=select, on_clash=on_clash, name=name, report=report)
     _open_new(out, data, overwrite)
@@ -1184,6 +1194,27 @@ def _find_formats(doc, element: str, attr: str, scope: str) -> list:
     return [f for f in found if f.get("field") is None and (f.get("scope") or "") == scope]
 
 
+def _local(tag) -> str:
+    """The name of an element without its `_.fcp.X.false...` feature-flag prefix."""
+    return tag.rsplit("...", 1)[-1] if isinstance(tag, str) else ""
+
+
+def _find_flagged_formats(doc, element: str, attr: str, scope: str) -> list:
+    """The name-free formats of the workbook's feature-flagged style blocks (`<_.fcp.X.false...style>`) for one key."""
+    found = []
+    for block in doc.getroot():
+        if not (isinstance(block.tag, str) and block.tag.startswith(_FCP) and _local(block.tag) == "style"):
+            continue
+        for rule in block:
+            if _local(rule.tag) != "style-rule" or rule.get("element") != element:
+                continue
+            for f in rule:
+                if (_local(f.tag) == "format" and f.get("attr") == attr and f.get("field") is None
+                        and (f.get("scope") or "") == scope):
+                    found.append(f)
+    return found
+
+
 def _names(doc, xpath: str) -> list[str]:
     return [n for n in doc.xpath(xpath) if n]
 
@@ -1221,6 +1252,22 @@ def _plan_formats(doc, style: dict, scopes, dashboards, sheets, force: bool, on_
             row = {"scope": "workbook", "target": "workbook", "where": _where(element, fscope), "attr": attr,
                    "current": "", "new": value, "_element": element, "_fscope": fscope}
             found = _find_formats(doc, element, attr, fscope)
+            if not found and flagged:
+                # the flagged block already sets it: that is an explicit format, so it is not shadowed without --force
+                found = _find_flagged_formats(doc, element, attr, fscope)
+                if found and not force and not _same_value(found[0].get("value") or "", value):
+                    row["current"] = found[0].get("value") or ""
+                    row.update(action="fail" if on_clash == "fail" else "skip",
+                               reason="the target's feature-flagged style block already sets this format; kept "
+                                      "(--force adds a plain <style> beside it)")
+                    rows.append(row)
+                    continue
+                if found and _same_value(found[0].get("value") or "", value):
+                    row.update(current=found[0].get("value") or "", action="same",
+                               reason="the target's feature-flagged style block already has this value")
+                    rows.append(row)
+                    continue
+                found = []
             if not found:
                 row["action"] = "add"
                 if flagged:
@@ -1356,7 +1403,7 @@ def _format_target(target):
     return parser, path
 
 
-def plan_style(target: Union[PathLike, TwbParser], style, scopes=("workbook", "dashboards"), dashboards=None, sheets=None,
+def plan_style(target: Union[PathLike, TwbParser], style: Union[dict, PathLike, TwbParser], scopes=("workbook", "dashboards"), dashboards=None, sheets=None,
                force: bool = False, on_clash: str = "skip") -> pd.DataFrame:
     """What applying the formatting of `style` to `target` would do, one row per format (`STYLE_PLAN_COLUMNS`).
     Nothing is written. `style` is a style dict, a `*.style.json` or a workbook (its formatting is extracted).
@@ -1372,7 +1419,7 @@ def plan_style(target: Union[PathLike, TwbParser], style, scopes=("workbook", "d
     return pd.DataFrame(rows, columns=STYLE_PLAN_COLUMNS)
 
 
-def build_styled(target: Union[PathLike, TwbParser], style, scopes=("workbook", "dashboards"), dashboards=None, sheets=None,
+def build_styled(target: Union[PathLike, TwbParser], style: Union[dict, PathLike, TwbParser], scopes=("workbook", "dashboards"), dashboards=None, sheets=None,
                  force: bool = False, on_clash: str = "skip", palettes: bool = False, palette_on_clash: str = "fail",
                  report: Optional[dict] = None) -> bytes:
     """Bytes of a copy of `target` (`.twb` or `.twbx`) with the formatting of `style` written onto it, following
@@ -1402,7 +1449,7 @@ def build_styled(target: Union[PathLike, TwbParser], style, scopes=("workbook", 
     return _serialize_workbook(parser, doc)
 
 
-def apply_style(target: Union[PathLike, TwbParser], style, output_path: Optional[PathLike] = None,
+def apply_style(target: Union[PathLike, TwbParser], style: Union[dict, PathLike, TwbParser], output_path: Optional[PathLike] = None,
                 scopes=("workbook", "dashboards"), dashboards=None, sheets=None, force: bool = False,
                 on_clash: str = "skip", palettes: bool = False, palette_on_clash: str = "fail", overwrite: bool = False,
                 report: Optional[dict] = None) -> str:
@@ -1413,7 +1460,7 @@ def apply_style(target: Union[PathLike, TwbParser], style, output_path: Optional
     out = Path(output_path) if output_path else source.with_name(f"{source.stem}{STYLED_SUFFIX}{source.suffix}")
     if out.suffix.lower() != source.suffix.lower():
         raise StyleError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
-    if out.exists() and out.resolve() == source.resolve():
+    if out.exists() and _is_same_file(out, source):
         raise FileExistsError(f"refusing to overwrite the input: {out}")
     data = build_styled(target, style, scopes=scopes, dashboards=dashboards, sheets=sheets, force=force,
                         on_clash=on_clash, palettes=palettes, palette_on_clash=palette_on_clash, report=report)

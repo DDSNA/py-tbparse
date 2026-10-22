@@ -452,6 +452,11 @@ def format_table(title: str, files: int, result: dict) -> str:
     return head + "\n".join(rows)
 
 
+def maxrss_to_mb(ru_maxrss: float, platform: str = "") -> float:
+    """`ru_maxrss` in megabytes: the unit is bytes on macOS and KiB on Linux and the BSDs."""
+    return ru_maxrss / (1024 * 1024 if (platform or sys.platform) == "darwin" else 1024)
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     if resource is None:
         return _main(argv)
@@ -513,7 +518,7 @@ def _main(argv: Optional[list[str]] = None) -> int:
             w: {**summarise(slot["rows"]), "not_applicable": slot["not_applicable"], "failed": slot["failed"],
                 "timeout": slot["timeout"]} for w, slot in result.items()}}
     print("\n\n".join(tables))
-    peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024 if resource else 0
+    peak_mb = maxrss_to_mb(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) if resource else 0
     summary["run"] = {"seconds": round(time.time() - started), "peak_rss_mb": round(peak_mb),
                       "peak_load1": peaks["load1"], "skipped_over_20mb": peaks["skipped_big"],
                       "unreadable": peaks["unreadable"], "stopped_early": bool(peaks.get("stopped_early"))}

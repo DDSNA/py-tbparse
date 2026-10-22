@@ -68,3 +68,9 @@ def test_memory_cap_above_the_hard_limit_is_lowered_not_an_error(tmp_path, monke
     assert code == 0
     assert calls[0] == (hard, hard)                 # asked for 3000 MB, got the hard limit
     assert calls[-1] == (hard, hard)                # and the caller's own limit was restored
+
+
+def test_peak_memory_unit_follows_the_platform():
+    assert m.maxrss_to_mb(512 * 1024, "linux") == 512                 # KiB on Linux
+    assert m.maxrss_to_mb(512 * 1024 * 1024, "darwin") == 512         # bytes on macOS
+    assert m.maxrss_to_mb(2048 * 1024 * 1024, "darwin") == 2048

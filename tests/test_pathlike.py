@@ -181,11 +181,14 @@ NOT_A_PATH = {
     ("Template", "path"): "dataclass field; load_template fills it with the str path it was opened from",
     ("palettes_from_bytes", "filename"): "a name used to pick the parser by extension, not opened",
     ("format_findings", "path"): "a label shown in the output, never opened",
+    ("normalize_name", "style"): "a naming style (e.g. snake_case), not a file",
+    ("suggest_renames", "style"): "a naming style, not a file",
+    ("suggest_field_renames", "style"): "a naming style, not a file",
     ("export_library", "folder"): "a folder of the datasource (Tableau's own), not a directory",
 }
 PATH_PARAM_NAMES = {"path", "twbx_path", "extract_dir", "exdir", "directory", "output_dir", "output_path",
                     "workbook", "wb", "source", "reference", "template", "data", "mapping", "answers", "inputs",
-                    "library", "scaffold", "palettes", "target", "files", "sources"}
+                    "library", "scaffold", "palettes", "target", "files", "sources", "style"}
 
 
 def _public_callables():
@@ -273,5 +276,5 @@ def test_the_path_check_fails_on_untyped_and_unevaluable_parameters(monkeypatch)
 
 def test_the_named_path_parameters_are_checked():
     """Names the review found unchecked (#200) stay in the list, so they cannot slip out of it again."""
-    for name in ("library", "scaffold", "palettes", "target", "files", "sources"):
+    for name in ("library", "scaffold", "palettes", "target", "files", "sources", "style"):
         assert name in PATH_PARAM_NAMES
