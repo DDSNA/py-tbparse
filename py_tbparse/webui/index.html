@@ -117,7 +117,10 @@
       <span id="hint">Click a column to sort. Click a row, or press Enter on it, for its details. Alt+Down opens column options.</span>
     </div>
     <div id="chips" class="chips" role="group" aria-label="Active column filters" hidden></div>
-    <div id="tableWrap" tabindex="-1"></div>
+    <div class="body-split" id="bodySplit">
+      <div id="tableWrap" tabindex="-1"></div>
+      <section id="layoutPanel" class="lpanel" aria-labelledby="lpTitle" hidden></section>
+    </div>
   </main>
 </div>
 
@@ -182,6 +185,7 @@
 <script src="/static/styles.js"></script>
 <script src="/static/copy.js"></script>
 <script src="/static/cards.js"></script>
+<script src="/static/layout.js"></script>
 <script src="/static/app.js"></script>
 
 </body>

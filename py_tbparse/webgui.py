@@ -34,7 +34,7 @@ import pandas as pd
 
 from . import __version__, template_gui
 from ._tables import TABLE_NAMES, TABLE_SPECS
-from .dashboards import dashboard_targets, dashboard_zone_labels
+from .dashboards import _dashboard_xpath, dashboard_targets, dashboard_zone_labels
 from .docgen import workbook_markdown
 from .findings import SEVERITY, exceeds, rules as _audit_rules, format_findings, summary as findings_summary
 from .parser import TwbParser
@@ -626,6 +626,7 @@ _ASSETS = {
     "styles.js": "text/javascript; charset=utf-8",
     "copy.js": "text/javascript; charset=utf-8",
     "cards.js": "text/javascript; charset=utf-8",
+    "layout.js": "text/javascript; charset=utf-8",
 }
 
 
@@ -760,7 +761,25 @@ def _cards_answer(qs: dict) -> dict:
 # were). Zones without a usable position are not drawn: `unplaced` counts them and `unplaced_zones` names them
 # (kind, label, zone id; at most PREVIEW_ZONES_MAX), so a list can still show them. Layout containers are in neither.
 # An unknown name is a 404 (a page that kept a selection across a reload can tell). It takes one name, never a path.
+# Two additive fields tell the page how the zones are nested and in which order to draw them, so it does not guess:
+# `parents` (one entry per zone in `zones`: the id of the layout container the zone sits in, "" when it has none) and
+# `order` (indices into `zones`, the draw order: largest area first, equal areas in layout order, so the smaller or
+# later zone is on top).
 PREVIEW_ZONES_MAX = 200
+
+
+def _zone_parents(parser, name: str) -> dict:
+    """zone id -> id of the nearest enclosing zone (a layout container), "" for a top-level zone, for the main layout."""
+    out = {}
+    for db in parser.xml_doc.xpath(_dashboard_xpath(name)):
+        for z in db.xpath("./zones//zone"):
+            up = z.xpath("ancestor::zone[1]/@id")
+            out[z.get("id")] = up[0] if up else ""
+    return out
+
+
+def _draw_order(zones: list) -> list:
+    return sorted(range(len(zones)), key=lambda i: (-(zones[i][3] * zones[i][4]), i))
 
 
 def _layout_answer(qs: dict) -> dict:
@@ -772,8 +791,11 @@ def _layout_answer(qs: dict) -> dict:
     if name not in set(parser.get_dashboards()["name"]):
         raise KeyError(name)
     zones, unplaced = _layout_zones(parser, name, labels=True)
+    shown = _largest(zones, PREVIEW_ZONES_MAX)
+    parent_of = _zone_parents(parser, name)
     return {
-        "name": name, "total": len(zones), "zones": [list(z) for z in _largest(zones, PREVIEW_ZONES_MAX)],
+        "name": name, "total": len(zones), "zones": [list(z) for z in shown],
+        "parents": [parent_of.get(z[6], "") for z in shown], "order": _draw_order(shown),
         "width": max((z[1] + z[3] for z in zones), default=0), "height": max((z[2] + z[4] for z in zones), default=0),
         "unplaced": len(unplaced), "unplaced_zones": [list(z) for z in unplaced[:PREVIEW_ZONES_MAX]],
         "cap": PREVIEW_ZONES_MAX,
