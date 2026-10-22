@@ -46,7 +46,8 @@ def _pick(page, name):
     page.wait_for_function(
         "n => { const t = document.getElementById('lpTitle'); const b = document.querySelector('#layoutPanel .lp-body');"
         " return t && t.textContent === n && b && b.querySelector('.lp-list, .lp-empty') }", arg=name, timeout=10_000)
-    page.wait_for_timeout(150)
+    page.wait_for_function(                                # the size check after drawing has run (no drawing, nothing to wait for)
+        "() => { const f = document.querySelector('#layoutPanel .lp-fig'); return !f || f.dataset.settled === '1' }", timeout=10_000)
 
 
 def _lines(page):
@@ -168,6 +169,70 @@ def test_enter_and_click_select_and_escape_clears(wide):
     _shape(wide, "Tie A").click()
     assert _line(wide, "Tie A").get_attribute("aria-current") == "true"
     assert wide.locator("#layoutPanel [aria-current]").count() == 1
+
+
+def test_escape_closes_the_panel_when_nothing_is_selected_and_clears_a_selection_first(wide):
+    _pick(wide, "Mixed overlap")
+    row = wide.locator("#tableWrap tbody tr[data-pos]").filter(has=wide.get_by_text("Mixed overlap", exact=True)).first
+    row.focus()
+    _line(wide, "Tie B").click()                                    # select a zone, then go back to the row
+    assert wide.locator("#layoutPanel [aria-current]").count() == 1
+    row.focus()
+    wide.keyboard.press("Escape")                                   # first press: the selection goes, the panel stays
+    assert wide.locator("#layoutPanel [aria-current]").count() == 0
+    assert wide.locator("#layoutPanel").is_visible() and wide.locator("#layoutPanel .lp-list").count() == 1
+    wide.keyboard.press("Escape")                                   # second press: nothing selected, the panel closes
+    assert wide.locator("#layoutPanel").is_hidden() and wide.locator("#layoutPanel .lp-list").count() == 0
+    assert wide.evaluate("() => document.activeElement.tagName + ':' + document.activeElement.dataset.pos") == \
+        "TR:" + row.get_attribute("data-pos")
+    assert wide.js_errors == []
+
+
+def test_escape_in_the_zone_list_clears_the_selection_then_closes_the_panel(wide):
+    _pick(wide, "Mixed overlap")
+    line = _line(wide, "Tie B")
+    line.focus()
+    wide.keyboard.press("Enter")
+    wide.keyboard.press("Escape")
+    assert wide.locator("#layoutPanel .lp-list").count() == 1                 # cleared the selection only
+    wide.keyboard.press("Escape")
+    assert wide.locator("#layoutPanel").is_hidden()
+    assert wide.evaluate("() => document.activeElement.tagName") == "TR"
+
+
+def test_escape_with_the_drawer_open_closes_the_drawer_and_keeps_the_panel(wide):
+    _pick(wide, "Grid")
+    wide.get_by_role("button", name="All columns of Grid").click()
+    wide.wait_for_selector("#drawer.show")
+    wide.keyboard.press("Escape")
+    wide.wait_for_selector("#drawer", state="hidden")
+    assert wide.locator("#layoutPanel .lp-list").count() == 1
+    wide.keyboard.press("Escape")
+    assert wide.locator("#layoutPanel").is_hidden()
+
+
+def test_picking_another_dashboard_closes_the_all_columns_drawer(wide):
+    _pick(wide, "Grid")
+    wide.get_by_role("button", name="All columns of Grid").click()
+    wide.wait_for_selector("#drawer.show")
+    assert "Grid" in wide.locator("#drawerTitle").inner_text()
+    other = wide.locator("#tableWrap tbody tr[data-pos]").filter(has=wide.get_by_text("Mixed overlap", exact=True)).first
+    other.focus()
+    wide.keyboard.press("Enter")                                  # the panel moves to another dashboard
+    wide.wait_for_function("() => document.getElementById('lpTitle').textContent === 'Mixed overlap'")
+    wide.wait_for_selector("#drawer", state="hidden")             # the drawer did not stay behind with Grid's columns
+    assert wide.locator("#layoutPanel .lp-list").count() == 1
+    # focus stays on the row that was picked, not on the row of the old dashboard or the vanished button
+    assert wide.evaluate("() => document.activeElement.dataset.pos") == other.get_attribute("data-pos")
+    assert wide.evaluate("() => [...document.querySelectorAll('#tableWrap tr[aria-current=true]')].map(t => t.dataset.pos)") == \
+        [other.get_attribute("data-pos")]
+    # and the drawer can be opened again for the new dashboard
+    wide.get_by_role("button", name="All columns of Mixed overlap").click()
+    wide.wait_for_selector("#drawer.show")
+    assert "Mixed overlap" in wide.locator("#drawerTitle").inner_text()
+    wide.click("#drawerClose")
+    assert wide.evaluate("() => document.activeElement.textContent") == "All columns"
+    assert wide.js_errors == []
 
 
 def test_arrow_keys_move_through_the_list_with_one_tab_stop(wide):
@@ -435,11 +500,20 @@ def test_the_note_is_plain_text_outside_the_hidden_part_and_visible_without_scro
 
 
 def test_a_late_answer_for_the_previous_dashboard_changes_nothing(wide):
-    wide.evaluate("""() => { const real = window.fetch;
-        window.fetch = (u, o) => /Busy/.test(String(u)) ? new Promise((r) => setTimeout(r, 1500)).then(() => real(u, o)) : real(u, o); }""")
+    # the answer for "Busy" is held back; __late is set once the page's own code has read that answer, so the check
+    # below runs after the stale response was handled (and ignored), not after a guessed delay
+    wide.evaluate("""() => { const real = window.fetch; window.__late = false;
+        window.fetch = (u, o) => {
+          if (!/Busy/.test(String(u))) return real(u, o);
+          return new Promise((r) => setTimeout(r, 1500)).then(() => real(u, o)).then((res) => {
+            const json = res.json.bind(res);
+            res.json = () => json().then((d) => { setTimeout(() => { window.__late = true; }, 0); return d; });
+            return res;
+          });
+        }; }""")
     wide.locator("#tableWrap tbody tr[data-pos]").filter(has=wide.get_by_text("Busy overlap", exact=True)).first.click()
     _pick(wide, "Grid")
-    wide.wait_for_timeout(2200)
+    wide.wait_for_function("() => window.__late === true", timeout=10_000)
     assert wide.locator("#lpTitle").inner_text() == "Grid"
     assert _note(wide) == STANDING and _conds(wide) == [] and _frame_dashed(wide) is False
     assert wide.locator("#layoutPanel .lp-z").count() == 3
@@ -519,23 +593,39 @@ def test_tiny_zones_are_drawn_at_least_three_pixels_without_fill_and_flagged(wid
     assert _lines(wide).count() == 5                                                       # every tiny zone is still a line
 
 
+def _drawn_width(page):
+    return page.evaluate("() => +document.querySelector('#layoutPanel svg').getAttribute('width')")
+
+
+def _resize(page, width, drawn):
+    """Set the window width and wait until the drawing has been redrawn at a size on the wanted side of `drawn`."""
+    page.set_viewport_size({"width": width, "height": 900})
+    test = "w => { const s = document.querySelector('#layoutPanel svg'); return s && +s.getAttribute('width') %s w }"
+    page.wait_for_function(test % ("<" if width < WIDE["width"] else ">="), arg=drawn, timeout=10_000)
+    page.wait_for_selector("#layoutPanel .lp-fig[data-settled='1']", timeout=10_000)
+
+
 def test_resizing_the_window_recomputes_the_tiny_zones_and_the_labels(wide):
+    # The drawing is at most 560 px wide (and here height-capped to about 446), so only a window narrow enough to
+    # squeeze it changes the scale. Tiny 1000 is 1000/100000 of the width: 4.5 px at full size, under the 3 px
+    # minimum once the drawing is under 300 px wide.
     _pick(wide, "Tiny zones")
+    full = _drawn_width(wide)
+    assert 400 < full <= 560
     assert "3 tiny zones" in _note(wide)
+    assert "lp-tiny" not in _shape(wide, "Tiny 1000").get_attribute("class")
+    assert _line(wide, "Tiny 1000").locator(".lp-flag").inner_text() == ""
     before = len(wide.evaluate(LABELS))
-    wide.set_viewport_size({"width": 1000, "height": 900})
-    wide.wait_for_timeout(500)
-    for width in (1200, 1000, 1360):
-        wide.set_viewport_size({"width": width, "height": 900})
-        wide.wait_for_timeout(100)
-    wide.wait_for_timeout(500)
-    assert "3 tiny zones" in _note(wide)
+    _resize(wide, 280, 300)
+    assert _drawn_width(wide) < 300
+    assert "4 tiny zones are drawn larger than they are." in _note(wide)
+    assert "lp-tiny" in _shape(wide, "Tiny 1000").get_attribute("class")
+    assert _line(wide, "Tiny 1000").locator(".lp-flag").inner_text() == "drawn larger than stored"
+    _resize(wide, 1360, 400)
+    assert _drawn_width(wide) == full
+    assert "3 tiny zones are drawn larger than they are." in _note(wide)
+    assert "lp-tiny" not in _shape(wide, "Tiny 1000").get_attribute("class")
     assert len(wide.evaluate(LABELS)) == before
-    wide.set_viewport_size({"width": 1700, "height": 900})
-    wide.wait_for_timeout(500)
-    # the drawing is capped at 560 px, so the count stays; what is drawn and what the note says must still agree
-    flagged = wide.locator("#layoutPanel .lp-tiny").count()
-    assert (f"{flagged} tiny zones" in _note(wide)) or flagged == 0
     assert wide.js_errors == []
 
 

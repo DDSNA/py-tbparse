@@ -464,11 +464,14 @@
 
     draw();
     if (typeof ResizeObserver === 'function') {
+      // data-settled is "1" once the debounced size check after the last resize has run; tests wait on it
       observer = new ResizeObserver(() => {
         clearTimeout(timer);
+        fig.dataset.settled = '0';
         timer = setTimeout(() => {
           const size = sizeNow();
           if (Math.round(size.w) + 'x' + Math.round(size.h) !== lastSize) draw();
+          fig.dataset.settled = '1';
         }, 120);
       });
       observer.observe(fig);
@@ -476,6 +479,8 @@
     return {
       destroy() { clearTimeout(timer); if (observer) observer.disconnect(); },
       zones: zs, info, redraw: draw, select: (k) => setSel(k, true),
+      // clears a selected zone; true when there was one (Escape clears it before it closes the panel)
+      clearSelection() { if (sel < 0) return false; setSel(-1, false); return true; },
     };
   }
 
@@ -561,6 +566,11 @@
       });
   }
 
+  function clearSelection() {
+    const ctl = current && current.host && current.host.__lp;
+    return ctl ? ctl.clearSelection() : false;
+  }
+
   function hide(panel) {
     req++;
     if (current && current.host && current.host.__lp) current.host.__lp.destroy();
@@ -569,5 +579,5 @@
     panel.replaceChildren();
   }
 
-  window.LayoutPanel = { init, show, hide, render, analyse, OVERLAP_NOTE_MIN, SHARE_MIN, MIN_PX };
+  window.LayoutPanel = { init, show, hide, clearSelection, render, analyse, OVERLAP_NOTE_MIN, SHARE_MIN, MIN_PX };
 })();

@@ -154,6 +154,18 @@ def test_an_unknown_name_is_404_and_none_or_several_names_are_400(server, tmp_pa
     assert status == 400 and "exactly one" in body["error"]
 
 
+def test_a_key_error_while_reading_a_known_dashboard_is_a_500_not_a_404(server, tmp_path, monkeypatch):
+    _open(server, tmp_path)
+
+    def broken(*args, **kw):
+        raise KeyError("some column")
+
+    monkeypatch.setattr(webgui, "_layout_zones", broken)
+    status, body = _layout(server, "Many zones")
+    assert status == 500 and "could not read the dashboard layout" in body["error"]
+    assert _layout(server, "Not there")[0] == 404                # the name lookup is still the only 404
+
+
 def test_a_name_with_quotes_and_non_ascii_characters_round_trips(server, tmp_path):
     _open(server, tmp_path, text=UNPLACED)
     status, body = _layout(server, ODD_NAME)
