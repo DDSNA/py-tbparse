@@ -18,12 +18,15 @@ ROOT = Path(__file__).resolve().parent.parent
 DEMO = ROOT / "docs" / "demo" / "coffee-shop.twb"
 FILTERING = ROOT / "tests" / "fixtures" / "public" / "filtering.twb"
 LIB_TARGET = ROOT / "tests" / "fixtures" / "library" / "target.twb"
+FORMAT_BARE = ROOT / "tests" / "fixtures" / "style" / "format-bare.twb"
+FORMAT_TARGET = ROOT / "tests" / "fixtures" / "style" / "format-target.twb"
 
 # made file -> the workbook it was made from
 SOURCES = {
     "10-rename.twb": DEMO, "11-prune.twb": DEMO, "12-slice.twb": DEMO, "40-palettes.twb": DEMO,
     "13-sanitize.twb": FILTERING, "20-sheet-copy.twb": FILTERING, "21-dashboard-copy.twb": FILTERING,
     "22-scaffold.twb": FILTERING, "30-library.twb": LIB_TARGET,
+    "42-fonts.twb": FORMAT_BARE, "44-fonts-keep.twb": FORMAT_TARGET, "44-fonts-force.twb": FORMAT_TARGET,
 }
 
 

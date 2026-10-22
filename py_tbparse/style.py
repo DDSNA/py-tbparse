@@ -563,12 +563,9 @@ def plan_palette_import(target: Union[PathLike, TwbParser], palettes: _Palettes,
     return pd.DataFrame(rows, columns=PLAN_COLUMNS)
 
 
-def build_with_palettes(target: Union[PathLike, TwbParser], palettes: _Palettes, on_clash: str = "fail", select=None, report: Optional[dict] = None) -> bytes:
-    """Bytes of a copy of `target` (a `.tps`, `.twb` or `.twbx`) with `palettes` added. Existing content,
-    including unknown elements and the workbook's marks and formats, is kept as it is. A `.twbx` keeps every
-    other member untouched. With `on_clash="fail"` any clash raises `StyleError` before anything is built."""
-    kind, parser, path, doc = _load_target(target)
-    doc = copy.deepcopy(doc)
+def _add_palettes_to_doc(doc, palettes: _Palettes, on_clash: str, select, report: Optional[dict]) -> None:
+    """Add `palettes` to the `<preferences>` of `doc` in place (the caller passes a copy). A clash under
+    `on_clash="fail"` raises `StyleError` before anything changes."""
     root = doc.getroot()
     rows, entries = _plan(_existing(root), _incoming(palettes), on_clash, select)
     if any(r["action"] == "fail" for r in rows):
@@ -588,6 +585,15 @@ def build_with_palettes(target: Union[PathLike, TwbParser], palettes: _Palettes,
             else:
                 existing = prefs.findall("color-palette") or prefs.findall("preference")
                 _place(prefs, new, existing[-1] if existing else (prefs[-1] if len(prefs) else None))
+
+
+def build_with_palettes(target: Union[PathLike, TwbParser], palettes: _Palettes, on_clash: str = "fail", select=None, report: Optional[dict] = None) -> bytes:
+    """Bytes of a copy of `target` (a `.tps`, `.twb` or `.twbx`) with `palettes` added. Existing content,
+    including unknown elements and the workbook's marks and formats, is kept as it is. A `.twbx` keeps every
+    other member untouched. With `on_clash="fail"` any clash raises `StyleError` before anything is built."""
+    kind, parser, path, doc = _load_target(target)
+    doc = copy.deepcopy(doc)
+    _add_palettes_to_doc(doc, palettes, on_clash, select, report)
     if kind == "tps":
         return etree.tostring(doc, xml_declaration=True, encoding="utf-8")
     return _serialize_workbook(parser, doc)
@@ -1102,3 +1108,314 @@ def format_table(source_or_style, scopes=("workbook", "dashboards")) -> pd.DataF
             style = extract_style(item, scopes=scopes, palettes=False, report=rep)
             rows += _format_rows(_label(item), style, rep["mixed"])
     return pd.DataFrame(rows, columns=FORMAT_COLUMNS)
+
+
+# ------------------------------------------------- applying formatting (2b) --
+#
+# `plan_style` decides every format first, `build_styled` writes a copy, `apply_style` saves it as a new file.
+# Work package 2b writes the `workbook` scope only (the workbook's `<style><style-rule>`, fonts included). The
+# `dashboards` and `sheets` scopes are accepted, but what the style file holds for them is reported as
+# `unsupported` until 2c and 2d are built. Rules (docs/wp7-style-plan-slice2.md section 4): a format the target
+# already has is explicit whatever its value and is kept unless `force`; nothing with a `field=`, no `encoding`, no
+# `_.fcp.*` element and no other rule is touched; the input is never modified.
+
+FORMAT_ACTIONS = ("add", "same", "skip", "force", "unsupported", "no-target", "fail")
+STYLE_PLAN_COLUMNS = ["scope", "target", "where", "attr", "current", "new", "action", "reason"]
+FORMAT_CLASH_POLICIES = ("skip", "fail")
+STYLED_SUFFIX = "_styled"
+
+# Children of `<workbook>` that the XSD puts before the workbook `<style>` (WorkbookFile-CT).
+_BEFORE_STYLE = ("document-format-change-manifest", "repository-location", "preferences", "style-theme")
+_NOT_BUILT = {"dashboards": "WP7-2c", "sheets": "WP7-2d"}
+
+
+def _same_value(a: str, b: str) -> bool:
+    """Strings are equal; colours (#RRGGBB or #RRGGBBAA) are compared without regard to case."""
+    return a == b or bool(_COLOR.fullmatch(a) and _COLOR.fullmatch(b) and a.upper() == b.upper())
+
+
+def _resolve_style(style, palettes: bool) -> dict:
+    """A checked style dict from a dict, a `*.style.json`, or a workbook (extracted on the fly)."""
+    if isinstance(style, dict):
+        return _check_style(copy.deepcopy(style))
+    if isinstance(style, TwbParser) or Path(style).suffix.lower() in (".twb", ".twbx"):
+        return extract_style(style, palettes=palettes)
+    if str(style).lower().endswith(".style.json"):
+        return load_style(style)
+    raise StyleError(f"the style must be a style dict, a .style.json, or a .twb/.twbx workbook, got {Path(style).name}")
+
+
+def _where(element: str, scope: str) -> str:
+    return f"{element} ({scope})" if scope else element
+
+
+def _workbook_wants(style: dict) -> list[tuple]:
+    """(element, attr, scope, value) for every workbook-level format of the style: `fonts` first, then the rules."""
+    wants = []
+    for element, attrs in (style.get("fonts") or {}).items():
+        for attr, value in attrs.items():
+            wants.append((element, attr, "", value))
+    for rule in style.get("workbook_rules") or []:
+        for f in rule["formats"]:
+            wants.append((rule["element"], f["attr"], f.get("scope", ""), f["value"]))
+    return wants
+
+
+def _unbuilt_wants(style: dict, scope: str) -> list[tuple]:
+    """(where, attr, new) for the formats of a scope that is not built yet."""
+    out = []
+    if scope == "dashboards":
+        dash = style.get("dashboard") or {}
+        if "background" in dash:
+            out.append(("root", "background-color", dash["background"]))
+        for role, attrs in (dash.get("roles") or {}).items():
+            out += [(role, a, v) for a, v in attrs.items()]
+        for rule in dash.get("rules") or []:
+            out += [(_where(rule["element"], f.get("scope", "")), f["attr"], f["value"]) for f in rule["formats"]]
+    else:
+        for rule in style.get("sheet_defaults") or []:
+            out += [(_where(rule["element"], f.get("scope", "")), f["attr"], f["value"]) for f in rule["formats"]]
+    return out
+
+
+def _find_formats(doc, element: str, attr: str, scope: str) -> list:
+    """The name-free `<format>`s of the workbook `<style>` for one key (element, attr, scope attribute)."""
+    found = doc.xpath("/workbook/style/style-rule[@element=$e]/format[@attr=$a]", e=element, a=attr)
+    return [f for f in found if f.get("field") is None and (f.get("scope") or "") == scope]
+
+
+def _names(doc, xpath: str) -> list[str]:
+    return [n for n in doc.xpath(xpath) if n]
+
+
+def _check_names(doc, given, xpath: str, what: str) -> None:
+    if not given:
+        return
+    have = _names(doc, xpath)
+    missing = [n for n in given if n not in have]
+    if missing:
+        raise StyleError(f"no {what} called {', '.join(map(repr, missing))} in the target "
+                         f"(found: {', '.join(sorted(have)) or 'none'}; names are exact and case-sensitive)")
+
+
+def _plan_formats(doc, style: dict, scopes, dashboards, sheets, force: bool, on_clash: str) -> list[dict]:
+    scopes = tuple(scopes)
+    bad = [x for x in scopes if x not in FORMAT_SCOPES]
+    if bad:
+        raise StyleError(f"unknown scope {bad[0]!r}; choose from {', '.join(FORMAT_SCOPES)}")
+    if on_clash not in FORMAT_CLASH_POLICIES:
+        raise StyleError(f"on_clash must be one of {', '.join(FORMAT_CLASH_POLICIES)}, got {on_clash!r}")
+    if force and on_clash == "fail":
+        raise StyleError("force and on_clash='fail' contradict each other: --force replaces what --on-clash fail refuses")
+    _check_names(doc, dashboards, "/workbook/dashboards/dashboard/@name", "dashboard")
+    _check_names(doc, sheets, "/workbook/worksheets/worksheet/@name", "sheet")
+    rows: list[dict] = []
+    if "workbook" in scopes:
+        has_style = doc.getroot().find("style") is not None
+        # 90 of the 200 corpus workbooks hold the style block only as a feature-flagged element
+        # (`<_.fcp.X.false...style>`), which is never edited here; a plain <style> is then added beside it.
+        flagged = not has_style and any(isinstance(c.tag, str) and c.tag.startswith(_FCP) and c.tag.endswith("...style")
+                                        for c in doc.getroot())
+        made = set()
+        for element, attr, fscope, value in _workbook_wants(style):
+            row = {"scope": "workbook", "target": "workbook", "where": _where(element, fscope), "attr": attr,
+                   "current": "", "new": value, "_element": element, "_fscope": fscope}
+            found = _find_formats(doc, element, attr, fscope)
+            if not found:
+                row["action"] = "add"
+                if flagged:
+                    row["reason"] = ("not in the target; a plain <style> is created beside the workbook's feature-flagged "
+                                     "style block (_.fcp.*, left untouched); how Tableau combines them is unverified")
+                elif not has_style:
+                    row["reason"] = "not in the target; the workbook has no <style>, one is created"
+                elif doc.xpath("/workbook/style/style-rule[@element=$e]", e=element) or element in made:
+                    row["reason"] = "not in the target; added to its existing rule"
+                else:
+                    row["reason"] = f"not in the target; a rule for {element} is created"
+                made.add(element)
+            else:
+                current = found[0].get("value") or ""
+                row["current"] = current
+                if _same_value(current, value):
+                    row.update(action="same", reason="the target already has this value")
+                elif force:
+                    row.update(action="force", reason="replaced in place (--force)")
+                else:
+                    row.update(action="fail" if on_clash == "fail" else "skip",
+                               reason="the target already sets this format; kept (--force replaces it)")
+            rows.append(row)
+    for scope in ("dashboards", "sheets"):
+        if scope in scopes:
+            for where, attr, value in _unbuilt_wants(style, scope):
+                rows.append({"scope": scope, "target": "", "where": where, "attr": attr, "current": "", "new": value,
+                             "action": "unsupported",
+                             "reason": f"writing {scope} formatting is not built yet ({_NOT_BUILT[scope]})"})
+    return rows
+
+
+def _add_child(parent, child, index: Optional[int] = None) -> None:
+    """Insert `child` into `parent` (at the end, or before the child at `index`), matching the file's indentation."""
+    kids = list(parent)
+    if index is None or index >= len(kids):
+        index = len(kids)
+    parent_indent = _indent_of(parent) if parent.getparent() is not None else ""
+    if kids and _indent_of(kids[0]) is not None:
+        inner = _indent_of(kids[0])
+    else:
+        inner = None if parent_indent is None else parent_indent + "  "
+    _indent_new(child, inner)
+    if inner is None:
+        child.tail = None
+    elif index == len(kids):
+        if kids:
+            child.tail = kids[-1].tail
+            kids[-1].tail = "\n" + inner
+        else:
+            child.tail = "\n" + parent_indent
+            parent.text = "\n" + inner
+    else:
+        child.tail = "\n" + inner
+        if index == 0 and not (parent.text and "\n" in parent.text):
+            parent.text = "\n" + inner
+    parent.insert(index, child)
+
+
+def _ensure_workbook_style(root):
+    """The first `/workbook/style`, created at the XSD position (after the preferences and the style theme)."""
+    found = root.find("style")
+    if found is not None:
+        return found
+    new = etree.Element("style")
+    anchors = [c for c in root if c.tag in _BEFORE_STYLE]
+    if anchors:
+        last = anchors[-1]
+        indent = _indent_of(last)
+        new.tail = last.tail
+        last.addnext(new)
+        if indent is not None:
+            last.tail = "\n" + indent
+    else:
+        indent = _indent_of(root[0]) if len(root) else None
+        new.tail = root.text if indent is not None else None
+        root.insert(0, new)
+    return new
+
+
+def _write_workbook_rows(doc, rows: list[dict]) -> None:
+    root = doc.getroot()
+    for row in rows:
+        if row["scope"] != "workbook" or row["action"] not in ("add", "force"):
+            continue
+        element, attr, fscope, value = row["_element"], row["attr"], row["_fscope"], row["new"]
+        if row["action"] == "force":
+            for f in _find_formats(doc, element, attr, fscope):
+                f.set("value", value)              # in place: position and other attributes stay
+            continue
+        style_el = _ensure_workbook_style(root)
+        rules = [r for r in style_el.findall("style-rule") if r.get("element") == element]
+        if rules:
+            rule = rules[0]
+        else:
+            rule = etree.Element("style-rule")
+            rule.set("element", element)
+            real = [i for i, c in enumerate(style_el) if c.tag == "style-rule"]
+            _add_child(style_el, rule, real[-1] + 1 if real else 0)
+        fmt = etree.Element("format")
+        fmt.set("attr", attr)
+        fmt.set("value", value)
+        if fscope:
+            fmt.set("scope", fscope)
+        _add_child(rule, fmt)
+
+
+def _fill_format_report(report: Optional[dict], rows: list[dict], scopes, style: dict) -> None:
+    if report is None:
+        return
+    label = lambda r: f"{r['scope']}: {r['where']}/{r['attr']}"                       # noqa: E731
+    pick = lambda a: [label(r) for r in rows if r["action"] == a]                      # noqa: E731
+    report.update(added=pick("add"), same=pick("same"), skipped=pick("skip"), forced=pick("force"),
+                  unsupported=pick("unsupported"), no_target=pick("no-target"), failed=pick("fail"),
+                  warnings=style_warnings(style))
+    if any("feature-flagged" in r["reason"] for r in rows if r["action"] == "add"):
+        report["warnings"].append("workbook: the target keeps its feature-flagged <_.fcp.*...style> block and gets a plain "
+                                  "<style> beside it; how Tableau combines the two has not been checked")
+    counts = {}
+    for scope in scopes:
+        mine = [r["action"] for r in rows if r["scope"] == scope]
+        n = lambda a: mine.count(a)                                                    # noqa: E731
+        counts[scope] = {"added": n("add"), "same": n("same"), "skipped": n("skip"), "forced": n("force"),
+                         "unsupported": n("unsupported"), "no_target": n("no-target"),
+                         "applied": n("add") + n("force")}
+    report["counts"] = counts
+
+
+def _format_target(target):
+    kind, parser, path = _target(target)
+    if kind == "tps":
+        raise StyleError(f"{path.name} is a .tps: it holds palettes only and has no formatting. Give a .twb or .twbx")
+    return parser, path
+
+
+def plan_style(target: Union[PathLike, TwbParser], style, scopes=("workbook", "dashboards"), dashboards=None, sheets=None,
+               force: bool = False, on_clash: str = "skip") -> pd.DataFrame:
+    """What applying the formatting of `style` to `target` would do, one row per format (`STYLE_PLAN_COLUMNS`).
+    Nothing is written. `style` is a style dict, a `*.style.json` or a workbook (its formatting is extracted).
+
+    Actions: `add` (absent, will be written), `same` (present with this value; colours compare without case),
+    `skip` (present with another value; kept, because any format the target already has is explicit), `force`
+    (the same, with `force=True`: replaced in place), `fail` (a `skip` under `on_clash="fail"`), `unsupported`
+    (scopes that are not built yet: `dashboards` is WP7-2c, `sheets` is WP7-2d) and `no-target`.
+    `dashboards` and `sheets` are exact names of the target's own dashboards and sheets; an unknown name raises
+    `StyleError`. `force` with `on_clash="fail"` is refused. A `.tps` target is refused (it has no formatting)."""
+    parser, _ = _format_target(target)
+    rows = _plan_formats(parser.xml_doc, _resolve_style(style, False), scopes, dashboards, sheets, force, on_clash)
+    return pd.DataFrame(rows, columns=STYLE_PLAN_COLUMNS)
+
+
+def build_styled(target: Union[PathLike, TwbParser], style, scopes=("workbook", "dashboards"), dashboards=None, sheets=None,
+                 force: bool = False, on_clash: str = "skip", palettes: bool = False, palette_on_clash: str = "fail",
+                 report: Optional[dict] = None) -> bytes:
+    """Bytes of a copy of `target` (`.twb` or `.twbx`) with the formatting of `style` written onto it, following
+    `plan_style`. Everything else is kept as it is and a `.twbx` keeps every other member untouched. With
+    `on_clash="fail"` any `skip` raises `StyleError` before anything is built. Palettes in the style are ignored
+    unless `palettes=True` (then `palette_on_clash` decides name clashes, as for `build_with_palettes`).
+    `report` gets `added`, `same`, `skipped`, `forced`, `unsupported`, `no_target`, `failed`, `warnings` and `counts`
+    per scope (`added`, `same`, `skipped`, `forced`, `unsupported`, `no_target`, `applied`)."""
+    parser, _ = _format_target(target)
+    scopes = tuple(scopes)
+    resolved = _resolve_style(style, palettes)
+    rows = _plan_formats(parser.xml_doc, resolved, scopes, dashboards, sheets, force, on_clash)
+    failed = [r for r in rows if r["action"] == "fail"]
+    if failed:
+        shown = ", ".join(f"{r['scope']}: {r['where']}/{r['attr']} (target has {r['current']!r}, style has {r['new']!r})"
+                          for r in failed)
+        raise StyleError(f"{len(failed)} format(s) already set in the target with another value: {shown}. "
+                         "Use force (--force) to replace them or on_clash='skip' (--on-clash skip) to keep them")
+    doc = copy.deepcopy(parser.xml_doc)
+    _write_workbook_rows(doc, rows)
+    if palettes:
+        pal_report: dict = {}
+        _add_palettes_to_doc(doc, resolved, palette_on_clash, None, pal_report)
+    _fill_format_report(report, rows, scopes, resolved)
+    if report is not None and palettes:
+        report["palettes"] = pal_report
+    return _serialize_workbook(parser, doc)
+
+
+def apply_style(target: Union[PathLike, TwbParser], style, output_path: Optional[PathLike] = None,
+                scopes=("workbook", "dashboards"), dashboards=None, sheets=None, force: bool = False,
+                on_clash: str = "skip", palettes: bool = False, palette_on_clash: str = "fail", overwrite: bool = False,
+                report: Optional[dict] = None) -> str:
+    """Write a copy of `target` with the formatting of `style` applied and return its path (`build_styled` has the
+    rules). The output defaults to `<name>_styled<ext>` beside the target, keeps its extension, and is never the
+    input and never an existing file unless `overwrite`. The target is not modified."""
+    _, source = _format_target(target)
+    out = Path(output_path) if output_path else source.with_name(f"{source.stem}{STYLED_SUFFIX}{source.suffix}")
+    if out.suffix.lower() != source.suffix.lower():
+        raise StyleError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
+    if out.exists() and out.resolve() == source.resolve():
+        raise FileExistsError(f"refusing to overwrite the input: {out}")
+    data = build_styled(target, style, scopes=scopes, dashboards=dashboards, sheets=sheets, force=force,
+                        on_clash=on_clash, palettes=palettes, palette_on_clash=palette_on_clash, report=report)
+    _open_new(out, data, overwrite)
+    return str(out)

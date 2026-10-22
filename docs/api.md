@@ -151,6 +151,9 @@ Read, check and copy custom colour palettes (`Preferences.tps`, workbooks, style
 - `extract_style`: the name-free fonts, workbook style rules and dashboard zone styles by role of a workbook, as a style dict (reads only; sheets scope is not available yet).
 - `format_table`: one row per format found in a workbook, style dict or style file.
 - `style_warnings`: things worth a look in a style, for example a font that may not exist on the target machine.
+- `plan_style`: what applying a style's fonts and formatting to a workbook would do, one row per format (add, same, skip, force, unsupported); writes nothing.
+- `build_styled`: the bytes of a copy of a workbook with the style's workbook-level fonts and rules written on it; a format the target already has is kept unless `force`.
+- `apply_style`: write that copy as a new file (`<name>_styled.<ext>` by default); returns the path.
 - `save_style`: write a style dict as JSON.
 - `load_style`: read and check a style file (version 1 or 2).
 - `check_style_file`: problems in a `.tps` or style file; empty means none found.
