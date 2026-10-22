@@ -34,6 +34,7 @@ import pandas as pd
 
 from . import __version__, template_gui
 from ._tables import TABLE_NAMES, TABLE_SPECS
+from ._xml import PyTbparseError
 from .dashboards import _dashboard_xpath, dashboard_targets, dashboard_zone_labels
 from .docgen import workbook_markdown
 from .findings import SEVERITY, exceeds, rules as _audit_rules, format_findings, summary as findings_summary
@@ -768,7 +769,7 @@ def _cards_answer(qs: dict) -> dict:
 PREVIEW_ZONES_MAX = 200
 
 
-class _UnknownDashboard(LookupError):
+class _UnknownDashboard(PyTbparseError):
     """The name asked for is not a dashboard of the loaded workbook (the only case that is a 404)."""
 
 
@@ -1661,10 +1662,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 self._send_json(_layout_answer(qs))
+            except _UnknownDashboard:                         # before ValueError: it is one (every py-tbparse error is)
+                self._send_json({"error": "No dashboard with that name in this workbook"}, 404)
             except ValueError as e:
                 self._send_json({"error": str(e)}, 400)
-            except _UnknownDashboard:
-                self._send_json({"error": "No dashboard with that name in this workbook"}, 404)
             except Exception as e:
                 self._send_json({"error": f"could not read the dashboard layout: {e}"}, 500)
             return
