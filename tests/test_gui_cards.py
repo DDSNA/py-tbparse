@@ -73,6 +73,25 @@ def test_a_card_has_chips_names_a_sketch_and_a_link(page, cards_path):
     assert page.js_errors == []
 
 
+def test_a_sketch_keeps_a_zone_that_starts_before_zero(page, tmp_path):
+    negative = ("<dashboard name='Before zero'><size minwidth='800' minheight='600' maxwidth='800' maxheight='600'/><zones>"
+                "<zone id='1' name='Sheet 1' x='-20000' y='-10000' w='40000' h='30000'/>"
+                "<zone id='2' name='Sheet 2' x='20000' y='20000' w='80000' h='80000'/></zones></dashboard>")
+    path = tmp_path / "negative.twb"
+    path.write_text(cards_workbook(many_zones=3).replace("</dashboards>", negative + "</dashboards>"), encoding="utf-8")
+    _cards(page, str(path))
+    rects = _card(page, "Before zero").locator("svg rect").evaluate_all(
+        "els => els.map(e => [+e.getAttribute('x'), +e.getAttribute('y'), +e.getAttribute('width'), +e.getAttribute('height')])")
+    assert len(rects) == 2
+    (x1, y1, w1, h1), (x2, y2, w2, h2) = rects
+    # the stored extent is -20000..100000 by -10000..100000: 120000 by 110000 across a 150 by 100 sketch
+    assert x1 == pytest.approx(0.5) and y1 == pytest.approx(0.5)
+    assert w1 == pytest.approx(40000 * 150 / 120000 - 1) and h1 == pytest.approx(30000 * 100 / 110000 - 1)
+    assert x2 == pytest.approx(40000 * 150 / 120000 + 0.5) and y2 == pytest.approx(30000 * 100 / 110000 + 0.5)
+    assert x2 + w2 <= 150 and y2 + h2 <= 100
+    assert page.js_errors == []
+
+
 def test_a_dashboard_with_no_positions_says_so_instead_of_an_empty_picture(page, cards_path):
     _cards(page, cards_path)
     card = _card(page, "No positions")
@@ -144,7 +163,11 @@ def test_paging_draws_24_cards_at_a_time_never_all(page, lots_path):
     page.click("#cardsNext")
     page.wait_for_function("() => document.querySelector('.dpager .note').textContent.startsWith('Showing 25')")
     assert page.locator("#dashCards .dcard").count() == 24
-    assert page.locator("#dashCards .dcard-name").all_inner_texts()[0] not in [n.split("\n")[0] for n in names]
+    # the heading's text is "Name\n1200 x 800"; compare the names alone, and prove the first page is not on this one
+    first_names = {n.split("\n")[0] for n in names}
+    second_names = [n.split("\n")[0] for n in page.locator("#dashCards .dcard-name").all_inner_texts()]
+    assert len(first_names) == 24 and len(second_names) == 24
+    assert first_names.isdisjoint(second_names)
     assert page.evaluate("() => document.activeElement.id") == "dashCards"
     page.click("#cardsNext")
     page.wait_for_function("() => document.querySelector('.dpager .note').textContent.startsWith('Showing 49')")

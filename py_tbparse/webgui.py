@@ -768,6 +768,10 @@ def _cards_answer(qs: dict) -> dict:
 PREVIEW_ZONES_MAX = 200
 
 
+class _UnknownDashboard(LookupError):
+    """The name asked for is not a dashboard of the loaded workbook (the only case that is a 404)."""
+
+
 def _zone_parents(parser, name: str) -> dict:
     """zone id -> id of the nearest enclosing zone (a layout container), "" for a top-level zone, for the main layout."""
     out = {}
@@ -789,7 +793,7 @@ def _layout_answer(qs: dict) -> dict:
     name = names[0]
     parser = _STATE["parser"]
     if name not in set(parser.get_dashboards()["name"]):
-        raise KeyError(name)
+        raise _UnknownDashboard(name)
     zones, unplaced = _layout_zones(parser, name, labels=True)
     shown = _largest(zones, PREVIEW_ZONES_MAX)
     parent_of = _zone_parents(parser, name)
@@ -1659,7 +1663,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(_layout_answer(qs))
             except ValueError as e:
                 self._send_json({"error": str(e)}, 400)
-            except KeyError:
+            except _UnknownDashboard:
                 self._send_json({"error": "No dashboard with that name in this workbook"}, 404)
             except Exception as e:
                 self._send_json({"error": f"could not read the dashboard layout: {e}"}, 500)

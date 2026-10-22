@@ -61,11 +61,15 @@
     }
     const svg = svgEl('svg', { viewBox: '0 0 ' + SKETCH_W + ' ' + SKETCH_H, role: 'img',
                                'aria-label': 'Layout sketch of ' + name + ': ' + D.plural(info.total, 'zone') });
-    const w = info.width || 1;
-    const h = info.height || 1;
+    // width and height are the right and bottom edges and ignore negative starts; like the layout panel, the sketch
+    // starts at the smallest left and top edge it has (never later than 0), so a zone placed before 0 is not clipped
+    const left = Math.min(0, ...info.zones.map((z) => z[1]));
+    const top = Math.min(0, ...info.zones.map((z) => z[2]));
+    const w = (info.width || 1) - left;
+    const h = (info.height || 1) - top;
     info.zones.forEach((z) => {
-      const x = z[1] * SKETCH_W / w;
-      const y = z[2] * SKETCH_H / h;
+      const x = (z[1] - left) * SKETCH_W / w;
+      const y = (z[2] - top) * SKETCH_H / h;
       const zw = z[3] * SKETCH_W / w;
       const zh = z[4] * SKETCH_H / h;
       svg.appendChild(svgEl('rect', { 'class': 'dzone dk-' + z[0], x: x + 0.5, y: y + 0.5,

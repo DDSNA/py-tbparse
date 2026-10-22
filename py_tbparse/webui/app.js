@@ -1136,6 +1136,9 @@ function openRow(pos, opener) {
 // The Dashboards table shows the layout panel (layout.js) instead of the drawer; focus stays on the row so the
 // arrow keys keep moving through the table. "All columns" in the panel opens the usual details drawer.
 function openLayoutPanel(idx) {
+  // The drawer lists the columns of one row; once the panel moves to another dashboard it would show the wrong one,
+  // and closing it would send focus back to the old row. Close it first, without moving focus.
+  if (!$('drawer').hidden && state.drawerIdx !== idx) closeDrawer(false);
   state.panelIdx = idx;
   vt.setCurrent(idx);
   LayoutPanel.show($('layoutPanel'), rowObject(idx), {
@@ -1643,6 +1646,15 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !e.defaultPrevented && !$('drawer').hidden && document.activeElement.id !== 'filter') {
     closeDrawer(true);
   }
+});
+// Escape with the layout panel open (and no drawer or menu in the way): a selected zone is cleared first, then the
+// panel closes and focus goes back to its row.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented || !$('drawer').hidden || !$('menu').hidden) return;
+  if (state.panelIdx === null || state.panelIdx === undefined) return;
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+  e.preventDefault();
+  if (!LayoutPanel.clearSelection()) closeLayoutPanel(true);
 });
 // A menu closes when the table is scrolled out from under it. A scroll event can also arrive late,
 // from the table redrawing itself (a sort restores the scroll position inside a view transition), after

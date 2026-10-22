@@ -2,7 +2,7 @@
 
 Issue #84 asked for four things after #73: names of filters and parameters, image/text/web zones, per-dashboard cards, and a small layout preview. The names and zone counts shipped in #116, the cards (option A of `docs/design/84/README.md`) in #197. What is left is the **layout preview**, option B of the design note: a large drawing of one dashboard with the zone names, and a list of every zone. This page plans it and changes no code.
 
-Status: **WP0 (corpus census, #209) and WP1 (`GET /dashboard-layout`, #211) are merged.** WP2 to WP4 are not started. This revision (against `main` at e1d9aea) replaces the guesses of the first plan with the census numbers in `docs/layout-census.md` and changes WP2 to WP4 so that overlapping zones are drawn and listed honestly. Nothing was run in a browser for this plan, and nothing is verified in Tableau Desktop.
+Status: **WP0 (corpus census, #209), WP1 (`GET /dashboard-layout`, #211) and WP2 (the panel) with the row hook of WP3 (#215) are merged.** The rest of WP3 (arrow keys and filter updating the panel, sort and filter keeping the selection) and WP4 are not started. This revision (against `main` at e1d9aea) replaces the guesses of the first plan with the census numbers in `docs/layout-census.md` and changes WP2 to WP4 so that overlapping zones are drawn and listed honestly. Nothing was run in a browser for this plan, and nothing is verified in Tableau Desktop.
 
 ## Owner decisions already made
 
