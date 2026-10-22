@@ -115,7 +115,21 @@ REAL_PARAMS_XML = """
 # (a fixture imported into several test modules is instantiated once per module, and a second
 # sync_playwright() inside the first one's event loop fails).
 
+def _require_browser():
+    """True when the environment insists the browser tests really run (the CI `gui` job sets
+    CI_REQUIRE_BROWSER=1). There a missing Playwright or a Chromium that cannot launch is a failure, not a
+    skip: a skipped browser test looks green and tests nothing. Locally the variable is unset and the
+    tests skip as before."""
+    return os.environ.get("CI_REQUIRE_BROWSER", "") not in ("", "0")
+
+
 def _pw():
+    if _require_browser():
+        try:
+            import playwright.sync_api as sync_api
+        except ImportError as e:
+            pytest.fail(f"CI_REQUIRE_BROWSER is set but playwright is not installed: {e}", pytrace=False)
+        return sync_api
     return pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 
@@ -157,6 +171,8 @@ def browser():
             # false-confidence failure mode this whole test file exists to
             # catch for the GUI itself. Let anything else propagate as a
             # real test error.
+            if _require_browser():
+                pytest.fail(f"CI_REQUIRE_BROWSER is set but chromium could not launch: {str(e)[:200]}", pytrace=False)
             pytest.skip(f"chromium could not launch: {str(e)[:200]}")
         yield instance
         instance.close()

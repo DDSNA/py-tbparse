@@ -15,7 +15,35 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read  # to read the CI runs on the release commit
     steps:
+      # First, before anything is built: the release commit must have a green run of the full CI workflow
+      # (ci.yml: every OS and Python version, the browser tests, docker, build). The tests below run on
+      # ubuntu and Python 3.12 only, so they cannot replace that. A release is a push-triggered run on the
+      # tagged commit (main or a hotfix/** branch); a commit that was only ever in a PR has none and is refused.
+      - name: CI must have passed on the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          runs="$(gh api --paginate "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push&per_page=100" \
+            --jq '.workflow_runs[] | [.id, .status, (.conclusion // "none")] | @tsv')"
+          echo "CI runs on $SHA (id, status, conclusion):"
+          echo "${runs:-none}"
+          if echo "$runs" | awk -F'\t' '$2 == "completed" && $3 == "success" {found=1} END {exit !found}'; then
+            echo "CI passed on $SHA."
+            exit 0
+          fi
+          {
+            echo "Release $TAG is refused: no successful run of the CI workflow on commit $SHA."
+            echo "Wait for or fix CI on that commit (look at the push run of its branch), then re-run this job,"
+            echo "or delete the release and tag it again on a commit whose CI is green."
+          } >&2
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Set up Python

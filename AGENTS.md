@@ -112,24 +112,29 @@ throwaway venv (`pip install dist/*.whl`, run `py-tbparse --help` and
 catches packaging bugs (missing files, wrong entry points) that an
 editable install won't.
 
-CI (`.github/workflows/ci.yml`) runs pytest across Python 3.9–3.13, runs
-the browser GUI tests in real Chromium (`gui` job), and builds+checks the
-distribution on every push/PR. `build` depends on both `test` and `gui`
+CI (`.github/workflows/ci.yml`) does not run the full 3.9-3.13 matrix on every push and PR. A **PR** runs `test` on
+ubuntu 3.9, ubuntu 3.13, windows 3.13 and macOS 3.12; a **push to `main`, `master` or `hotfix/**`** runs all 20
+combinations (ubuntu, macOS, windows, ubuntu-arm times 3.9 to 3.13). Both run the browser GUI tests in real Chromium
+(`gui`), `js-unit`, `docker`, and build+check the distribution (`build`). `build` depends on both `test` and `gui`
 — don't drop `gui` from `build`'s `needs`, or a broken-page build can
 succeed and publish an artifact while the one job that would have caught
-it fails off to the side. `ci.yml` skips PRs that
+it fails off to the side. The `gui` job sets `CI_REQUIRE_BROWSER=1`, which makes `tests/conftest.py` fail instead of
+skip when Playwright is missing or Chromium cannot launch; locally the tests still skip. `ci.yml` skips PRs that
 only change `*.md` or `docs/**/*.png` (`paths-ignore`), so such a PR gets
-no test jobs. For branch protection, require the single check `ci-ok`
+no test jobs from it; `ci-docs-only.yml` runs the tests that read Markdown (`tests/test_api_doc.py`,
+`tests/test_exit_codes.py`) in its `doc-tests` job. A new test that reads a `.md` file must be added to that job.
+For branch protection, require the single check `ci-ok`
 (not `test`/`gui`): `ci.yml` reports it after the real jobs, and
 `ci-docs-only.yml` reports it for a docs-only PR. Keep the two path lists
-in sync. Release
+in sync. The details and the settings to apply are in `docs/ci-workflows.md`. Release
 (`.github/workflows/release.yml`) publishes to PyPI via trusted
 publishing (OIDC, no stored token) when a GitHub Release is published —
 this needs to be configured once on the PyPI project's "Trusted
 Publishers" settings page before the first release, and needs a
 `release` GitHub Environment created in repo settings. It also fails
 (before the tests) if the release tag, minus the `v`, differs from
-`pyproject.toml`'s version (#38).
+`pyproject.toml`'s version (#38). Its first step also checks with `gh api` that a push run of `ci.yml` concluded
+`success` on the tagged commit and refuses the release if not (the tests in `release.yml` itself are ubuntu 3.12 only).
 
 `.github/workflows/docker-publish.yml` (same trigger) builds the `Dockerfile` once and pushes it to GHCR by digest
 with no tag (`build`), pulls that digest and checks it starts and answers `/healthz` (`smoke`), then points

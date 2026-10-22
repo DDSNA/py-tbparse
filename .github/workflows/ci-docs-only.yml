@@ -4,6 +4,11 @@ name: CI (docs only)
 # checks and a required `ci-ok` check would stay "expected" forever. This workflow reports a
 # passing `ci-ok` for exactly that case. The paths here are the same list as the paths-ignore
 # in ci.yml. They match when ANY file matches, so the job below checks that ALL files do.
+#
+# Two tests read Markdown files (tests/test_api_doc.py reads docs/api.md and runs its examples;
+# tests/test_exit_codes.py reads the exit-code table in docs/cli.md), so a docs-only PR can break
+# them. The doc-tests job runs just those, on one system. When a new test reads a .md file, add it
+# to the list there (AGENTS.md, CI section).
 on:
   pull_request:
     paths:
@@ -32,10 +37,35 @@ jobs:
             echo "Not docs-only, ci.yml runs the real checks for:"; echo "$others"
           fi
 
-  ci-ok:
-    # Same job name as in ci.yml. Skipped (counts as passing) when ci.yml runs for real.
+  doc-tests:
     needs: files
     if: needs.files.outputs.docs_only == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - run: echo "Only Markdown or README pictures changed, nothing for the tests to see."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install package with test extras
+        run: pip install -e ".[test]"
+
+      - name: Run the tests that read Markdown files
+        run: pytest -q tests/test_api_doc.py tests/test_exit_codes.py
+
+  ci-ok:
+    # Same job name as in ci.yml. Skipped (counts as passing) when ci.yml runs for real.
+    # always() so that a failed files or doc-tests job turns this red instead of skipping it:
+    # a skipped required check would count as passing.
+    needs: [files, doc-tests]
+    if: always() && (needs.files.result != 'success' || needs.files.outputs.docs_only == 'true')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Docs-only PR, doc tests passed
+        run: |
+          echo "results: files=${{ needs.files.result }} doc-tests=${{ needs.doc-tests.result }}"
+          test "${{ needs.files.result }}" = success
+          test "${{ needs.doc-tests.result }}" = success
