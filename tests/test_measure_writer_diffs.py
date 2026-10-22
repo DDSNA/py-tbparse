@@ -45,3 +45,26 @@ def test_raw_diff_and_percentile():
     assert m.raw_diff(b"a\nb\n", b"a\nc\n") == (2, 4)
     assert m.raw_diff(b"a\n", b"a\n") == (0, 0)
     assert m.percentile([1, 2, 3, 4, 5], 0.9) == pytest.approx(4.6)
+
+
+def test_memory_cap_above_the_hard_limit_is_lowered_not_an_error(tmp_path, monkeypatch):
+    """macOS refused a soft limit above its hard limit (ValueError on every macOS CI job)."""
+    pytest.importorskip("resource")
+    hard = 1024 * 1024 * 1024
+    calls = []
+
+    def fake_get(which):
+        return (hard, hard)
+
+    def fake_set(which, pair):
+        if pair[0] > pair[1]:
+            raise ValueError("current limit exceeds maximum limit")
+        calls.append(pair)
+
+    monkeypatch.setattr(m.resource, "getrlimit", fake_get)
+    monkeypatch.setattr(m.resource, "setrlimit", fake_set)
+    code = m.main(["--files", str(FIXTURE), "--writers", "roundtrip", "--workdir", str(tmp_path),
+                   "--mem-limit-mb", "3000"])
+    assert code == 0
+    assert calls[0] == (hard, hard)                 # asked for 3000 MB, got the hard limit
+    assert calls[-1] == (hard, hard)                # and the caller's own limit was restored

@@ -481,7 +481,13 @@ def _main(argv: Optional[list[str]] = None) -> int:
         ap.error(f"unknown writer(s): {', '.join(unknown)}; choose from {', '.join(WRITERS)}")
     if args.mem_limit_mb > 0 and resource is not None:
         limit = args.mem_limit_mb * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (limit, resource.getrlimit(resource.RLIMIT_AS)[1]))
+        hard = resource.getrlimit(resource.RLIMIT_AS)[1]
+        if hard != resource.RLIM_INFINITY:
+            limit = min(limit, hard)    # macOS has a lower hard limit than the soft limit we ask for
+        try:
+            resource.setrlimit(resource.RLIMIT_AS, (limit, hard))
+        except (ValueError, OSError) as exc:    # some systems refuse RLIMIT_AS changes; the other limits still apply
+            print(f"note: memory cap not applied ({exc})", file=sys.stderr)
     corpus, fixtures = collect_files(args)
     if not corpus and not fixtures:
         print("no workbooks found (corpus: python scripts/fetch_corpus.py)", file=sys.stderr)
