@@ -316,7 +316,7 @@ Press **Theme** at the top right. Pick one of 34 colour themes, and at the end o
 - **Look before you download.** Every screen that makes a file shows its plan first.
 - **Dropped files** are copied to a private temporary folder (up to 200 MB each) and deleted when you open another workbook or stop the app.
 - **The recent list** on the start screen is kept by your browser, on this computer.
-- **No login.** Use the app on your own computer, not on a shared network. Sharing it with a team needs a server set up by IT (see [Limits](#limits)).
+- **No login.** Use the app on your own computer, not on a shared network. `py-tbparse-gui --host` with an address other than `127.0.0.1` / `localhost` / `::1` is refused unless you add `--allow-network-local` (see the [GUI page](https://github.com/DDSNA/py-tbparse/blob/main/docs/gui.md)); `--server-mode` is the supported way to share it. Sharing it with a team needs a server set up by IT (see [Limits](#limits)).
 - **To undo**, delete the new file. Your original is untouched.
 
 </details>

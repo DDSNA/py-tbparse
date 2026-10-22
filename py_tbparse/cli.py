@@ -24,6 +24,7 @@ from pathlib import Path
 import pandas as pd
 from lxml import etree
 
+from ._xml import PyTbparseError
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
@@ -152,11 +153,29 @@ def build_diff_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
+class _UnreadableWorkbook(PyTbparseError):
+    """A workbook file that exists but cannot be parsed; the message is the one-line CLI error."""
+
+
+def _load_workbook(path) -> TwbParser:
+    """TwbParser(path), with a malformed .twb or a corrupt .twbx turned into one clean error line.
+
+    It is a ValueError, so every handler that already catches ValueError keeps its exit code.
+    """
+    try:
+        return TwbParser(path)
+    except etree.XMLSyntaxError as e:
+        reason = getattr(e, "msg", None) or str(e)
+    except zipfile.BadZipFile as e:
+        reason = str(e)
+    raise _UnreadableWorkbook(f"{path}: not a readable Tableau workbook ({reason})")
+
+
 def _run_diff(argv: list[str]) -> int:
     args = build_diff_arg_parser().parse_args(argv)
     try:
-        a = TwbParser(args.workbook_a)
-        b = TwbParser(args.workbook_b)
+        a = _load_workbook(args.workbook_a)
+        b = _load_workbook(args.workbook_b)
     except (FileNotFoundError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -279,7 +298,7 @@ def _run_rename(argv: list[str]) -> int:
     if args.missing and args.apply:
         ap.error("--missing and --apply cannot be combined")
     try:
-        wb = TwbParser(args.workbook)
+        wb = _load_workbook(args.workbook)
     except (FileNotFoundError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -293,7 +312,10 @@ def _run_rename(argv: list[str]) -> int:
         print(f"wrote {out} ({int(mapping['changed'].sum())} renames from {args.apply})", file=sys.stderr)
         return 0
     try:
-        ref = TwbParser(args.reference) if args.reference else None
+        ref = _load_workbook(args.reference) if args.reference else None
+    except _UnreadableWorkbook as e:
+        print(f"error: reference workbook: {e}", file=sys.stderr)
+        return 1
     except Exception as e:  # unreadable / malformed reference workbook
         print(f"error: cannot read reference workbook: {e}", file=sys.stderr)
         return 1
@@ -1676,7 +1698,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        parser = TwbParser(args.workbook)
+        parser = _load_workbook(args.workbook)
     except (FileNotFoundError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
