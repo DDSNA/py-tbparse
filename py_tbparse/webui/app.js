@@ -50,7 +50,7 @@ const CODE_COLUMNS = new Set(['formula', 'custom_sql', 'initial_sql', 'connectio
 const state = { table: 'overview', columns: [], data: [], sortCol: -1, sortDir: 0,
                 loaded: false, uploaded: false, req: 0, dot: '', fresh: false, dsLabels: {}, hay: null, hayKey: '',
                 colLower: {}, sortKeys: {}, numeric: {}, natural: null, drawerIdx: null,
-                drawerInfo: null, drawerOpener: null, graph: {nodes: [], edges: []} };
+                drawerInfo: null, drawerOpener: null, panelIdx: null, graph: {nodes: [], edges: []} };
 let tplOpen = false;        // the Templates view is showing (it lives in templates.js)
 let keepTemplates = false;  // a workbook opened by the page itself (not by a click) leaves the view open
 let filterTimer = null;
@@ -193,6 +193,7 @@ function markCurrent() {
   $('tableSel').value = state.table;
 }
 
+const HINT_TEXT = document.getElementById('hint').textContent;
 function selectTable(name) {
   if (!allTables().includes(name)) return;
   const changed = name !== state.table;
@@ -200,6 +201,7 @@ function selectTable(name) {
   clearTimeout(filterTimer);
   closeMenu(false);
   closeDrawer(false);
+  closeLayoutPanel(false);
   if (changed) {
     DashCards.reset();
     $('filter').value = ''; state.sortCol = -1; state.sortDir = 0; state.fresh = true;
@@ -377,6 +379,7 @@ async function showTable() {
   $('renameTools').hidden = name !== 'field-renames';
   $('filter').hidden = isGraph || isOverview || isAudit;
   $('hint').hidden = isGraph || isOverview || isAudit || cardsMode;
+  $('hint').textContent = name === 'dashboards' ? HINT_TEXT.replace('for its details', 'for its layout') : HINT_TEXT;
   $('exportBtn').textContent = isGraph ? 'Export DOT' : 'Export CSV';
   $('colsBtn').hidden = isGraph || isOverview || isAudit || cardsMode;
   $('densityBtn').hidden = isGraph || isOverview || isAudit || cardsMode;
@@ -519,6 +522,7 @@ function setDashboardView(mode) {
   DashCards.setMode(mode);
   DashCards.reset();
   closeDrawer(false);
+  closeLayoutPanel(false);
   closeMenu(false);
   showTable();
 }
@@ -736,6 +740,7 @@ function resetCaches() {
   state.drawerIdx = null;
   Object.keys(views).forEach((name) => { views[name].auto = {}; });  // new data, new widths
   closeDrawer(false);
+  closeLayoutPanel(false);
 }
 
 function visibleSig(v) { return state.columns.filter((name) => v.hidden.has(name)).sort().join(','); }
@@ -1124,6 +1129,31 @@ function fillDrawer(idx) {
 function openRow(pos, opener) {
   const idx = vt.order[pos];
   if (idx === undefined) return;
+  if (state.table === 'dashboards') { openLayoutPanel(idx); return; }   // the layout panel replaces the drawer here
+  openDrawerFor(idx);
+}
+
+// The Dashboards table shows the layout panel (layout.js) instead of the drawer; focus stays on the row so the
+// arrow keys keep moving through the table. "All columns" in the panel opens the usual details drawer.
+function openLayoutPanel(idx) {
+  state.panelIdx = idx;
+  vt.setCurrent(idx);
+  LayoutPanel.show($('layoutPanel'), rowObject(idx), {
+    allColumns: (button) => { openDrawerFor(idx); state.drawerOpener = button; },
+    close: () => closeLayoutPanel(true),
+  });
+}
+
+function closeLayoutPanel(restoreFocus) {
+  const idx = state.panelIdx;
+  state.panelIdx = null;
+  LayoutPanel.hide($('layoutPanel'));
+  if (idx === null || idx === undefined) return;
+  if (state.drawerIdx === null || state.drawerIdx === undefined) vt.setCurrent(null);
+  if (restoreFocus) vt.focusRowByIndex(idx);
+}
+
+function openDrawerFor(idx) {
   state.drawerIdx = idx;
   state.drawerInfo = null;
   state.drawerOpener = null;
@@ -1141,11 +1171,11 @@ function closeDrawer(restoreFocus) {
   if (drawer.hidden) return;
   const idx = state.drawerIdx;
   state.drawerIdx = null;
-  vt.setCurrent(null);
+  vt.setCurrent(state.panelIdx === null || state.panelIdx === undefined ? null : state.panelIdx);
   drawer.classList.remove('show');
   setTimeout(() => { if (!drawer.classList.contains('show')) drawer.hidden = true; }, 260);
-  if (restoreFocus && idx !== null && idx !== undefined) vt.focusRowByIndex(idx);
-  else if (restoreFocus && state.drawerOpener && state.drawerOpener.isConnected) state.drawerOpener.focus();
+  if (restoreFocus && state.drawerOpener && state.drawerOpener.isConnected) state.drawerOpener.focus();
+  else if (restoreFocus && idx !== null && idx !== undefined) vt.focusRowByIndex(idx);
   state.drawerOpener = null;
   state.drawerInfo = null;
 }
@@ -1649,6 +1679,7 @@ AuditView.init({$: $, el: el, fetchJSON: fetchJSON, fail: fail, plural: plural, 
 LibrariesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural, labelCells: labelCells});
 StylesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural, labelCells: labelCells});
 DashCards.init({$: $, el: el, fetchJSON: fetchJSON, fail: fail, plural: plural, open: openDashboardSheets});
+LayoutPanel.init({el: el, plural: plural, open: openDashboardSheets, copy: copyText});
 CopyView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural, labelCells: labelCells});
 TemplatesView.init({$: $, el: el, setStatus: setStatus, fetchJSON: fetchJSON, fail: fail, plural: plural});
 if (location.hash === '#templates') setTemplatesMode(true);

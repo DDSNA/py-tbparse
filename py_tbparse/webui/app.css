@@ -606,3 +606,54 @@ button.stat:hover { border-color: var(--primary); transform: translateY(-2px); b
   .dthumb { max-width: 220px; }
   .dpager, .dlegend { padding-left: var(--space-3); padding-right: var(--space-3); }
 }
+
+/* The layout preview panel of the Dashboards table (#84, layout.js) */
+.body-split { flex: 1; display: flex; min-width: 0; }
+.body-split > #tableWrap { flex: 1 1 0; min-width: 0; }
+.lpanel { flex: 0 0 min(600px, 50%); min-width: 0; border-left: 1px solid var(--border); overflow: auto;
+          max-height: calc(100vh - 222px - var(--toast-room)); padding: var(--space-3) var(--space-5) var(--space-4); }
+.lpanel[hidden] { display: none; }
+.lp-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
+.lp-title { margin: 0; font: 700 var(--text-md)/1.3 var(--font-display); overflow-wrap: anywhere; min-width: 0; }
+.lp-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.lp-facts { margin: var(--space-2) 0 0; font-size: var(--text-sm); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px var(--space-2); }
+.lp-facts dt { color: var(--muted); }
+.lp-facts dd { margin: 0; overflow-wrap: anywhere; }
+.lp-count { margin: var(--space-2) 0; font-size: var(--text-sm); color: var(--muted); }
+.lp-frame { border: 1px solid var(--border); background: var(--bg); width: fit-content; max-width: 100%; }
+.lp-frame.lp-provisional { border-style: dashed; border-color: var(--muted); }
+.lp-svg { display: block; max-width: 100%; }
+.lp-svg .dzone { stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: all; cursor: pointer; }
+.lp-svg .lp-cross { fill-opacity: 0.55; }
+.lp-svg .lp-tiny { fill: none; stroke-dasharray: none; }
+.lp-svg .dzone.lp-hot, .lp-svg .dzone.lp-selected { stroke-width: 2.5; }
+.lp-svg .lp-halo { fill: none; stroke: var(--panel); stroke-width: 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.lp-svg .lp-seloverlay { fill: none; stroke: var(--text); stroke-width: 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.lp-svg .lp-labels text { font-family: var(--font); font-weight: 600; fill: var(--text); stroke: var(--panel); paint-order: stroke; pointer-events: none; }
+.lp-svg .lp-marker rect { fill: none; stroke: var(--muted); stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+.lp-svg .lp-marker text { fill: var(--muted); font-family: var(--font); }
+.lp-note { margin: var(--space-2) 0; font-size: var(--text-sm); }
+.lp-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--text-xs); color: var(--muted); }
+.lp-legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; border: 1px solid var(--muted); }
+.lp-h { margin: var(--space-3) 0 var(--space-1); font: 650 var(--text-sm) var(--font); }
+.lp-list { list-style: none; margin: 0; padding: 0; }
+.lp-list:not(.lp-unplaced) { max-height: 42vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.lp-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-2); padding: 6px var(--space-2);
+           border-left: 4px solid transparent; border-bottom: 1px solid var(--border); font-size: var(--text-sm); cursor: default; }
+.lp-line:last-child { border-bottom: 0; }
+.lp-line.lp-hot { background: var(--hover); }
+.lp-line.lp-sel { background: var(--primary-soft); border-left-color: var(--primary); font-weight: 600; }
+.lp-k { display: inline-grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--muted); border-radius: 4px;
+        font: 700 11px var(--font); color: var(--text); flex: none; align-self: center; }
+.lp-name { font-weight: 600; overflow-wrap: anywhere; }
+.lp-kind, .lp-pos { color: var(--muted); font-size: var(--text-xs); }
+.lp-hint { flex-basis: 100%; font-size: var(--text-xs); }
+.lp-hint:empty, .lp-flag:empty { display: none; }
+.lp-flag { font-size: var(--text-xs); color: var(--muted); font-style: italic; }
+.lp-empty { display: grid; gap: 4px; padding: var(--space-3); color: var(--muted); font-size: var(--text-sm); }
+.lp-more { font-size: var(--text-xs); color: var(--muted); }
+@media (max-width: 999px) {
+  .body-split { flex-direction: column; }
+  .body-split > #tableWrap { flex: 1 1 auto; }
+  .lpanel { flex: none; border-left: 0; border-top: 1px solid var(--border); max-height: none; }
+}
