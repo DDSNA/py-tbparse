@@ -12,13 +12,19 @@ on:
       - "**/*.md"
       - "docs/**/*.png"
 
+# Nothing here writes to the repository or the PR; the jobs only read the code.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      # A PR gets the ends of the range on the two systems most people use; main gets all 20 combinations.
-      matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"os":"ubuntu-24.04","python-version":"3.9"},{"os":"ubuntu-24.04","python-version":"3.13"},{"os":"windows-latest","python-version":"3.13"}]}' || '{"os":["ubuntu-24.04","macos-latest","windows-latest","ubuntu-24.04-arm"],"python-version":["3.9","3.10","3.11","3.12","3.13"]}') }}
+      # A PR gets the ends of the range on Linux and Windows plus one macOS run (3.12, the middle of the range);
+      # main gets all 20 combinations. macOS is in the PR set because a main that was red only on macOS let three
+      # PRs merge onto it. The other macOS versions and ubuntu-arm stay main-only.
+      matrix: ${{ fromJSON(github.event_name == 'pull_request' && '{"include":[{"os":"ubuntu-24.04","python-version":"3.9"},{"os":"ubuntu-24.04","python-version":"3.13"},{"os":"windows-latest","python-version":"3.13"},{"os":"macos-latest","python-version":"3.12"}]}' || '{"os":["ubuntu-24.04","macos-latest","windows-latest","ubuntu-24.04-arm"],"python-version":["3.9","3.10","3.11","3.12","3.13"]}') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -58,8 +64,12 @@ jobs:
       - name: Install Chromium and its system dependencies
         run: playwright install --with-deps chromium
 
+      # CI_REQUIRE_BROWSER makes tests/conftest.py fail, not skip, when Playwright is missing or Chromium
+      # cannot launch. Without it every browser test would skip and this job would still be green.
       - name: Run browser GUI tests
-        run: pytest -q tests/test_gui_*.py
+        env:
+          CI_REQUIRE_BROWSER: "1"
+        run: pytest -q -rs tests/test_gui_*.py
 
   js-unit:
     # The GUI's table logic (search, filters, sort, rename review) with Node's built-in test runner:
