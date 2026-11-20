@@ -24,10 +24,6 @@ from py_tbparse import (
 from py_tbparse import library as lib_mod
 from py_tbparse.usage import missing_references
 
-# These tests call the API without on_clash on purpose (the 'rename' default, issue #128); the warning
-# itself is tested in test_library_default_policy.py.
-pytestmark = pytest.mark.filterwarnings("ignore:on_clash was not passed:DeprecationWarning")
-
 FIX = Path(__file__).parent / "fixtures" / "library"
 CALC = "{http://www.tableausoftware.com/xml/user}auto-column"
 
@@ -57,7 +53,10 @@ def entry(lib, caption):
 
 
 def built(parser, lib, **kw):
-    """The built workbook as a parser."""
+    """The built workbook as a parser. Defaults to on_clash="rename": the API default is "fail" and the
+    target clashes with the library on "Profit Ratio" (and on a parameter), so the tests that look at the
+    result need the renamed entries."""
+    kw.setdefault("on_clash", "rename")
     return TwbParser_from_bytes(build_imported_workbook(parser, lib, **kw))
 
 
@@ -221,7 +220,7 @@ def test_self_import_all_identical(source, library):
 
 
 def test_import_maps_fields(target, library):
-    plan = plan_import(target, library)
+    plan = plan_import(target, library, on_clash="rename")
     sales = plan[(plan["name"] == "[Sales]")].iloc[0]
     assert sales["action"] == "mapped" and sales["target_name"] == "[Revenue]" and "matched" in sales["reason"]
     out = built(target, library)
@@ -239,12 +238,13 @@ def test_import_explicit_mapping(target, library):
     for r in lib["required"]:
         if r["name"] == "[Sales]":
             r["caption"], r["remote"] = None, "Sales"       # nothing for the matcher to go on
-    assert plan_import(other, lib).query("name == '[Sales]'").iloc[0]["action"] == "unmapped"
-    p = plan_import(other, lib, mapping={"[Sales]": "Revenue"})
+    assert plan_import(other, lib, on_clash="rename").query("name == '[Sales]'").iloc[0]["action"] == "unmapped"
+    p = plan_import(other, lib, mapping={"[Sales]": "Revenue"}, on_clash="rename")
     assert p.query("name == '[Sales]'").iloc[0]["target_name"] == "[Revenue]"
-    p = plan_import(other, lib, mapping=pd.DataFrame({"field": ["[Sales]"], "mapped_to": ["Revenue"]}))
+    p = plan_import(other, lib, mapping=pd.DataFrame({"field": ["[Sales]"], "mapped_to": ["Revenue"]}),
+                    on_clash="rename")
     assert p.query("name == '[Sales]'").iloc[0]["target_name"] == "[Revenue]"
-    p = plan_import(other, lib, mapping={"[Sales]": "Nothing"})
+    p = plan_import(other, lib, mapping={"[Sales]": "Nothing"}, on_clash="rename")
     assert "does not have" in p.query("name == '[Sales]'").iloc[0]["reason"]
 
 
@@ -260,14 +260,14 @@ def test_parameter_internal_clash(target, library):
 
 
 def test_clash_rename(target, library):
-    plan = plan_import(target, library)
+    plan = plan_import(target, library, on_clash="rename")
     assert actions(plan)["Profit Ratio"] == "add-renamed"
     row = plan[plan["caption"] == "Profit Ratio"].iloc[0]
     assert row["target_caption"] == "Profit Ratio (2)" and row["target_name"] == "[Calculation_1001]"
     out = built(target, library)
     assert columns(out, "federated.tgt1")["[Calculation_9001]"].get("caption") == "Profit Ratio"   # the target's own
     rep = {}
-    build_imported_workbook(target, library, report=rep)
+    build_imported_workbook(target, library, report=rep, on_clash="rename")
     assert rep["renamed"] == 1 and rep["renamed_names"] == ["Profit Ratio"] and rep["added"] == 12
     assert rep["renamed_internal"] == 3 and rep["failed"] == 0
 
@@ -309,7 +309,7 @@ def test_identical_under_other_name(source, library):
         if it.get("name") == "[Calculation_1001]":
             it.set("name", "[Calculation_7777]")
     renamed = TwbParser_from_bytes(etree.tostring(doc))
-    plan = plan_import(renamed, library)
+    plan = plan_import(renamed, library, on_clash="rename")
     acts = actions(plan)
     assert acts["Profit Ratio"] == "skip-identical" and acts["Margin Gap"] == "skip-identical"
     row = plan[plan["caption"] == "Profit Ratio"].iloc[0]
@@ -397,7 +397,7 @@ def test_ordering_field_follows_mapped_field(target, library):
 
 
 def test_output_reparses(target, library):
-    data = build_imported_workbook(target, library)
+    data = build_imported_workbook(target, library, on_clash="rename")
     out = TwbParser_from_bytes(data)
     before = {(r.datasource, r.field) for r in field_usage(target).itertuples()}
     usage = field_usage(out)
@@ -427,7 +427,7 @@ def test_import_never_overwrites(tmp_path, library):
     with pytest.raises(FileExistsError):
         import_library(parser, library, output_path=str(existing))
     assert existing.read_text() == "keep me"
-    default = import_library(parser, library)
+    default = import_library(parser, library, on_clash="rename")      # a clean import, the clash is not the point here
     assert Path(default).name == "t_library.twb" and Path(default).exists()
     assert src.read_bytes() == before
 
@@ -437,7 +437,7 @@ def test_twbx_members_copied(tmp_path, library):
     with zipfile.ZipFile(twbx, "w") as z:
         z.write(FIX / "target.twb", "t.twb")
         z.writestr("Data/extra.csv", "a,b\n1,2\n")
-    out = import_library(TwbParser(str(twbx)), library)
+    out = import_library(TwbParser(str(twbx)), library, on_clash="rename")      # a clean import, the clash is not the point here
     assert out.endswith("t_library.twbx")
     with zipfile.ZipFile(out) as z:
         assert z.read("Data/extra.csv") == b"a,b\n1,2\n"
@@ -469,7 +469,7 @@ def test_non_latin_names_and_caption_suffix(tmp_path, library):
     ds.append(etree.fromstring("<column caption='Profit Ratio (2)' datatype='real' name='[Calculation_9002]' role='measure' type='quantitative'>"
                                "<calculation class='tableau' formula='1' /></column>"))
     t2 = TwbParser_from_bytes(etree.tostring(doc))
-    row = plan_import(t2, library).query("caption == 'Profit Ratio'").iloc[0]
+    row = plan_import(t2, library, on_clash="rename").query("caption == 'Profit Ratio'").iloc[0]
     assert row["target_caption"] == "Profit Ratio (3)"
     assert lib_mod._suffixed("A (2)", {"A (2)"}) == "A (2) (2)"
 
@@ -480,8 +480,8 @@ def test_generated_calc_name_is_stable(target, library):
     ds.append(etree.fromstring("<column caption='Else' datatype='real' name='[Calculation_1001]' role='measure' type='quantitative'>"
                                "<calculation class='tableau' formula='2' /></column>"))
     t = TwbParser_from_bytes(etree.tostring(doc))
-    one = plan_import(t, library).query("caption == 'Profit Ratio'").iloc[0]["target_name"]
-    two = plan_import(t, library).query("caption == 'Profit Ratio'").iloc[0]["target_name"]
+    one = plan_import(t, library, on_clash="rename").query("caption == 'Profit Ratio'").iloc[0]["target_name"]
+    two = plan_import(t, library, on_clash="rename").query("caption == 'Profit Ratio'").iloc[0]["target_name"]
     assert one == two and one.startswith("[Calculation_") and len(one) == len("[Calculation_]") + 18
 
 

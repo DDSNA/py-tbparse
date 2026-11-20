@@ -133,9 +133,9 @@ Move calculated fields and parameters between workbooks. More: [libraries.md](li
 - `save_library`: write a library as `*.library.json`.
 - `load_library`: read a library back.
 - `library_table`: one row per entry and per item it needs.
-- `plan_import`: what `import_library` would do, one row per item.
-- `build_imported_workbook`: the bytes of a workbook copy with the library added.
-- `import_library`: write a copy of the workbook with the library added; returns the path.
+- `plan_import`: what `import_library` would do, one row per item. `on_clash` defaults to `"fail"`.
+- `build_imported_workbook`: the bytes of a workbook copy with the library added. `on_clash` defaults to `"fail"`.
+- `import_library`: write a copy of the workbook with the library added; returns the path. `on_clash` defaults to `"fail"`.
 - `LibraryError`: the library cannot be made, read or applied as asked.
 
 ## Colour palettes

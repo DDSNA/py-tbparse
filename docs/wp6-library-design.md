@@ -113,10 +113,10 @@ def save_library(library: dict, path: str | os.PathLike, overwrite: bool = False
 def load_library(path: str | os.PathLike) -> dict
 def library_table(library: dict) -> pd.DataFrame      # kind, name, caption, datatype, depends_on, required_by
 def plan_import(parser: TwbParser, library: dict, datasource: str | None = None,
-                mapping: dict | str | pd.DataFrame | None = None, on_clash: str = "rename") -> pd.DataFrame   # 0.5.x: omitted warns; default becomes "fail" in 0.6.0
-def build_imported_workbook(parser, library, datasource=None, mapping=None, on_clash="rename",
+                mapping: dict | str | pd.DataFrame | None = None, on_clash: str = "fail") -> pd.DataFrame
+def build_imported_workbook(parser, library, datasource=None, mapping=None, on_clash="fail",
                             report: dict | None = None) -> bytes
-def import_library(parser, library: dict | str, datasource=None, mapping=None, on_clash="rename",
+def import_library(parser, library: dict | str, datasource=None, mapping=None, on_clash="fail",
                    output_path: str | None = None, overwrite: bool = False, report: dict | None = None) -> str
 ```
 
@@ -206,7 +206,7 @@ handles: it drops parameter rows from a rename table), so a parameter is written
 py-tbparse library export WB [--datasource DS] [--folder F] [--field NAME ...] [--no-dependencies]
                              [--no-parameters] [--name N] -o LIB.library.json [--overwrite]
 py-tbparse library show LIB [--markdown]                    # entries, required fields, formula_display
-py-tbparse library import WB LIB [--datasource DS] [--mapping CSV] [--on-clash rename|skip|fail]
+py-tbparse library import WB LIB [--datasource DS] [--mapping CSV] [--on-clash fail|skip|rename]
                              [-o OUT] [--overwrite] [--write]
 ```
 
