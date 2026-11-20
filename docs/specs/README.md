@@ -16,9 +16,9 @@ Three tracks, independent of each other. Inside a track, do the packages in this
 | A4 | [exit-wp4-central-handling.md](exit-wp4-central-handling.md) | 0.6.0 | A3 | no |
 | A5 | [exit-wp5-check-commands.md](exit-wp5-check-commands.md) | 0.6.0 | A4 | no |
 | A6 | [exit-wp6-writer-commands.md](exit-wp6-writer-commands.md) | 0.6.0 | A4 (A5 not needed) | no |
-| A7 | [exit-wp7-partial-and-refused.md](exit-wp7-partial-and-refused.md) | 0.6.0 | A4 | **yes**: dry-run codes (one row) |
+| A7 | [exit-wp7-partial-and-refused.md](exit-wp7-partial-and-refused.md) | 0.6.0 | A4 | no (dry-run codes answered 2026-11-20: 0 if clean, 1 if changes found) |
 | A8 | [exit-wp8-precommit-and-docs.md](exit-wp8-precommit-and-docs.md) | 0.6.0 | A5, A6, A7 | no |
-| A9 | [exit-wp9-webgui-errors.md](exit-wp9-webgui-errors.md) | 0.6.0 (optional) | A3 | **yes**: do it at all |
+| A9 | [exit-wp9-webgui-errors.md](exit-wp9-webgui-errors.md) | 0.6.0 (owner 2026-11-20: do it, after A3) | A3 | no |
 | A10 | [exit-wp10-release-checklist.md](exit-wp10-release-checklist.md) | 0.6.0, owner-run | all of 0.6.0 | owner runs it |
 | A11 | [clash-flip-library-default.md](clash-flip-library-default.md) | 0.6.0 | nothing (any time before A10) | no |
 | B3 | [wp7-2c-dashboard-roles.md](wp7-2c-dashboard-roles.md) | WP7 slice 2 | PR #213 (2b) merged | **yes**: Q2 gates the merge |
@@ -50,7 +50,7 @@ A6 and A7 may run in parallel after A4, but both edit `docs/cli.md` and `tests/t
    ```
 
    The second line is the whole non-browser suite (run it in the background and read the log tail). Browser tests (`tests/test_gui_*.py`) need Chromium; run them only when the spec says so, one file at a time, and say in the PR whether they ran. Corpus tests need `python scripts/fetch_corpus.py` first; say whether they ran. `tests/test_version.py` can fail in a worktree because the shared venv's editable install points at the main checkout: not a bug in the branch, say so if it happens.
-9. **CI.** After pushing, wait for the PR checks (`gh pr checks <n> --watch --interval 60` with a `timeout`), and report the result. A docs-only PR gets only `files` and `ci-ok`.
+9. **CI.** After pushing, wait for the PR checks (`gh pr checks <n> --watch --interval 60` with a `timeout`), and report the result. A docs-only PR gets only `files`, `doc-tests` and `ci-ok`.
 10. **Report** (to the caller): PR URL, what changed, test counts, what ran and what did not, open questions. Under 300 words.
 
 ## What none of these specs can verify
