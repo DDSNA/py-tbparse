@@ -12,6 +12,7 @@ import warnings
 
 import pandas as pd
 
+from .errors import UsageError
 from ._tables import TABLE_SPECS
 from ._xml import PathLike
 from .parser import TwbParser
@@ -34,7 +35,7 @@ def scan_folder(
     file in a folder of fifty shouldn't block the other forty-nine.
     """
     if table not in TABLE_SPECS:
-        raise ValueError(f"unknown table '{table}'")
+        raise UsageError(f"unknown table '{table}'")
     getter = TABLE_SPECS[table]
 
     directory = os.fspath(directory)

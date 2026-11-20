@@ -22,7 +22,7 @@ from typing import Optional, Union
 import pandas as pd
 from lxml import etree
 
-from .errors import OutputRefusedError
+from .errors import OutputRefusedError, UsageError
 from .dashboards import CONTAINER_KINDS, _dashboard_xpath, integrity_check, zone_kind
 from ._xml import PathLike, PyTbparseError, parse_bytes
 from .parser import TwbParser
@@ -40,6 +40,10 @@ _TYPE_ATTRS = ("type", "type-v2")
 
 class ScaffoldError(PyTbparseError):
     """A dashboard cannot be a scaffold, or a scaffold cannot be applied as asked."""
+
+
+class ScaffoldUsageError(ScaffoldError, UsageError):
+    """The output name is wrong for the source, known without opening a file (exit code 2)."""
 
 
 def _parser(wb) -> TwbParser:
@@ -324,7 +328,7 @@ def apply_scaffold(wb: Union[TwbParser, str, os.PathLike], scaffold: Union[dict,
     source = Path(parser.twbx_path or parser.path)
     out = Path(output_path) if output_path else source.with_name(f"{source.stem}_scaffold{source.suffix}")
     if out.suffix.lower() != source.suffix.lower():
-        raise ScaffoldError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
+        raise ScaffoldUsageError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
     if out.exists() and (out.resolve() == source.resolve() or not overwrite):
         raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     data = build_scaffold_workbook(parser, scaffold, name, sheets, allow_empty, report)

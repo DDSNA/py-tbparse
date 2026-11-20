@@ -433,3 +433,22 @@ def test_server_mode_has_no_paths_and_keeps_each_browsers_library_private(shared
     assert status == 200 or b"already" in raw3          # the source already has it: identical, nothing to add
     status, body, _ = _sreq(shared, "/library/plan", "POST", json.dumps({"path": "/etc/passwd"}), {"Content-Type": "application/json"}, a)
     assert status == 400 and b"path" in body
+
+
+def test_plan_retries_as_rename_only_for_a_clash(server, source, monkeypatch):
+    """Under on_clash='fail' the plan is re-run as `rename` to list every clash; a LibraryError that is not a clash is not retried."""
+    from py_tbparse import library
+
+    data, _ = _library_of(server, source, ["[Calculation_2]"])
+    _load(server, source)
+    assert _upload(server, data)[0] == 200
+    calls = []
+
+    def boom(*a, **kw):
+        calls.append(kw.get("on_clash"))
+        raise library.LibraryError("not a clash")
+
+    monkeypatch.setattr(library, "plan_import", boom)
+    status, body = _postj(server, "/library/plan", {})
+    assert status == 400 and body["error"] == "not a clash"
+    assert calls == ["fail"]

@@ -29,7 +29,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
-from .errors import OutputRefusedError
+from .errors import OutputRefusedError, RefusedError, UsageError
 from . import templates as _templates
 from .dashboards import zone_kind
 from ._xml import PathLike, PyTbparseError, parse_bytes, parse_file
@@ -42,6 +42,14 @@ _Palettes = Union[PathLike, TwbParser, dict, list]
 
 class StyleError(PyTbparseError):
     """A palette, style file or import cannot be read or done as asked."""
+
+
+class StyleClashError(StyleError, RefusedError):
+    """A palette or format is already in the target with another value and `on_clash='fail'` refuses it (exit code 5)."""
+
+
+class StyleUsageError(StyleError, UsageError):
+    """The output name is wrong, known without opening a file (exit code 2)."""
 
 
 STYLE_FORMAT = "py-tbparse-style"
@@ -516,9 +524,9 @@ def _plan(existing: list[dict], incoming: list[dict], on_clash: str, select) -> 
     return rows, entries
 
 
-def _clash_error(rows: list[dict]) -> StyleError:
+def _clash_error(rows: list[dict]) -> StyleClashError:
     names = ", ".join(repr(r["name"]) for r in rows if r["action"] == "fail")
-    return StyleError(
+    return StyleClashError(
         f"palette name already used with other colours: {names}. Use on_clash='replace' (--on-clash replace) for a "
         "new version of the palette, 'rename' to keep both, or 'skip' to keep the existing one")
 
@@ -619,7 +627,7 @@ def import_palettes(target: Union[PathLike, TwbParser], palettes: _Palettes, out
     _, _, source = _target(target)
     out = Path(output_path) if output_path else source.with_name(f"{source.stem}_palettes{source.suffix}")
     if out.suffix.lower() != source.suffix.lower():
-        raise StyleError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
+        raise StyleUsageError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
     if out.exists() and _is_same_file(out, source):
         raise OutputRefusedError(f"refusing to overwrite the input: {out}")
     data = build_with_palettes(target, palettes, on_clash=on_clash, select=select, report=report)
@@ -664,7 +672,7 @@ def export_palettes(sources: list, output_path: PathLike, select=None, on_clash:
     out = Path(output_path)
     kind = "json" if out.name.lower().endswith(".style.json") else "tps" if out.suffix.lower() == ".tps" else None
     if kind is None:
-        raise StyleError(f"the output must end in .tps or .style.json, got {out.name}")
+        raise StyleUsageError(f"the output must end in .tps or .style.json, got {out.name}")
     for s in sources:
         if not isinstance(s, (dict, list)) and out.exists() and not isinstance(s, TwbParser) and _is_same_file(out, Path(s)):
             raise OutputRefusedError(f"refusing to overwrite the input: {out}")
@@ -1437,7 +1445,7 @@ def build_styled(target: Union[PathLike, TwbParser], style: Union[dict, PathLike
     if failed:
         shown = ", ".join(f"{r['scope']}: {r['where']}/{r['attr']} (target has {r['current']!r}, style has {r['new']!r})"
                           for r in failed)
-        raise StyleError(f"{len(failed)} format(s) already set in the target with another value: {shown}. "
+        raise StyleClashError(f"{len(failed)} format(s) already set in the target with another value: {shown}. "
                          "Use force (--force) to replace them or on_clash='skip' (--on-clash skip) to keep them")
     doc = copy.deepcopy(parser.xml_doc)
     _write_workbook_rows(doc, rows)
@@ -1460,7 +1468,7 @@ def apply_style(target: Union[PathLike, TwbParser], style: Union[dict, PathLike,
     _, source = _format_target(target)
     out = Path(output_path) if output_path else source.with_name(f"{source.stem}{STYLED_SUFFIX}{source.suffix}")
     if out.suffix.lower() != source.suffix.lower():
-        raise StyleError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
+        raise StyleUsageError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
     if out.exists() and _is_same_file(out, source):
         raise OutputRefusedError(f"refusing to overwrite the input: {out}")
     data = build_styled(target, style, scopes=scopes, dashboards=dashboards, sheets=sheets, force=force,

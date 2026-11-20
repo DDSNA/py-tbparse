@@ -1046,7 +1046,7 @@ def _library_plan(payload: dict) -> dict:
     blocked = None
     try:
         plan = _library.plan_import(parser, lib, datasource=ds, on_clash=policy)
-    except _library.LibraryError as e:
+    except _library.LibraryClashError as e:
         if policy != "fail":
             raise
         # `fail` stops at the first clash. Show every clash (as `rename` would plan them) so the report is whole.

@@ -28,9 +28,9 @@ from typing import Iterable, Optional, Union
 
 from lxml import etree
 
-from .errors import OutputRefusedError
+from .errors import IntegrityError, OutputRefusedError, RefusedError, UsageError
 from . import library as _lib
-from .library import CLASH_POLICIES, LibraryError, _PARAMETERS, _unbracket
+from .library import CLASH_POLICIES, LibraryClashError, LibraryError, _PARAMETERS, _unbracket
 from .parser import TwbParser
 from .rename import _insert_column, _serialize_workbook
 from .sheetcopy_core import (
@@ -46,6 +46,18 @@ _NUMBERED = re.compile(r"^(.*) \((\d+)\)$")
 
 class SheetCopyAbort(SheetCopyError):
     """The whole run stops before anything is written (a clash under `fail`, a strict refusal, an unknown sheet)."""
+
+
+class SheetCopyRefused(SheetCopyAbort, RefusedError):
+    """A clash under `fail`, `--strict`, or nothing copyable: declined on purpose (exit code 5)."""
+
+
+class SheetCopyUsageError(SheetCopyAbort, UsageError):
+    """The output name is wrong for the target, known without opening a file (exit code 2)."""
+
+
+class SheetCopyIntegrityError(SheetCopyAbort, IntegrityError):
+    """The integrity check found new problems in the result (exit code 6)."""
 
 
 def _parser(x) -> TwbParser:
@@ -162,14 +174,14 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
             continue
         groups = [n for n in cmp["clash"] if n in c.groups]
         if groups and on_clash == "fail":
-            raise SheetCopyAbort(f"{s!r}: a group or set is already in the target with other members (on_clash='fail'): "
+            raise SheetCopyRefused(f"{s!r}: a group or set is already in the target with other members (on_clash='fail'): "
                                  + ", ".join(groups))
         bins = [n for n in cmp["clash"] if n in c.bins or n in c.groups]
         if bins:
             refuse(s, "a bin, group or set of the same name differs in the target: " + ", ".join(bins))
             continue
         if cmp["clash"] and on_clash == "fail":
-            raise SheetCopyAbort(f"{s!r}: already in the target with another definition (on_clash='fail'): "
+            raise SheetCopyRefused(f"{s!r}: already in the target with another definition (on_clash='fail'): "
                                  + ", ".join(cmp["clash"]))
         if cmp["blocked"] and on_clash == "skip":
             refuse(s, "keeping the target's version of " + ", ".join(cmp["clash"])
@@ -184,7 +196,7 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
             continue
         if s in tw:
             if on_clash == "fail":
-                raise SheetCopyAbort(f"{s!r} is already a sheet or dashboard of the target (on_clash='fail')")
+                raise SheetCopyRefused(f"{s!r} is already a sheet or dashboard of the target (on_clash='fail')")
             if on_clash == "skip":
                 results[s].update(status="skipped", reason="the target already has a sheet or dashboard of that name")
                 continue
@@ -213,6 +225,8 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
         lib = _lib.export_library(src, datasource=ds, select=select, include_parameters=True)
         try:
             plan, actions, T = _lib._plan(tparser, lib, ds, None, on_clash)
+        except LibraryClashError as e:
+            raise SheetCopyRefused(str(e)) from e
         except LibraryError as e:
             raise SheetCopyAbort(str(e)) from e
         rows = plan[plan["uid"] != ""].to_dict("records")
@@ -234,6 +248,8 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
                 lib = _lib.export_library(src, datasource=ds, select=select, include_parameters=True)
                 try:
                     plan, actions, T = _lib._plan(tparser, lib, ds, None, on_clash)
+                except LibraryClashError as e:
+                    raise SheetCopyRefused(str(e)) from e
                 except LibraryError as e:
                     raise SheetCopyAbort(str(e)) from e
                 rows = [r for r in plan[plan["uid"] != ""].to_dict("records")]
@@ -294,7 +310,7 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
             res["dropped"].append(f"{n_actions} dashboard action(s) naming the sheet (actions are not copied)")
     if strict and any(r["dropped"] for r in results.values() if r["status"] == "copy"):
         what = "; ".join(f"{s}: {', '.join(r['dropped'])}" for s, r in results.items() if r["dropped"])
-        raise SheetCopyAbort("--strict: the copy would drop " + what)
+        raise SheetCopyRefused("--strict: the copy would drop " + what)
 
     # 5. the result must hold together
     from .dashboards import integrity_check
@@ -302,7 +318,7 @@ def _run(source, target, sheets: Iterable[str], on_clash: str = "fail", strict: 
     before = integrity_check(dst.xml_doc)
     new = [p for p in problems if p not in before]
     if new:
-        raise SheetCopyAbort("integrity check failed on the result: " + "; ".join(p["check"] + " " + p["detail"] for p in new))
+        raise SheetCopyIntegrityError("integrity check failed on the result: " + "; ".join(p["check"] + " " + p["detail"] for p in new))
 
     if ctx is not None:
         ctx.update(failed=all_failed, results=results, names=names, params=params, taken=taken, copied=copied, src=src, dst=dst,
@@ -350,7 +366,7 @@ def copy_sheets(source, target, sheets: Iterable[str], output_path: Optional[str
     tpath = Path(tp.twbx_path or tp.path)
     out = Path(output_path) if output_path else tpath.with_name(f"{tpath.stem}_sheetcopy{tpath.suffix}")
     if out.suffix.lower() != tpath.suffix.lower():
-        raise SheetCopyAbort(f"output must end in {tpath.suffix}, got {out.suffix or 'no extension'}")
+        raise SheetCopyUsageError(f"output must end in {tpath.suffix}, got {out.suffix or 'no extension'}")
     sp = _parser(source)
     for p in (tpath, Path(sp.twbx_path or sp.path)):
         if out.exists() and out.resolve() == p.resolve():
@@ -359,7 +375,7 @@ def copy_sheets(source, target, sheets: Iterable[str], output_path: Optional[str
         raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     data, report = build_sheet_copy(sp, tp, sheets, on_clash, strict)
     if report["copied"] == 0:
-        raise SheetCopyAbort("no sheet could be copied; nothing written")
+        raise SheetCopyRefused("no sheet could be copied; nothing written")
     with open(out, "wb" if overwrite else "xb") as fh:
         fh.write(data)
     return str(out), report

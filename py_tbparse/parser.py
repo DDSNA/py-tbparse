@@ -11,6 +11,7 @@ from typing import Optional
 import pandas as pd
 from lxml import etree
 
+from .errors import InputError, IntegrityError
 from ._clean import internal_last
 from ._xml import PathLike, parse_file, read_twb_from_twbx
 from .calculated_fields import _CALC_COLUMNS, _RAW_COLUMNS, extract_calculated_fields, extract_raw_fields
@@ -74,7 +75,7 @@ class TwbParser:
             self.path = path
             self.xml_doc = parse_file(path)
         else:
-            raise ValueError(f"Unsupported file type: {ext}")
+            raise InputError(f"Unsupported file type: {ext}")
 
         # Every fallback below uses the extractor's own correctly-columned
         # empty DataFrame (per AGENTS.md's "empty-input contract") rather
@@ -273,7 +274,7 @@ class TwbParser:
         v = validate_relationships(self)
         self.last_validation = v
         if error and not v["ok"]:
-            raise ValueError("Validation failed. See parser.last_validation['issues'].")
+            raise IntegrityError("Validation failed. See parser.last_validation['issues'].")
         return v
 
     # --- summary ---
