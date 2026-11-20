@@ -652,3 +652,258 @@ def test_a_dashboard_with_no_positions_shows_the_empty_state_and_still_lists_its
     assert wide.locator("#layoutPanel ol.lp-unplaced li").count() == 3
     assert _lines(wide).count() == 1
     assert wide.locator("#layoutPanel ol.lp-unplaced li[tabindex]").count() == 0
+
+
+# ---- WP3: the panel and the Dashboards table work together (spec layout-wp3-table-integration.md) ---------------------------
+
+def _wait_title(page, name):
+    page.wait_for_function("n => { const t = document.getElementById('lpTitle'); return t && t.textContent === n }",
+                           arg=name, timeout=10_000)
+
+
+def _row(page, name):
+    return page.locator("#tableWrap tbody tr[data-pos]").filter(has=page.get_by_text(name, exact=True)).first
+
+
+def _active_pos(page):
+    return page.evaluate("() => document.activeElement.tagName + ':' + document.activeElement.dataset.pos")
+
+
+def _many_page(browser, gui_server, tmp_path, n=300):
+    path = tmp_path / "many.twb"
+    path.write_text(lf.many_dashboards_workbook(n), encoding="utf-8")
+    pg = new_page(browser, gui_server, viewport=WIDE)
+    _load(pg, str(path))
+    _open(pg, "dashboards")
+    pg.wait_for_selector("#tableWrap tbody tr[data-pos]", timeout=10_000)
+    return pg
+
+
+def test_arrow_keys_update_the_panel_after_a_pause(wide):
+    from test_gui_browser import _copy_column
+    names = _copy_column(wide, "name")
+    first = wide.locator("#tableWrap tbody tr[data-pos='0']")
+    first.focus()
+    wide.keyboard.press("Enter")
+    _wait_title(wide, names[0])
+    wide.keyboard.press("ArrowDown")
+    wide.wait_for_timeout(400)
+    _wait_title(wide, names[1])
+    assert _active_pos(wide) == "TR:1"                                   # focus stayed on the row
+    assert wide.evaluate("() => [...document.querySelectorAll('#tableWrap tr[aria-current=true]')].map(t => t.dataset.pos)") == ["1"]
+    wide.keyboard.press("End")                                           # Home, End and the Page keys follow too
+    wide.wait_for_timeout(400)
+    _wait_title(wide, names[-1])
+    wide.keyboard.press("Home")
+    wide.wait_for_timeout(400)
+    _wait_title(wide, names[0])
+    assert wide.js_errors == []
+
+
+def test_arrow_keys_do_nothing_to_the_panel_when_it_is_closed(wide):
+    wide.locator("#tableWrap tbody tr[data-pos='0']").focus()
+    wide.keyboard.press("ArrowDown")
+    wide.wait_for_timeout(400)
+    assert wide.locator("#layoutPanel").is_hidden() and wide.locator("#drawer").is_hidden()
+
+
+def test_holding_a_key_sends_one_request(browser, gui_server, tmp_path):
+    pg = _many_page(browser, gui_server, tmp_path)
+    try:
+        pg.locator("#tableWrap tbody tr[data-pos='0']").focus()
+        pg.keyboard.press("Enter")
+        _wait_title(pg, "D001")
+        pg.wait_for_selector("#layoutPanel .lp-list")
+        seen = []
+        pg.on("request", lambda r: seen.append(r.url) if "/dashboard-layout" in r.url else None)
+        for _ in range(10):
+            pg.keyboard.press("ArrowDown")
+            pg.wait_for_timeout(20)
+        pg.wait_for_timeout(500)
+        _wait_title(pg, "D011")
+        assert len(seen) == 1 and "D011" in seen[0]
+        assert _active_pos(pg) == "TR:10"
+        assert pg.js_errors == []
+    finally:
+        pg.ctx.close()
+
+
+def test_sort_keeps_the_dashboard(wide):
+    _pick(wide, "Grid")
+    head = wide.locator("#tableWrap th").filter(has=wide.locator(".th-label", has_text="name")).first
+    for _ in range(2):                                                   # ascending, then descending
+        head.click()
+        wide.wait_for_timeout(400)
+    assert wide.locator("#lpTitle").inner_text() == "Grid"
+    assert wide.locator("#layoutPanel .lp-list").count() == 1
+    current = wide.locator("#tableWrap tr[aria-current=true]")
+    assert current.count() == 1 and "Grid" in current.inner_text()
+    assert wide.js_errors == []
+
+
+def test_filter_that_hides_the_row_closes_the_panel(wide):
+    _pick(wide, "Grid")
+    wide.fill("#filter", "Grid")                                         # keeps it
+    wide.wait_for_timeout(400)
+    assert wide.locator("#layoutPanel").is_visible() and wide.locator("#lpTitle").inner_text() == "Grid"
+    assert wide.locator("#tableWrap tr[aria-current=true]").count() == 1
+    wide.fill("#filter", "Nested")                                       # hides it
+    wide.wait_for_function("() => document.getElementById('layoutPanel').hidden", timeout=5_000)
+    assert wide.locator("#status").inner_text() == "The layout panel closed: its dashboard is filtered out."
+    assert wide.locator("#tableWrap tr[aria-current=true]").count() == 0
+    wide.fill("#filter", "")                                             # clearing the filter does not reopen it
+    wide.wait_for_timeout(400)
+    assert wide.locator("#layoutPanel").is_hidden()
+    assert wide.js_errors == []
+
+
+def test_a_column_filter_that_hides_the_row_closes_the_panel(wide):
+    _pick(wide, "Grid")
+    wide.evaluate("() => { const f = document.getElementById('filter'); f.value = 'zzzz'; f.dispatchEvent(new Event('input')); }")
+    wide.wait_for_function("() => document.getElementById('layoutPanel').hidden", timeout=5_000)
+
+
+def test_escape_closes_the_panel_and_keeps_focus_on_the_row(wide):
+    _pick(wide, "Grid")
+    row = _row(wide, "Grid")
+    row.focus()
+    wide.keyboard.press("Escape")
+    assert wide.locator("#layoutPanel").is_hidden()
+    assert _active_pos(wide) == "TR:" + row.get_attribute("data-pos")
+
+
+def test_escape_in_the_list_first_clears_then_closes(wide):
+    _pick(wide, "Mixed overlap")
+    line = _line(wide, "Tie B")
+    line.focus()
+    wide.keyboard.press("Enter")
+    assert wide.locator("#layoutPanel [aria-current]").count() == 1
+    wide.keyboard.press("Escape")
+    assert wide.locator("#layoutPanel [aria-current]").count() == 0 and wide.locator("#layoutPanel").is_visible()
+    wide.keyboard.press("Escape")
+    assert wide.locator("#layoutPanel").is_hidden()
+    assert _active_pos(wide) == "TR:" + _row(wide, "Mixed overlap").get_attribute("data-pos")
+
+
+def test_all_columns_drawer_is_unchanged(wide):
+    from test_gui_browser import _copy_column
+    cols = wide.evaluate("() => [...document.querySelectorAll('#tableWrap th .th-label')].map(e => e.textContent)")
+    values = {c: _copy_column(wide, c) for c in cols}
+    _pick(wide, "Grid")
+    pos = int(_row(wide, "Grid").get_attribute("data-pos"))
+    wide.get_by_role("button", name="All columns of Grid").click()
+    wide.wait_for_selector("#drawer.show")
+    shown = wide.evaluate("() => Object.fromEntries([...document.querySelectorAll('#drawerBody dt')].map("
+                          "(dt) => [dt.textContent, dt.nextElementSibling.textContent]))")
+    for c in cols:
+        want = values[c][pos]
+        assert shown[c] == (want if want != "" else "—"), c
+    wide.keyboard.press("Escape")
+    wide.wait_for_selector("#drawer", state="hidden")
+    assert wide.locator("#layoutPanel .lp-list").count() == 1            # Escape closed only the drawer
+
+
+def test_drawer_still_works_on_every_other_table(wide):
+    tables = wide.evaluate("() => window.TABLE_NAMES.filter((n) => n !== 'dashboards')")
+    opened = 0
+    for name in tables:
+        _open(wide, name)
+        wide.wait_for_timeout(200)
+        rows = wide.locator("#tableWrap tbody tr[data-pos]")
+        if rows.count() == 0:
+            continue
+        rows.first.click()
+        wide.wait_for_selector("#drawer.show")
+        assert wide.locator("#layoutPanel").is_hidden(), name
+        wide.keyboard.press("Escape")
+        wide.wait_for_selector("#drawer", state="hidden")
+        opened += 1
+    assert opened >= 2
+
+
+def test_other_workbook_clears_the_panel(wide, tmp_path):
+    _pick(wide, "Grid")
+    other = tmp_path / "other.twb"
+    other.write_text(lf.grid_workbook(), encoding="utf-8")
+    _load(wide, str(other))
+    wide.wait_for_load_state("networkidle")
+    assert wide.locator("#layoutPanel").is_hidden() and wide.locator("#layoutPanel").inner_html() == ""
+    assert wide.evaluate("() => document.querySelectorAll('#tableWrap tr[aria-current=true]').length") == 0
+
+
+def test_reloading_the_same_workbook_clears_the_panel(wide, wb_path):
+    _pick(wide, "Grid")
+    _load(wide, wb_path)
+    wide.wait_for_load_state("networkidle")
+    assert wide.locator("#layoutPanel").is_hidden()
+
+
+def test_a_dashboard_gone_from_the_workbook_says_so_and_clears_the_row_mark(wide):
+    wide.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => /dashboard-layout/.test(String(u))
+          ? Promise.resolve(new Response(JSON.stringify({error: 'gone'}), {status: 404, headers: {'Content-Type': 'application/json'}}))
+          : real(u, o); }""")
+    wide.locator("#tableWrap tbody tr[data-pos='0']").click()
+    wide.wait_for_selector("#layoutPanel .lp-empty")
+    assert "no longer in the workbook" in wide.locator("#layoutPanel .lp-empty").inner_text()
+    assert wide.locator("#tableWrap tr[aria-current=true]").count() == 0
+
+
+def test_cards_mode_closes_the_panel_and_going_back_does_not_reopen_it(wide):
+    _pick(wide, "Grid")
+    wide.get_by_role("button", name="Cards").click()
+    wide.wait_for_function("() => document.getElementById('layoutPanel').hidden", timeout=5_000)
+    wide.get_by_role("button", name="Table").click()
+    wide.wait_for_selector("#tableWrap tbody tr[data-pos]")
+    wide.wait_for_timeout(300)
+    assert wide.locator("#layoutPanel").is_hidden()
+
+
+@pytest.mark.parametrize("delayed", [False, True])
+def test_overlap_state_does_not_leak(browser, gui_server, tmp_path, delayed):
+    path = tmp_path / "mixed.twb"
+    path.write_text(lf.workbook(lf.mixed_overlap_dashboard(), lf.grid_dashboard()), encoding="utf-8")
+    pg = new_page(browser, gui_server, viewport=WIDE)
+    try:
+        _load(pg, str(path))
+        _open(pg, "dashboards")
+        pg.wait_for_selector("#tableWrap tbody tr[data-pos]")
+        if delayed:
+            pg.evaluate("""() => { const real = window.fetch; window.__late = false;
+                window.fetch = (u, o) => /Mixed/.test(String(u))
+                  ? new Promise((r) => setTimeout(r, 500)).then(() => real(u, o)).then((res) => {
+                      const json = res.json.bind(res);
+                      res.json = () => json().then((d) => { setTimeout(() => { window.__late = true; }, 0); return d; });
+                      return res; })
+                  : real(u, o); }""")
+            _row(pg, "Mixed overlap").click()
+            _pick(pg, "Grid")
+            pg.wait_for_function("() => window.__late === true", timeout=10_000)
+        else:
+            _pick(pg, "Mixed overlap")
+            assert _conds(pg) != [] or _frame_dashed(pg)
+            _pick(pg, "Grid")
+        assert pg.locator("#lpTitle").inner_text() == "Grid"
+        assert _note(pg) == STANDING and _conds(pg) == [] and _frame_dashed(pg) is False
+        assert set(_lines(pg).locator(".lp-hint").all_inner_texts()) == {""}
+        assert pg.js_errors == []
+    finally:
+        pg.ctx.close()
+
+
+def test_many_dashboards_keep_one_drawing(browser, gui_server, tmp_path):
+    pg = _many_page(browser, gui_server, tmp_path)
+    try:
+        pg.locator("#tableWrap tbody tr[data-pos='0']").click()
+        _wait_title(pg, "D001")
+        pg.wait_for_selector("#layoutPanel .lp-list")
+        for _ in range(3):
+            pg.keyboard.press("ArrowDown")
+            pg.wait_for_timeout(400)
+        assert pg.locator("svg.lp-svg").count() == 1
+        count = pg.evaluate("() => document.querySelectorAll('#layoutPanel *').length")
+        print("panel descendants for a 2-zone dashboard:", count)
+        assert count < 120
+        assert pg.evaluate("() => document.querySelectorAll('#tableWrap tbody tr').length") < 100   # the table is windowed
+    finally:
+        pg.ctx.close()

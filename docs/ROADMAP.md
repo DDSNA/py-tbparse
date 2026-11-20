@@ -78,7 +78,7 @@ Owner decisions: option A cards shipped (#197); the preview panel replaces the r
 | C1 | WP0 layout census | built, unreleased (#209) | (plan) | |
 | C2 | WP1 `GET /dashboard-layout` | built, unreleased (#211) | (plan) | |
 | C3 | WP2 panel, drawing, list (also the row integration and two additive endpoint fields) | built, unreleased (#215) | (plan) | |
-| C4 | WP3 Dashboards table integration: sort/filter survival, debounced requests, Escape, reload | planned | `docs/specs/layout-wp3-table-integration.md` | C3 built |
+| C4 | WP3 Dashboards table integration: sort/filter survival, debounced requests, Escape, reload | built, PR open (not merged) | `docs/specs/layout-wp3-table-integration.md` | C3 built |
 | C5 | WP4 phone layout, themes, docs | planned | `layout-wp4-phone-themes-docs.md` | C4 |
 | C6 | WP5 open the panel from a card | dropped (owner 2026-10-18) | | |
 | C7 | screen-reader pass and a comparison with Tableau Desktop | blocked | plan, "What is unverified" | the owner (no screen reader or Tableau here) |
