@@ -20,7 +20,6 @@ import heapq
 import json
 import os
 import re
-import warnings
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
@@ -633,30 +632,6 @@ def _next_param_name(name: str, taken: set) -> str:
     return f"[{prefix}{n}]"
 
 
-class _NotPassed:
-    """Type of `NOT_PASSED`, the default of `on_clash` in the three public import functions."""
-
-    def __repr__(self) -> str:
-        return "<on_clash not passed>"
-
-
-_NOT_PASSED = _NotPassed()
-
-
-def _resolve_on_clash(on_clash, stacklevel: int = 3) -> str:
-    """The clash policy to use. Not passed: `rename` for now, with a DeprecationWarning that points at the
-    caller of the public function (`stacklevel=3` from a helper called by it)."""
-    if on_clash is not _NOT_PASSED:
-        return on_clash
-    # TODO 0.6.0: the default becomes "fail" (issue #128), like the CLI, the GUI, sheet copy and dashboard copy.
-    # Drop this warning then and give the three signatures `on_clash: str = "fail"`.
-    warnings.warn(
-        "on_clash was not passed: the library import functions default to 'rename' now, but the default "
-        "becomes 'fail' in py-tbparse 0.6.0 (as in the command line and the GUI). Pass on_clash explicitly.",
-        DeprecationWarning, stacklevel=stacklevel)
-    return "rename"
-
-
 def _plan(parser: TwbParser, library: dict, datasource: Optional[str], mapping, on_clash: str):
     """Work out what an import does. Returns `(plan, actions, target_el)`: the plan table, one action
     per entry that is added and the target datasource element."""
@@ -833,13 +808,12 @@ def plan_import(
     library: dict,
     datasource: Optional[str] = None,
     mapping: Union[dict, PathLike, pd.DataFrame, None] = None,
-    on_clash: Union[str, _NotPassed] = _NOT_PASSED,
+    on_clash: str = "fail",
 ) -> pd.DataFrame:
     """What `import_library` would do, one row per required item (`action` `mapped` or `unmapped`) and per
     entry (`add`, `add-renamed`, `skip-identical`, `skip-clash`, `fail-unmapped` or `fail-dependency`), with
     why. Nothing is written. Columns are `PLAN_COLUMNS`. Raises `LibraryError` for `on_clash='fail'` when
-    something clashes, or when the library's entries depend on each other in a circle."""
-    on_clash = _resolve_on_clash(on_clash)
+    something clashes, or when the library's entries depend on each other in a circle. `on_clash` defaults to `"fail"`: the first clash raises `LibraryError` and nothing is written."""
     return _plan(parser, library, datasource, mapping, on_clash)[0]
 
 
@@ -944,15 +918,14 @@ def build_imported_workbook(
     library: dict,
     datasource: Optional[str] = None,
     mapping: Union[dict, PathLike, pd.DataFrame, None] = None,
-    on_clash: Union[str, _NotPassed] = _NOT_PASSED,
+    on_clash: str = "fail",
     report: Optional[dict] = None,
 ) -> bytes:
     """Bytes of a copy of the workbook with the library's calculations and parameters added (see
     `plan_import` for what is added and why). A `.twb` gives `.twb` bytes; a `.twbx` gives a `.twbx` with every
     other member copied across untouched. `report`, if a dict, receives `added`, `skipped_identical`,
     `renamed`, `skipped`, `failed`, `skipped_dependents` and `renamed_internal`, each a count with a
-    `<name>_names` list."""
-    on_clash = _resolve_on_clash(on_clash)
+    `<name>_names` list. `on_clash` defaults to `"fail"`: the first clash raises `LibraryError` and nothing is written."""
     plan, actions, target = _plan(parser, library, datasource, mapping, on_clash)
     _report(report, plan)
     doc = copy.deepcopy(parser.xml_doc)
@@ -973,15 +946,14 @@ def import_library(
     library: Union[dict, str, os.PathLike],
     datasource: Optional[str] = None,
     mapping: Union[dict, PathLike, pd.DataFrame, None] = None,
-    on_clash: Union[str, _NotPassed] = _NOT_PASSED,
+    on_clash: str = "fail",
     output_path: Optional[PathLike] = None,
     overwrite: bool = False,
     report: Optional[dict] = None,
 ) -> str:
     """Write a copy of the workbook with the library added and return its path. The output defaults to
     `<name>_library.<ext>` beside the source, must keep the source's extension, and the input is never
-    overwritten (an existing output only with `overwrite=True`). `library` is a dict or a path."""
-    on_clash = _resolve_on_clash(on_clash)    # here, so the warning points at the caller of import_library
+    overwritten (an existing output only with `overwrite=True`). `library` is a dict or a path. `on_clash` defaults to `"fail"`: the first clash raises `LibraryError` and nothing is written."""
     library = _load(library)
     source = Path(parser.twbx_path or parser.path)
     out = Path(output_path) if output_path else source.with_name(f"{source.stem}_library{source.suffix}")
