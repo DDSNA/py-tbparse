@@ -23,6 +23,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
+from .errors import OutputRefusedError
 from ._clean import is_missing
 from ._xml import PathLike, check_package, read_member
 from .parser import TwbParser
@@ -818,7 +819,7 @@ def apply_field_renames(
     if out.suffix.lower() != source.suffix.lower():
         raise ValueError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
     if out.exists() and (out.resolve() == source.resolve() or not overwrite):
-        raise FileExistsError(f"refusing to overwrite existing file: {out}")
+        raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     data = build_renamed_workbook(parser, renames)
     # "xb" refuses a file created since the exists() check, like the GUI does.
     with open(out, "wb" if overwrite else "xb") as fh:

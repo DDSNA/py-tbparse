@@ -32,6 +32,7 @@ from typing import Iterable, Optional, Union
 
 import pandas as pd
 
+from .errors import OutputRefusedError
 from .findings import Subject, finding, rule, rule_ids, rules, run_rules
 from .multifile import MAX_FILES, FilePart, MultiSource, read_many
 from .rename import _match_key
@@ -431,7 +432,7 @@ def save_union_answers(source, files, output: str, answers=None, datasource: Opt
     saved = load_answers(answers if answers is not None else source)
     out = Path(output)
     if out.exists():
-        raise FileExistsError(f"{out} exists; refusing to overwrite")
+        raise OutputRefusedError(f"{out} exists; refusing to overwrite")
     block = ctx.multi.block(str(out.resolve().parent))
     saved.pop("_base_dir", None)
     name = ctx.entry["name"]

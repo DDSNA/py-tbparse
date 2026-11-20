@@ -26,6 +26,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
+from .errors import OutputRefusedError
 from ._clean import is_missing
 from ._xml import PathLike, PyTbparseError, parse_bytes
 from .parser import TwbParser
@@ -960,7 +961,7 @@ def import_library(
     if out.suffix.lower() != source.suffix.lower():
         raise LibraryError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
     if out.exists() and (out.resolve() == source.resolve() or not overwrite):
-        raise FileExistsError(f"refusing to overwrite existing file: {out}")
+        raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     data = build_imported_workbook(parser, library, datasource, mapping, on_clash, report)
     with open(out, "wb" if overwrite else "xb") as fh:    # "xb" refuses a file created since the check
         fh.write(data)

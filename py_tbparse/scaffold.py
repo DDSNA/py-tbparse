@@ -22,6 +22,7 @@ from typing import Optional, Union
 import pandas as pd
 from lxml import etree
 
+from .errors import OutputRefusedError
 from .dashboards import CONTAINER_KINDS, _dashboard_xpath, integrity_check, zone_kind
 from ._xml import PathLike, PyTbparseError, parse_bytes
 from .parser import TwbParser
@@ -161,7 +162,7 @@ def save_scaffold(scaffold: dict, path: Union[str, os.PathLike], overwrite: bool
     _check(scaffold)
     out = Path(path)
     if out.exists() and not overwrite:
-        raise FileExistsError(f"refusing to overwrite existing file: {out}")
+        raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     with open(out, "w" if overwrite else "x", encoding="utf-8") as fh:
         json.dump(scaffold, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
@@ -325,7 +326,7 @@ def apply_scaffold(wb: Union[TwbParser, str, os.PathLike], scaffold: Union[dict,
     if out.suffix.lower() != source.suffix.lower():
         raise ScaffoldError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
     if out.exists() and (out.resolve() == source.resolve() or not overwrite):
-        raise FileExistsError(f"refusing to overwrite existing file: {out}")
+        raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     data = build_scaffold_workbook(parser, scaffold, name, sheets, allow_empty, report)
     with open(out, "wb" if overwrite else "xb") as fh:
         fh.write(data)

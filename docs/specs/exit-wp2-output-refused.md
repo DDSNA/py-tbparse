@@ -11,13 +11,13 @@ Track: 0.6.0 exit codes and errors. Plan: [plan-0.6.0-exit-codes-and-errors.md](
 
 Every deliberate "refusing to overwrite" in the library raises `OutputRefusedError` (from `py_tbparse.errors`) instead of `FileExistsError`. Because `OutputRefusedError` is also a `FileExistsError`, a `ValueError` and an `OSError`, every existing `except` keeps working. Messages stay byte-identical. No exit code changes in this package (the CLI still chooses codes by its `except` clauses until A4).
 
-## The sites (25 on `main` at `1130fa9`; the plan counted 24 at `1fa6acd`)
+## The sites (26 on `main` at `7c0a250`; the plan counted 24 at `1fa6acd`)
 
 Found with `grep -n 'raise FileExistsError' py_tbparse/*.py`. Re-run it on your base: PR #213 (WP7-2b) adds `raise FileExistsError` in `style.apply_style`, and any WP7 package merged before you adds more. Convert every site you find, not only this list.
 
 | File | Lines (approx.) | Message (keep exactly) |
 | --- | --- | --- |
-| `cli.py` | 585, 1064 | `refusing to overwrite {out} (pass --overwrite)`; `refusing to overwrite the input: {out}` |
+| `cli.py` | 607, 1112 | `refusing to overwrite {out} (pass --overwrite)`; `refusing to overwrite the input: {out}` |
 | `dashboardcopy.py` | 425, 427 | `refusing to overwrite an input: {out}`; `refusing to overwrite existing file: {out}` |
 | `library.py` | 991 | `refusing to overwrite existing file: {out}` |
 | `prune.py` | 401, 403 | the input workbook; existing file `(use --overwrite)` |
@@ -25,14 +25,14 @@ Found with `grep -n 'raise FileExistsError' py_tbparse/*.py`. Re-run it on your 
 | `scaffold.py` | 164, 328 | existing file |
 | `sheetcopy.py` | 356, 358 | an input; existing file |
 | `slicer.py` | 217, 219 | the input workbook; existing file `(use --overwrite)` |
-| `style.py` | 313, 315, 607, 653 | `refusing to write over {path}: write a new file and copy it into place yourself`; existing file; the input (twice) |
+| `style.py` | 313, 315, 623, 669, 1464 | `refusing to write over {path}: write a new file and copy it into place yourself`; existing file; the input (three times) |
 | `sanitize.py` | 498 | the input workbook |
 | `template_batch.py` | 216 | `refusing to overwrite {summary} (pass overwrite)` |
 | `template_drift.py` | 434 | `{out} exists; refusing to overwrite` |
 | `template_update.py` | 436 | an input |
 | `templates.py` | 309, 400, 1739 | existing file; the source workbook; an input |
 
-Also in scope (plan section 5): the `cli.py` site that raises `ValueError(f"--output {args.output} is the template itself; it would be overwritten")` (around line 774, in `_run_template`) becomes `OutputRefusedError` with the same message.
+Also in scope (plan section 5; it was a `ValueError` on main, and the plain `except ValueError` handlers still catch it): the `cli.py` site that raises `ValueError(f"--output {args.output} is the template itself; it would be overwritten")` (around line 796, in `_run_template`) becomes `OutputRefusedError` with the same message.
 
 Out of scope: places that refuse by printing and returning a code without raising (`_run_docs`, `_run_diff_xml` in `cli.py`); A5 and A6 handle them. `open(..., "x")` calls that let Python raise its own `FileExistsError` (search `"xb"` and `'x'`): leave them; A4 maps a plain `FileExistsError` to 4, and the explicit check before them (where there is one) raises the new class. List any such place you find in the PR body.
 

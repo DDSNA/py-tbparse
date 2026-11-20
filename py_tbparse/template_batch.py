@@ -19,6 +19,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
+from .errors import OutputRefusedError
 from ._xml import PathLike
 from .connections import is_target_file
 from .templates import (
@@ -213,7 +214,7 @@ def apply_template_folder(
     out_dir = Path(output_dir) if output_dir else Path(directory) / "out"
     summary = (out_dir / SUMMARY_NAME) if summary_path in (None, True) else (Path(summary_path) if summary_path else None)
     if summary is not None and summary.exists() and not overwrite:
-        raise FileExistsError(f"refusing to overwrite {summary} (pass overwrite)")
+        raise OutputRefusedError(f"refusing to overwrite {summary} (pass overwrite)")
     paths = _find_inputs(directory, patterns)
     frame_mapping = load_mapping(mapping) if mapping is not None else None
     prefix = Path(template_path).name

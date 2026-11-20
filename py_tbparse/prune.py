@@ -34,6 +34,7 @@ from typing import Optional, Union
 
 from lxml import etree
 
+from .errors import OutputRefusedError
 from ._xml import PathLike, PyTbparseError
 from .findings import Subject
 from .parser import TwbParser
@@ -398,9 +399,9 @@ def prune(
         if out.suffix.lower() != source.suffix.lower():
             raise PruneError(f"the output must end in {source.suffix}, got {out.suffix or 'no extension'}")
         if out.exists() and source.exists() and (out.resolve() == source.resolve() or out.samefile(source)):
-            raise FileExistsError(f"refusing to overwrite the input workbook: {out}")
+            raise OutputRefusedError(f"refusing to overwrite the input workbook: {out}")
         if out.exists() and not overwrite:
-            raise FileExistsError(f"refusing to overwrite existing file: {out} (use --overwrite)")
+            raise OutputRefusedError(f"refusing to overwrite existing file: {out} (use --overwrite)")
 
     doc = copy.deepcopy(workbook.xml_doc)
     report = prune_doc(doc, sheets=sheets, calculations=calculations, parameters=parameters,

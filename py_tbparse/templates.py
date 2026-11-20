@@ -36,6 +36,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
+from .errors import OutputRefusedError
 from ._clean import is_missing
 from ._xml import PathLike, PyTbparseError, check_package, parse_file, read_member
 from .parser import TwbParser
@@ -306,7 +307,7 @@ def _is_data_member(name: str) -> bool:
 
 def _write_new(path: Path, data: bytes, overwrite: bool) -> None:
     if path.exists() and not overwrite:
-        raise FileExistsError(f"refusing to overwrite existing file: {path}")
+        raise OutputRefusedError(f"refusing to overwrite existing file: {path}")
     with open(path, "wb" if overwrite else "xb") as fh:
         fh.write(data)
 
@@ -397,7 +398,7 @@ def make_template(
     if out.suffix.lower() != ".twbx":
         raise TemplateError(f"a template is a .twbx file, got {out.suffix or 'no extension'}")
     if out.resolve() == Path(parser.twbx_path or parser.path).resolve():
-        raise FileExistsError(f"refusing to overwrite the source workbook: {out}")
+        raise OutputRefusedError(f"refusing to overwrite the source workbook: {out}")
     manifest = build_manifest(parser, name=name, description=description, template_id=template_id,
                               revision=revision, tokens=tokens)
     if revision_of is not None and manifest.get("tokens"):
@@ -1736,7 +1737,7 @@ def apply_template(
     if out.suffix.lower() != ".twbx":
         raise TemplateError(f"output must be a .twbx file, got {out.suffix or 'no extension'}")
     if out.resolve() in (Path(template.path).resolve(), Path(data.path).resolve()):
-        raise FileExistsError(f"refusing to overwrite an input: {out}")
+        raise OutputRefusedError(f"refusing to overwrite an input: {out}")
     packed = _package(template.parser, twb, {ANSWERS_NAME: json.dumps(out_answers, indent=2).encode("utf-8")},
                       keep_data=False, drop=[MANIFEST_NAME])
     _write_new(out, packed, overwrite)

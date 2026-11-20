@@ -4,6 +4,7 @@ Parses Tableau .twb/.twbx workbook files into pandas DataFrames. Ported
 from https://github.com/PrigasG/twbparser (MIT licensed).
 """
 
+from .errors import OutputRefusedError
 from .batch import scan_folder
 from .calculated_fields import extract_calculated_fields, extract_raw_fields
 from .dashboards import dashboard_sheets, integrity_check, list_dashboards, zone_kind
