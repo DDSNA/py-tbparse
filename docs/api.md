@@ -123,7 +123,16 @@ More: [prune.md](prune.md), [slice.md](slice.md), [sanitize.md](sanitize.md). Al
 - `SliceError`: slicing cannot be done as asked.
 - `sanitize`: write a share-safe copy (connection details, SQL, extracts, comments and more removed).
 - `SanitizeError`: the workbook cannot be sanitized as asked.
-- `PyTbparseError`: the common base of the library's own exception classes (`SliceError`, `ScaffoldError`, `SanitizeError`, `SheetCopyError`, `StyleError`, `TemplateError`, `LibraryError`, `PruneError`, `PackageTooLargeError`). It is a `ValueError`, so `except ValueError` keeps working. Plain `ValueError` and `FileExistsError` raised elsewhere (for example a bad `table` name or a refused overwrite) are not instances of it, so catch those separately. Messages are unchanged.
+- `PyTbparseError`: the common base of the library's own exception classes (`SliceError`, `ScaffoldError`, `SanitizeError`, `SheetCopyError`, `StyleError`, `TemplateError`, `LibraryError`, `PruneError`, `PackageTooLargeError`); the categories that set the exit code are listed below and live in `py_tbparse/errors.py`. It is a `ValueError`, so `except ValueError` keeps working. Plain `ValueError` and `FileExistsError` raised elsewhere (for example a bad `table` name or a refused overwrite) are not instances of it, so catch those separately. Messages are unchanged.
+- `UsageError`: a `PyTbparseError` for a bad argument value known without opening a file; exit code 2.
+- `InputError`: a `PyTbparseError` for a file, or a name in it, that cannot be used; exit code 4.
+- `RefusedError`: a `PyTbparseError` for something declined on purpose, nothing written; exit code 5.
+- `OutputRefusedError`: a `RefusedError` that is also a `FileExistsError`, for an output that exists or is an input; exit code 5.
+- `IntegrityError`: a `PyTbparseError` for a result that has, or would have, broken references; exit code 6.
+- `ExitCode`: the `IntEnum` of the exit codes (`OK` 0, `FINDING` 1, `USAGE` 2, `CRASH` 3, `BAD_INPUT` 4, `REFUSED` 5, `INTEGRITY` 6, `PARTIAL` 7).
+- `exit_code_for`: the exit code the command line gives for an exception (see `py_tbparse/errors.py` for the order).
+
+The command line turns these into exit codes from 0.6.0 (see docs/cli.md); until then exit codes are unchanged.
 
 ## Calculation libraries
 

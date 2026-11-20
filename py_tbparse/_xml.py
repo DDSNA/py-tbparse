@@ -17,6 +17,8 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
+from .errors import PyTbparseError
+
 # XPath step for a <relation> element in either spelling. Tableau writes some relations with a feature-flag tag,
 # `_.fcp.ObjectModelEncapsulateLegacy.true...relation` (also `.false...`), which `relation` alone never matches.
 # Use as `.//{ANY_RELATION}[@type='table']`, not `.//relation[...]`.
@@ -55,15 +57,6 @@ MAX_MEMBER_BYTES = 512 * 1024 * 1024
 MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
 MAX_RATIO = 1000
 _RATIO_FLOOR = 8 * 1024 * 1024  # small members are never judged by ratio (tiny XML compresses well)
-
-
-class PyTbparseError(ValueError):
-    """Common base of the library's own exception classes (SliceError, TemplateError, StyleError, ...).
-
-    It is a ``ValueError`` on purpose: existing ``except ValueError`` handlers keep working. Many checks
-    still raise a plain ``ValueError`` or ``FileExistsError``; those are not instances of this class.
-    Messages are unchanged and carry no error codes.
-    """
 
 
 class PackageTooLargeError(PyTbparseError):
