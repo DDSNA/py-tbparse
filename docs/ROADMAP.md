@@ -4,7 +4,7 @@ Part of [py-tbparse](https://github.com/DDSNA/py-tbparse). This is the one page 
 
 Written 2026-10-22, refreshed 2026-11-20 against `main` at `7c0a250` (version 0.5.7 is the last release, tag `v0.5.7` at `7f19164`; PyPI and GHCR checked). Facts come from the plan pages listed below, `AGENTS.md`, the README, the GitHub project [#6](https://github.com/users/DDSNA/projects/6), the open issues and the merged pull requests. Where a line says "verified" it was checked by reading the code on `main` or running a command; everything else is read from the docs and may be out of date. **Nothing py-tbparse writes has been checked in Tableau Desktop** except one template path ([verify-in-tableau.md](verify-in-tableau.md)); the check list in [tableau-check.md](tableau-check.md) is still "not run".
 
-How to keep this page true: when a pull request merges or the owner decides something, change the row here in the same PR. For the live state use `git log`, `gh pr list` and `gh issue list`; if they disagree with this page, they win.
+How to keep this page true: when a pull request merges or the owner decides something, change the row here in the same PR. For the live state use `git log`, `gh pr list` and `gh issue list`; if they disagree with this page, they win. How the work moves from spec to release: [dev-loop.md](dev-loop.md).
 
 ## Status words
 
@@ -173,6 +173,7 @@ Answers of 2026-10-22 and 2026-11-20, moved here from the old question list.
 - **Slice 1b** (inline ramps as named palettes): scheduled after 0.6.0; needs a spec first.
 - **Token scope** (sheet and dashboard names, parameter captions, default filter values): parked, "not now".
 - **Board hygiene:** close or move the stale cards listed above. To do by the caller; not done by this page.
+- **Screenshots:** 0.6.0 counts as a major release, so they are retaken before the release PR (owner, 2026-11-20).
 - **Tableau checks:** the owner will run them later, no date. WP7 2c to 2f (B3 to B6) stay paused; B8 and B9 stay blocked.
 
 ## Owner questions still open
@@ -181,7 +182,6 @@ Decided questions are not repeated here.
 
 1. WP7 slice 2 Q2: does any existing format count as explicit (Tableau's boilerplate `margin 4` included), so a default restyle skips it? PR #213 builds it that way for workbook rules; 2c is where it matters most. Only matters once the Tableau gate lifts.
 2. WP7 slice 2 Q4: copy title run formatting (fonts in `<run>`) without the text? Plan default: no in this slice. Same.
-3. Screenshots: `AGENTS.md` retakes them at every major release. Does 0.6.0 (a breaking minor while 0.x) count? Not answered yet.
 
 ## Proposed product direction (a proposal, not a decision)
 
