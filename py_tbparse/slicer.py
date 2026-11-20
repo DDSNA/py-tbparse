@@ -30,7 +30,7 @@ import copy
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
-from .errors import OutputRefusedError
+from .errors import IntegrityError, OutputRefusedError, RefusedError, UsageError
 from ._xml import PathLike, PyTbparseError
 from .dashboards import integrity_check
 from .parser import TwbParser
@@ -41,6 +41,22 @@ from .templates import _write_new
 
 class SliceError(PyTbparseError):
     pass
+
+
+class SliceStrictError(SliceError, RefusedError):
+    """`--strict` and the slice would drop something (exit code 5)."""
+
+
+class SliceRefused(SliceError, RefusedError):
+    """The slice would write no worksheet at all, so nothing is written (exit code 5)."""
+
+
+class SliceIntegrityError(SliceError, IntegrityError):
+    """The sliced workbook would have new integrity problems (exit code 6)."""
+
+
+class SliceUsageError(SliceError, UsageError):
+    """A bad slice argument known without opening the workbook (exit code 2)."""
 
 
 _USER_NS = "http://www.tableausoftware.com/xml/user"
@@ -131,7 +147,7 @@ def slice_doc(doc, dashboards: Union[str, Iterable[str]], strict: bool = False, 
     valid = doc.xpath("/workbook/dashboards/dashboard/@name")
     wanted = _names(dashboards, valid)
     if not wanted:
-        raise SliceError("no dashboard named; give at least one with --dashboards")
+        raise SliceUsageError("no dashboard named; give at least one with --dashboards")
     unknown = [n for n in wanted if n not in valid]
     if unknown:
         raise SliceError(f"unknown dashboard(s): {', '.join(repr(n) for n in unknown)}; "
@@ -140,7 +156,7 @@ def slice_doc(doc, dashboards: Union[str, Iterable[str]], strict: bool = False, 
 
     keep_d, keep_s = _kept_closure(doc, wanted)
     if not keep_s:
-        raise SliceError(f"the selected dashboard(s) {', '.join(repr(n) for n in wanted)} show no worksheet "
+        raise SliceRefused(f"the selected dashboard(s) {', '.join(repr(n) for n in wanted)} show no worksheet "
                          "(an empty story, for one); a workbook needs at least one worksheet, so nothing is sliced")
     all_s = doc.xpath("/workbook/worksheets/worksheet/@name")
     gone_d = [n for n in valid if n not in keep_d]
@@ -161,7 +177,7 @@ def slice_doc(doc, dashboards: Union[str, Iterable[str]], strict: bool = False, 
         lines = [f"{d['caption']} ({d['reason']})" for d in dropped]
         if filters:
             lines.append(f"{len(filters)} filter(s) driven by those actions")
-        raise SliceError("--strict: slicing would drop " + "; ".join(lines))
+        raise SliceStrictError("--strict: slicing would drop " + "; ".join(lines))
 
     for d in dropped:
         _drop(d["element"])
@@ -213,7 +229,7 @@ def slice_workbook(
         out = Path(output_path)
         source = Path(workbook.twbx_path or workbook.path)
         if out.suffix.lower() != source.suffix.lower():
-            raise SliceError(f"the output must end in {source.suffix}, got {out.suffix or 'no extension'}")
+            raise SliceUsageError(f"the output must end in {source.suffix}, got {out.suffix or 'no extension'}")
         if out.exists() and source.exists() and (out.resolve() == source.resolve() or out.samefile(source)):
             raise OutputRefusedError(f"refusing to overwrite the input workbook: {out}")
         if out.exists() and not overwrite:
@@ -223,7 +239,7 @@ def slice_workbook(
     report.update({"dry_run": out is None, "output": None, "input": str(workbook.twbx_path or workbook.path)})
     if out is not None:
         if report["integrity_new"]:
-            raise SliceError("the result has new integrity problems, nothing written: "
+            raise SliceIntegrityError("the result has new integrity problems, nothing written: "
                              + "; ".join(f"{p['check']}: {p['detail']}" for p in report["integrity_new"]))
         _write_new(out, _serialize_workbook(workbook, doc), overwrite)
         report["output"] = str(out)

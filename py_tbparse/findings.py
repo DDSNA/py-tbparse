@@ -30,6 +30,8 @@ from typing import Any, Callable, Iterable, Optional
 
 import pandas as pd
 
+from .errors import UsageError
+
 FINDING_COLUMNS = ["rule", "severity", "object", "detail", "fix"]
 SEVERITY = {"error": 0, "warning": 1, "info": 2}   # same order as templates._SEVERITY
 
@@ -60,7 +62,7 @@ _RULES: dict[str, _Rule] = {}
 
 def _check_severity(severity: str) -> str:
     if severity not in SEVERITY:
-        raise ValueError(f"severity must be one of {', '.join(SEVERITY)}, got {severity!r}")
+        raise UsageError(f"severity must be one of {', '.join(SEVERITY)}, got {severity!r}")
     return severity
 
 
@@ -108,7 +110,7 @@ def _selected(scope: str, ids: Optional[Iterable[str]], what: str) -> Optional[s
     chosen = {i.strip().upper() for i in ids if i and i.strip()}
     unknown = sorted(chosen - set(known))
     if unknown:
-        raise ValueError(f"{what}: unknown rule {', '.join(unknown)}; known: {', '.join(known)}")
+        raise UsageError(f"{what}: unknown rule {', '.join(unknown)}; known: {', '.join(known)}")
     return chosen
 
 
@@ -132,11 +134,11 @@ def run_rules(subject: Subject, scope: str, only: Optional[Iterable[str]] = None
         raise ValueError(f"no rules for scope {scope!r}")
     keep = _selected(scope, only, "only")
     if keep is not None and not keep:
-        raise ValueError("only: no rule ids given (an empty list would run nothing; leave it out to run every rule)")
+        raise UsageError("only: no rule ids given (an empty list would run nothing; leave it out to run every rule)")
     drop = _selected(scope, skip, "skip") or set()
     chosen = [r for r in rules(scope) if (keep is None or r.id in keep) and r.id not in drop]
     if not chosen:
-        raise ValueError("only and skip leave no rule to run")
+        raise UsageError("only and skip leave no rule to run")
     rows = []
     crashed: list[str] = []
     tracebacks: dict[str, str] = {}
@@ -219,5 +221,5 @@ def format_findings(df: pd.DataFrame, fmt: str = "table", path: Optional[str] = 
         return render(df, fmt, path, scope)
     formatter = FORMATS.get(fmt)
     if formatter is None:
-        raise ValueError(f"unknown format {fmt!r}; use {', '.join([*FORMATS, *CI_FORMATS])}")
+        raise UsageError(f"unknown format {fmt!r}; use {', '.join([*FORMATS, *CI_FORMATS])}")
     return formatter(df)

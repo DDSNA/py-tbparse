@@ -22,6 +22,7 @@ from typing import Iterable, Optional, Union
 
 import pandas as pd
 
+from .errors import UsageError
 from . import tokens as _tokens
 from ._xml import PathLike
 from .findings import Subject, finding, rule, rule_ids, rules, run_rules
@@ -64,7 +65,7 @@ def check_template(source: Union[PathLike, Template], only: Optional[Iterable[st
     for chosen in (only or (), skip):
         for i in chosen:
             if i.strip().upper() in RESERVED:
-                raise ValueError(f"{i.strip().upper()} is reserved for {RESERVED[i.strip().upper()]}")
+                raise UsageError(f"{i.strip().upper()} is reserved for {RESERVED[i.strip().upper()]}")
     template = source if isinstance(source, Template) else load_template(str(source))
     return run_rules(Subject(parser=template.parser, template=template, path=template.path),
                      SCOPE, only=only, skip=skip)

@@ -25,7 +25,7 @@ from typing import Iterable, Optional, Union
 
 from lxml import etree
 
-from .errors import OutputRefusedError
+from .errors import OutputRefusedError, UsageError
 from ._xml import ANY_RELATION, PathLike, PyTbparseError, check_package, read_member
 from .parser import TwbParser
 from .templates import (
@@ -98,6 +98,10 @@ _MAX_LISTED = 50
 
 class SanitizeError(PyTbparseError):
     """The workbook cannot be sanitized as asked."""
+
+
+class SanitizeUsageError(SanitizeError, UsageError):
+    """An unknown `--keep` category or a wrong output name, known without opening a file (exit code 2)."""
 
 
 def _is_absolute(value: str) -> bool:
@@ -487,19 +491,19 @@ def sanitize(
     keep = set(keep)
     unknown = keep - set(CATEGORIES)
     if unknown:
-        raise SanitizeError(f"unknown categor{'y' if len(unknown) == 1 else 'ies'} to keep: {', '.join(sorted(unknown))} "
+        raise SanitizeUsageError(f"unknown categor{'y' if len(unknown) == 1 else 'ies'} to keep: {', '.join(sorted(unknown))} "
                             f"(choose from {', '.join(CATEGORIES)})")
     if not isinstance(workbook, TwbParser):
         workbook = TwbParser(str(workbook))
     source = Path(workbook.twbx_path or workbook.path)
     out = Path(output_path)
     if out.suffix.lower() not in (".twb", ".twbx"):
-        raise SanitizeError(f"the output is a .twb or .twbx file, got {out.suffix or 'no extension'}")
+        raise SanitizeUsageError(f"the output is a .twb or .twbx file, got {out.suffix or 'no extension'}")
     if out.exists() and source.exists() and (out.resolve() == source.resolve() or out.samefile(source)):
         raise OutputRefusedError(f"refusing to overwrite the input workbook: {out}")
     twbx = bool(workbook.twbx_path) or fake_data
     if (out.suffix.lower() == ".twbx") != twbx:
-        raise SanitizeError(
+        raise SanitizeUsageError(
             f"the output must be a {'.twbx' if twbx else '.twb'} file"
             + (" (fake data is packed in it)" if fake_data and not workbook.twbx_path else " (the input's format)"))
 

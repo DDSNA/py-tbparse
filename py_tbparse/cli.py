@@ -24,7 +24,7 @@ from pathlib import Path
 import pandas as pd
 from lxml import etree
 
-from .errors import OutputRefusedError
+from .errors import OutputRefusedError, UsageError
 from ._xml import PyTbparseError
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
@@ -704,7 +704,7 @@ def _ids(text: str | None, option: str = "--only") -> list[str] | None:
         return None
     ids = [i.strip() for i in text.split(",") if i.strip()]
     if not ids:
-        raise ValueError(f"{option}: no rule ids in {text!r}")
+        raise UsageError(f"{option}: no rule ids in {text!r}")
     return ids
 
 
@@ -1108,7 +1108,7 @@ def _run_style(argv: list[str]) -> int:
         if args.action == "extract":
             out = Path(args.output)
             if not out.name.lower().endswith(".style.json"):
-                raise _style.StyleError(f"the output must end in .style.json, got {out.name}")
+                raise _style.StyleUsageError(f"the output must end in .style.json, got {out.name}")
             if out.exists() and Path(args.source).exists() and out.resolve() == Path(args.source).resolve():
                 raise OutputRefusedError(f"refusing to overwrite the input: {out}")
             rep: dict = {}

@@ -36,7 +36,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
-from .errors import OutputRefusedError
+from .errors import InputError, OutputRefusedError, UsageError
 from ._clean import is_missing
 from ._xml import PathLike, PyTbparseError, check_package, parse_file, read_member
 from .parser import TwbParser
@@ -785,7 +785,7 @@ def suggest_mapping(
     mapped_to, data_type, status, score`.
     """
     if not 0 <= fuzzy_cutoff <= 1:
-        raise ValueError(f"fuzzy_cutoff must be between 0 and 1, got {fuzzy_cutoff}")
+        raise UsageError(f"fuzzy_cutoff must be between 0 and 1, got {fuzzy_cutoff}")
     entry = template.datasource(datasource)
     return _match_fields(entry["fields"], data, entry["name"], fuzzy_cutoff)
 
@@ -871,12 +871,12 @@ def load_mapping(source: Union[str, os.PathLike, pd.DataFrame]) -> pd.DataFrame:
     df.columns = [str(c).strip() for c in df.columns]
     missing = [c for c in ("field", "mapped_to") if c not in df.columns]
     if missing:
-        raise ValueError(f"mapping is missing column(s): {', '.join(missing)}")
+        raise InputError(f"mapping is missing column(s): {', '.join(missing)}")
     df["mapped_to"] = df["mapped_to"].map(lambda v: "" if is_missing(v) else str(v).strip())
     used = df[df["mapped_to"] != ""]["mapped_to"]
     dup = used[used.duplicated()]
     if len(dup):
-        raise ValueError(f"column {dup.iloc[0]!r} is mapped to more than one field")
+        raise InputError(f"column {dup.iloc[0]!r} is mapped to more than one field")
     return df
 
 

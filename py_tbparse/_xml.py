@@ -17,7 +17,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
-from .errors import PyTbparseError
+from .errors import InputError, PyTbparseError
 
 # XPath step for a <relation> element in either spelling. Tableau writes some relations with a feature-flag tag,
 # `_.fcp.ObjectModelEncapsulateLegacy.true...relation` (also `.false...`), which `relation` alone never matches.
@@ -142,7 +142,7 @@ def _largest_twb_member(manifest: pd.DataFrame) -> str:
         "size_bytes", ascending=False
     )
     if twb_rows.empty:
-        raise ValueError("No .twb file found inside .twbx")
+        raise InputError("No .twb file found inside .twbx")
     return twb_rows.iloc[0]["name"]
 
 
@@ -274,7 +274,7 @@ def load_workbook_xml(path: PathLike) -> etree._ElementTree:
     elif ext == "twb":
         twb_path = path
     else:
-        raise ValueError(f"Unsupported file type: {ext}")
+        raise InputError(f"Unsupported file type: {ext}")
 
     if not os.path.exists(twb_path):
         raise FileNotFoundError(f"File not found: {twb_path}")

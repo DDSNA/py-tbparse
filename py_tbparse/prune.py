@@ -34,7 +34,7 @@ from typing import Optional, Union
 
 from lxml import etree
 
-from .errors import OutputRefusedError
+from .errors import OutputRefusedError, UsageError
 from ._xml import PathLike, PyTbparseError
 from .findings import Subject
 from .parser import TwbParser
@@ -50,6 +50,10 @@ TRACE_KINDS = ("columns", "column_instances", "metadata_records", "folder_items"
 
 class PruneError(PyTbparseError):
     pass
+
+
+class PruneUsageError(PruneError, UsageError):
+    """The output name is wrong for the source, known without opening a file (exit code 2)."""
 
 
 class _DocParser:
@@ -397,7 +401,7 @@ def prune(
         out = Path(output_path)
         source = Path(workbook.twbx_path or workbook.path)
         if out.suffix.lower() != source.suffix.lower():
-            raise PruneError(f"the output must end in {source.suffix}, got {out.suffix or 'no extension'}")
+            raise PruneUsageError(f"the output must end in {source.suffix}, got {out.suffix or 'no extension'}")
         if out.exists() and source.exists() and (out.resolve() == source.resolve() or out.samefile(source)):
             raise OutputRefusedError(f"refusing to overwrite the input workbook: {out}")
         if out.exists() and not overwrite:
