@@ -757,7 +757,7 @@ def test_filter_that_hides_the_row_closes_the_panel(wide):
     assert wide.js_errors == []
 
 
-def test_a_column_filter_that_hides_the_row_closes_the_panel(wide):
+def test_an_input_event_on_the_search_box_that_hides_the_row_closes_the_panel(wide):
     _pick(wide, "Grid")
     wide.evaluate("() => { const f = document.getElementById('filter'); f.value = 'zzzz'; f.dispatchEvent(new Event('input')); }")
     wide.wait_for_function("() => document.getElementById('layoutPanel').hidden", timeout=5_000)
@@ -907,3 +907,79 @@ def test_many_dashboards_keep_one_drawing(browser, gui_server, tmp_path):
         assert pg.evaluate("() => document.querySelectorAll('#tableWrap tbody tr').length") < 100   # the table is windowed
     finally:
         pg.ctx.close()
+
+
+PANEL_DELAY_MS = 250   # PANEL_DELAY in app.js
+
+
+def test_a_sort_inside_the_pause_still_opens_the_dashboard_that_was_focused_at_the_key(wide):
+    from test_gui_browser import _copy_column
+    names = _copy_column(wide, "name")
+    wide.locator("#tableWrap tbody tr[data-pos='0']").focus()
+    wide.keyboard.press("Enter")
+    _wait_title(wide, names[0])
+    # The key and the sort go in one script run, so both land well inside the pause whatever the machine's speed.
+    wide.evaluate("""() => {
+        const tr = document.querySelector('#tableWrap tbody tr[data-pos="0"]');
+        tr.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true, cancelable: true}));
+        const th = [...document.querySelectorAll('#tableWrap th')].find(t => t.textContent.includes('name'));
+        th.click(); th.click();                                          // ascending, then descending
+    }""")
+    wide.wait_for_function("() => document.querySelector('#tableWrap th[aria-sort]')", timeout=5_000)
+    wide.wait_for_function("n => document.querySelector('#tableWrap tbody tr[data-pos=\"1\"]').textContent.indexOf(n) < 0",
+                           arg=names[1], timeout=5_000)                  # the sort moved the row the key pointed at
+    wide.wait_for_function("n => document.getElementById('lpTitle').textContent !== n", arg=names[0], timeout=5_000)
+    wide.wait_for_timeout(PANEL_DELAY_MS + 150)                          # let any late timer run
+    assert wide.locator("#lpTitle").inner_text() == names[1]
+    assert wide.js_errors == []
+
+
+def test_a_click_inside_the_pause_is_not_overridden_by_the_key(wide):
+    from test_gui_browser import _copy_column
+    names = _copy_column(wide, "name")
+    wide.locator("#tableWrap tbody tr[data-pos='0']").focus()
+    wide.keyboard.press("Enter")
+    _wait_title(wide, names[0])
+    wide.keyboard.press("ArrowDown")
+    _pick(wide, names[3])                                                # clicked right after the key, inside the pause
+    wide.wait_for_timeout(PANEL_DELAY_MS + 150)                          # the key's timer must not jump back to row 1
+    assert wide.locator("#lpTitle").inner_text() == names[3]
+    assert wide.js_errors == []
+
+
+def _column_filter(page, column, text):
+    from test_gui_browser import _open_column_menu
+    _open_column_menu(page, column)
+    page.click("#menu >> text=Filter this column")
+    page.fill("#menu input", text)
+    page.keyboard.press("Enter")
+
+
+def test_a_per_column_filter_that_hides_the_row_closes_the_panel(wide):
+    _pick(wide, "Grid")
+    _column_filter(wide, "name", "Nested")                               # the menu's "Filter this column", a chip
+    wide.wait_for_function("() => document.getElementById('layoutPanel').hidden", timeout=5_000)
+    assert wide.locator("#chips .chip").count() == 1
+    assert wide.locator("#status").inner_text() == "The layout panel closed: its dashboard is filtered out."
+    assert wide.locator("#tableWrap tr[aria-current=true]").count() == 0
+    assert wide.js_errors == []
+
+
+def test_a_per_column_filter_that_keeps_the_row_leaves_the_panel(wide):
+    _pick(wide, "Grid")
+    _column_filter(wide, "name", "Gri")
+    wide.wait_for_selector("#chips .chip")
+    wide.wait_for_timeout(PANEL_DELAY_MS + 150)
+    assert wide.locator("#layoutPanel").is_visible() and wide.locator("#lpTitle").inner_text() == "Grid"
+    assert wide.js_errors == []
+
+
+def test_a_filter_that_hides_the_row_also_closes_its_all_columns_drawer(wide):
+    _pick(wide, "Grid")
+    wide.get_by_role("button", name="All columns of Grid").click()
+    wide.wait_for_selector("#drawer.show")
+    wide.fill("#filter", "Nested")                                       # hides Grid, whose drawer is open
+    wide.wait_for_function("() => document.getElementById('layoutPanel').hidden", timeout=5_000)
+    wide.wait_for_selector("#drawer", state="hidden", timeout=5_000)     # not left open on a row that is gone
+    assert wide.locator("#tableWrap tr[aria-current=true]").count() == 0
+    assert wide.js_errors == []

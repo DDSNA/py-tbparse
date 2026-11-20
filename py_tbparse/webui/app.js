@@ -1151,21 +1151,26 @@ function currentIndex() {
 function panelFollow(pos) {
   clearTimeout(panelTimer);
   if (state.table !== 'dashboards' || state.panelIdx === null || state.panelIdx === undefined) return;
+  // Resolve the dashboard now: a sort or filter inside the pause moves rows, and a position would then name another one.
+  const idx = vt.order[pos];
+  if (idx === undefined) return;
   panelTimer = setTimeout(() => {
+    panelTimer = null;
     if (state.table !== 'dashboards' || state.panelIdx === null || state.panelIdx === undefined) return;
-    const idx = vt.order[pos];
-    if (idx !== undefined && idx !== state.panelIdx) openLayoutPanel(idx);
+    if (idx !== state.panelIdx && vt.order.includes(idx)) openLayoutPanel(idx);
   }, PANEL_DELAY);
 }
 
 // A search or column filter that hides the row of the panel closes the panel (the row stays visible: the panel stays).
 function panelFilterCheck(order) {
   if (state.panelIdx === null || state.panelIdx === undefined || order.includes(state.panelIdx)) return;
+  if (state.drawerIdx === state.panelIdx) closeDrawer(false);   // its All columns drawer would stay open on a row that is gone
   closeLayoutPanel(false);
   setStatus('The layout panel closed: its dashboard is filtered out.');
 }
 
 function openLayoutPanel(idx) {
+  clearTimeout(panelTimer);   // a pending key-follow must not override a pick made inside its pause
   // The drawer lists the columns of one row; once the panel moves to another dashboard it would show the wrong one,
   // and closing it would send focus back to the old row. Close it first, without moving focus.
   if (!$('drawer').hidden && state.drawerIdx !== idx) closeDrawer(false);
