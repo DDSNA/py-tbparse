@@ -22,7 +22,7 @@
 
   class VTable {
     // handlers: cell(colIndex, value) -> td, sort(colIndex), openRow(pos, rowElement),
-    //           menu(colIndex, th), resized(colIndex, width)
+    //           menu(colIndex, th), resized(colIndex, width), moved(pos) (optional: the focused row changed by key)
     // options.check, when set, adds a leading column of checkboxes: {head, applicable(index) -> bool,
     //           checked(index) -> bool, label(index) -> string, toggle(index, on)}
     constructor(wrap, handlers) {
@@ -248,7 +248,11 @@
         ArrowDown: pos + 1, ArrowUp: pos - 1, PageDown: pos + page, PageUp: pos - page,
         Home: 0, End: this.order.length - 1,
       }[e.key];
-      if (target !== undefined) { e.preventDefault(); this.focusRow(target); }
+      if (target !== undefined) {
+        e.preventDefault();
+        this.focusRow(target);
+        if (this.h.moved && this.active !== pos) this.h.moved(this.active);
+      }
     }
 
     // Draw the rows that are, or are about to be, on screen.

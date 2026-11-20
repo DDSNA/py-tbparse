@@ -222,6 +222,12 @@ def unplaced_workbook() -> str: return workbook(unplaced_dashboards())
 def hostile_names_workbook() -> str: return workbook(hostile_names_dashboard())
 
 
+def many_dashboards_workbook(n: int = 300) -> str:
+    """n small dashboards, D001 to D<n>, two zones each: for the keyboard speed and request-count tests."""
+    return workbook(*[dashboard(f"D{i:03d}", [Z(0, 0, 50000, 100000, f"Left {i}"), Z(50000, 0, 50000, 100000, f"Right {i}")])
+                      for i in range(1, n + 1)])
+
+
 def everything_workbook() -> str:
     return workbook(
         nested_dashboard(), crossing_dashboard(), mixed_overlap_dashboard(), threshold_dashboard(),

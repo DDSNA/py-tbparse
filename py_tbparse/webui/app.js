@@ -50,7 +50,7 @@ const CODE_COLUMNS = new Set(['formula', 'custom_sql', 'initial_sql', 'connectio
 const state = { table: 'overview', columns: [], data: [], sortCol: -1, sortDir: 0,
                 loaded: false, uploaded: false, req: 0, dot: '', fresh: false, dsLabels: {}, hay: null, hayKey: '',
                 colLower: {}, sortKeys: {}, numeric: {}, natural: null, drawerIdx: null,
-                drawerInfo: null, drawerOpener: null, panelIdx: null, graph: {nodes: [], edges: []} };
+                drawerInfo: null, drawerOpener: null, panelIdx: null, panelGone: false, graph: {nodes: [], edges: []} };
 let tplOpen = false;        // the Templates view is showing (it lives in templates.js)
 let keepTemplates = false;  // a workbook opened by the page itself (not by a click) leaves the view open
 let filterTimer = null;
@@ -1041,6 +1041,7 @@ const vt = new VTable($('tableWrap'), {
   openRow: (pos, opener) => openRow(pos, opener),
   menu: (ci, th) => openColumnMenu(ci, th),
   resized: (ci, width) => { viewFor(state.table).widths[state.columns[ci]] = width; },
+  moved: (pos) => panelFollow(pos),
 });
 
 // animate: let the browser glide rows to their new places (when it can, and motion is welcome). Only sorting
@@ -1065,12 +1066,13 @@ function renderTable(animate, keepScroll, after) {
       return;
     }
     const order = computeOrder();
+    panelFilterCheck(order);
     const filtered = $('filter').value.trim() !== '' || liveFilters(v).length > 0;
     $('meta').textContent = filtered ? order.length + ' of ' + total + ' row(s)' : total + ' row(s)';
     vt.configure({
       cols: state.columns, data: state.data, order, display: displayCols(v), widths: widthsFor(v),
       pinned: v.pinned === null || colIndex(v.pinned) < 0 ? null : colIndex(v.pinned),
-      sort: {col: state.sortCol, dir: state.sortDir}, current: state.drawerIdx, check: RenameReview.check(),
+      sort: {col: state.sortCol, dir: state.sortDir}, current: currentIndex(), check: RenameReview.check(),
     });
     vt.build(!keepScroll);
     reanchorMenu();
@@ -1135,13 +1137,43 @@ function openRow(pos, opener) {
 
 // The Dashboards table shows the layout panel (layout.js) instead of the drawer; focus stays on the row so the
 // arrow keys keep moving through the table. "All columns" in the panel opens the usual details drawer.
+const PANEL_DELAY = 250;   // ms the arrow keys must rest before the panel shows the focused row
+let panelTimer = null;
+
+// The row marked aria-current: the row of the drawer, else of the panel (unless its dashboard is gone).
+function currentIndex() {
+  if (state.drawerIdx !== null && state.drawerIdx !== undefined) return state.drawerIdx;
+  return state.panelIdx !== null && state.panelIdx !== undefined && !state.panelGone ? state.panelIdx : null;
+}
+
+// Keys moved the focused row (table.js moved hook): with the panel open, show that dashboard after a pause, so a
+// held key sends one request. Focus stays on the row.
+function panelFollow(pos) {
+  clearTimeout(panelTimer);
+  if (state.table !== 'dashboards' || state.panelIdx === null || state.panelIdx === undefined) return;
+  panelTimer = setTimeout(() => {
+    if (state.table !== 'dashboards' || state.panelIdx === null || state.panelIdx === undefined) return;
+    const idx = vt.order[pos];
+    if (idx !== undefined && idx !== state.panelIdx) openLayoutPanel(idx);
+  }, PANEL_DELAY);
+}
+
+// A search or column filter that hides the row of the panel closes the panel (the row stays visible: the panel stays).
+function panelFilterCheck(order) {
+  if (state.panelIdx === null || state.panelIdx === undefined || order.includes(state.panelIdx)) return;
+  closeLayoutPanel(false);
+  setStatus('The layout panel closed: its dashboard is filtered out.');
+}
+
 function openLayoutPanel(idx) {
   // The drawer lists the columns of one row; once the panel moves to another dashboard it would show the wrong one,
   // and closing it would send focus back to the old row. Close it first, without moving focus.
   if (!$('drawer').hidden && state.drawerIdx !== idx) closeDrawer(false);
   state.panelIdx = idx;
+  state.panelGone = false;
   vt.setCurrent(idx);
   LayoutPanel.show($('layoutPanel'), rowObject(idx), {
+    gone: () => { if (state.panelIdx === idx) { state.panelGone = true; if (state.drawerIdx !== idx) vt.setCurrent(null); } },
     allColumns: (button) => { openDrawerFor(idx); state.drawerOpener = button; },
     close: () => closeLayoutPanel(true),
   });
@@ -1149,7 +1181,9 @@ function openLayoutPanel(idx) {
 
 function closeLayoutPanel(restoreFocus) {
   const idx = state.panelIdx;
+  clearTimeout(panelTimer);
   state.panelIdx = null;
+  state.panelGone = false;
   LayoutPanel.hide($('layoutPanel'));
   if (idx === null || idx === undefined) return;
   if (state.drawerIdx === null || state.drawerIdx === undefined) vt.setCurrent(null);
@@ -1174,7 +1208,7 @@ function closeDrawer(restoreFocus) {
   if (drawer.hidden) return;
   const idx = state.drawerIdx;
   state.drawerIdx = null;
-  vt.setCurrent(state.panelIdx === null || state.panelIdx === undefined ? null : state.panelIdx);
+  vt.setCurrent(currentIndex());
   drawer.classList.remove('show');
   setTimeout(() => { if (!drawer.classList.contains('show')) drawer.hidden = true; }, 260);
   if (restoreFocus && state.drawerOpener && state.drawerOpener.isConnected) state.drawerOpener.focus();

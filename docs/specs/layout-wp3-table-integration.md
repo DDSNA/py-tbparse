@@ -19,6 +19,8 @@ This spec was written against #215's head `a307526` (branch `feat/layout-preview
 
 If any of these changed in review, follow the merged code and say in the PR where this spec no longer matched.
 
+Corrections made while building (the code won, this text was changed to match): `renderTable` passed `current: state.drawerIdx` to the table, so a sort dropped the panel row's `aria-current`; it now passes `currentIndex()` (the drawer's row, else the panel's). Escape on a row and Escape in the zone list were already built in WP2 (a document-level handler in `app.js`), so item 4 needed tests only. The 404 clearing of the row mark needed a new optional `cb.gone()` in `LayoutPanel.show`, because the row mark is the page's, not the panel's.
+
 ## What WP2 already did (do not redo)
 
 Row click or Enter opens the panel instead of the drawer on the Dashboards table; focus stays on the row (owner decision 2026-10-18); "All columns" opens the drawer; other tables keep the drawer; changing table closes the panel; late answers are ignored; the 404 message.

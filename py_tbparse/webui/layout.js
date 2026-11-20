@@ -501,7 +501,7 @@
     dl.appendChild(D.el('dd', '', text));
   }
 
-  // panel: the section element. row: the Dashboards row object. cb: { allColumns(), close() }.
+  // panel: the section element. row: the Dashboards row object. cb: { allColumns(), close(), gone() (optional: the dashboard is not in the workbook) }.
   function show(panel, row, cb) {
     const mine = ++req;
     panel.hidden = false;
@@ -547,6 +547,7 @@
         if (mine !== req) return;
         if (res.status === 404) {
           count.textContent = '';
+          if (cb.gone) cb.gone();
           body.replaceChildren(D.el('p', 'lp-empty', 'This dashboard is no longer in the workbook.'));
           return;
         }
