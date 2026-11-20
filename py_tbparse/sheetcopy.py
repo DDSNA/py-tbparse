@@ -28,6 +28,7 @@ from typing import Iterable, Optional, Union
 
 from lxml import etree
 
+from .errors import OutputRefusedError
 from . import library as _lib
 from .library import CLASH_POLICIES, LibraryError, _PARAMETERS, _unbracket
 from .parser import TwbParser
@@ -353,9 +354,9 @@ def copy_sheets(source, target, sheets: Iterable[str], output_path: Optional[str
     sp = _parser(source)
     for p in (tpath, Path(sp.twbx_path or sp.path)):
         if out.exists() and out.resolve() == p.resolve():
-            raise FileExistsError(f"refusing to overwrite an input: {out}")
+            raise OutputRefusedError(f"refusing to overwrite an input: {out}")
     if out.exists() and not overwrite:
-        raise FileExistsError(f"refusing to overwrite existing file: {out}")
+        raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     data, report = build_sheet_copy(sp, tp, sheets, on_clash, strict)
     if report["copied"] == 0:
         raise SheetCopyAbort("no sheet could be copied; nothing written")

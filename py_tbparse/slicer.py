@@ -30,6 +30,7 @@ import copy
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
+from .errors import OutputRefusedError
 from ._xml import PathLike, PyTbparseError
 from .dashboards import integrity_check
 from .parser import TwbParser
@@ -214,9 +215,9 @@ def slice_workbook(
         if out.suffix.lower() != source.suffix.lower():
             raise SliceError(f"the output must end in {source.suffix}, got {out.suffix or 'no extension'}")
         if out.exists() and source.exists() and (out.resolve() == source.resolve() or out.samefile(source)):
-            raise FileExistsError(f"refusing to overwrite the input workbook: {out}")
+            raise OutputRefusedError(f"refusing to overwrite the input workbook: {out}")
         if out.exists() and not overwrite:
-            raise FileExistsError(f"refusing to overwrite existing file: {out} (use --overwrite)")
+            raise OutputRefusedError(f"refusing to overwrite existing file: {out} (use --overwrite)")
     doc = copy.deepcopy(workbook.xml_doc)
     report = slice_doc(doc, dashboards, strict=strict, prune=prune)
     report.update({"dry_run": out is None, "output": None, "input": str(workbook.twbx_path or workbook.path)})

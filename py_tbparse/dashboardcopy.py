@@ -31,6 +31,7 @@ from urllib.parse import quote
 
 from lxml import etree
 
+from .errors import OutputRefusedError
 from .dashboards import _SHEET_ZONE_TYPES, _dashboard_xpath, dashboard_targets, integrity_check, zone_kind
 from .library import CLASH_POLICIES, _PARAMETERS
 from .rename import _serialize_workbook
@@ -422,9 +423,9 @@ def copy_dashboards(source, target, dashboards: Iterable[str], output_path: Opti
     sp = _parser(source)
     for p in (tpath, Path(sp.twbx_path or sp.path)):
         if out.exists() and out.resolve() == p.resolve():
-            raise FileExistsError(f"refusing to overwrite an input: {out}")
+            raise OutputRefusedError(f"refusing to overwrite an input: {out}")
     if out.exists() and not overwrite:
-        raise FileExistsError(f"refusing to overwrite existing file: {out}")
+        raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     data, report = build_dashboard_copy(sp, tp, dashboards, on_clash, strict)
     if report["copied"] == 0:
         raise SheetCopyAbort("no dashboard could be copied; nothing written")

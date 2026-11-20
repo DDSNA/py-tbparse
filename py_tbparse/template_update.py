@@ -20,6 +20,7 @@ from typing import Optional, Union
 
 import pandas as pd
 
+from .errors import OutputRefusedError
 from ._xml import PathLike
 from .templates import (
     DataSource,
@@ -433,7 +434,7 @@ def update_from_answers(
         output_path = str(src.with_name(f"{src.stem}_r{new.revision}.twbx")) if src.suffix.lower() == ".twbx" \
             else default_output_path(new, plan.data)
     if not isinstance(workbook, dict) and Path(output_path).resolve() == Path(str(workbook)).resolve():
-        raise FileExistsError(f"refusing to overwrite an input: {output_path}")
+        raise OutputRefusedError(f"refusing to overwrite an input: {output_path}")
     out = apply_template(new, plan.data, mapping=plan.mapping, params=plan.params, output_path=output_path,
                          datasource=plan.entry["name"], allow_missing=allow_missing, overwrite=overwrite,
                          answers=carried, tokens=plan.tokens)

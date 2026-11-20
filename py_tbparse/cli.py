@@ -24,6 +24,7 @@ from pathlib import Path
 import pandas as pd
 from lxml import etree
 
+from .errors import OutputRefusedError
 from ._xml import PyTbparseError
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
@@ -604,7 +605,7 @@ def _run_target_make(ap, args) -> int:
     from .schema import read_schema
     out = Path(args.output)
     if out.exists() and not args.overwrite:
-        raise FileExistsError(f"refusing to overwrite {out} (pass --overwrite)")
+        raise OutputRefusedError(f"refusing to overwrite {out} (pass --overwrite)")
     if bool(args.schema_file) == bool(args.column):
         ap.error("give the columns with --schema-file or with --column NAME:TYPE, not both or neither")
     body = {"format": TARGET_FORMAT, "version": 1, "class": args.conn_class, "server": args.server, "dbname": args.dbname}
@@ -793,7 +794,7 @@ def _run_template(argv: list[str]) -> int:
         if args.action == "show" and args.markdown:
             page = template_markdown(t)
             if args.output and Path(args.output).resolve() == Path(args.template).resolve():
-                raise ValueError(f"--output {args.output} is the template itself; it would be overwritten")
+                raise OutputRefusedError(f"--output {args.output} is the template itself; it would be overwritten")
             if args.output:
                 Path(args.output).write_text(page, encoding="utf-8")
                 print(f"wrote {args.output}", file=sys.stderr)
@@ -1109,7 +1110,7 @@ def _run_style(argv: list[str]) -> int:
             if not out.name.lower().endswith(".style.json"):
                 raise _style.StyleError(f"the output must end in .style.json, got {out.name}")
             if out.exists() and Path(args.source).exists() and out.resolve() == Path(args.source).resolve():
-                raise FileExistsError(f"refusing to overwrite the input: {out}")
+                raise OutputRefusedError(f"refusing to overwrite the input: {out}")
             rep: dict = {}
             style = _style.extract_style(
                 args.source, dashboard=args.dashboard, palettes=not args.no_palettes, name=args.name, report=rep,

@@ -29,6 +29,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
+from .errors import OutputRefusedError
 from . import templates as _templates
 from .dashboards import zone_kind
 from ._xml import PathLike, PyTbparseError, parse_bytes, parse_file
@@ -310,9 +311,9 @@ def _check_style(style) -> dict:
 
 def _open_new(path: Path, data: bytes, overwrite: bool) -> None:
     if path.exists() and path.name.lower() == "preferences.tps":
-        raise FileExistsError(f"refusing to write over {path}: write a new file and copy it into place yourself")
+        raise OutputRefusedError(f"refusing to write over {path}: write a new file and copy it into place yourself")
     if path.exists() and not overwrite:
-        raise FileExistsError(f"refusing to overwrite existing file: {path}")
+        raise OutputRefusedError(f"refusing to overwrite existing file: {path}")
     with open(path, "wb" if overwrite else "xb") as fh:      # "xb" refuses a file created since the check
         fh.write(data)
 
@@ -620,7 +621,7 @@ def import_palettes(target: Union[PathLike, TwbParser], palettes: _Palettes, out
     if out.suffix.lower() != source.suffix.lower():
         raise StyleError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
     if out.exists() and _is_same_file(out, source):
-        raise FileExistsError(f"refusing to overwrite the input: {out}")
+        raise OutputRefusedError(f"refusing to overwrite the input: {out}")
     data = build_with_palettes(target, palettes, on_clash=on_clash, select=select, report=report)
     _open_new(out, data, overwrite)
     return str(out)
@@ -666,7 +667,7 @@ def export_palettes(sources: list, output_path: PathLike, select=None, on_clash:
         raise StyleError(f"the output must end in .tps or .style.json, got {out.name}")
     for s in sources:
         if not isinstance(s, (dict, list)) and out.exists() and not isinstance(s, TwbParser) and _is_same_file(out, Path(s)):
-            raise FileExistsError(f"refusing to overwrite the input: {out}")
+            raise OutputRefusedError(f"refusing to overwrite the input: {out}")
     data = build_export(sources, kind, select=select, on_clash=on_clash, name=name, report=report)
     _open_new(out, data, overwrite)
     return str(out)
@@ -1461,7 +1462,7 @@ def apply_style(target: Union[PathLike, TwbParser], style: Union[dict, PathLike,
     if out.suffix.lower() != source.suffix.lower():
         raise StyleError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
     if out.exists() and _is_same_file(out, source):
-        raise FileExistsError(f"refusing to overwrite the input: {out}")
+        raise OutputRefusedError(f"refusing to overwrite the input: {out}")
     data = build_styled(target, style, scopes=scopes, dashboards=dashboards, sheets=sheets, force=force,
                         on_clash=on_clash, palettes=palettes, palette_on_clash=palette_on_clash, report=report)
     _open_new(out, data, overwrite)

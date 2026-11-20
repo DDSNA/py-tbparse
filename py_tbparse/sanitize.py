@@ -25,6 +25,7 @@ from typing import Iterable, Optional, Union
 
 from lxml import etree
 
+from .errors import OutputRefusedError
 from ._xml import ANY_RELATION, PathLike, PyTbparseError, check_package, read_member
 from .parser import TwbParser
 from .templates import (
@@ -495,7 +496,7 @@ def sanitize(
     if out.suffix.lower() not in (".twb", ".twbx"):
         raise SanitizeError(f"the output is a .twb or .twbx file, got {out.suffix or 'no extension'}")
     if out.exists() and source.exists() and (out.resolve() == source.resolve() or out.samefile(source)):
-        raise FileExistsError(f"refusing to overwrite the input workbook: {out}")
+        raise OutputRefusedError(f"refusing to overwrite the input workbook: {out}")
     twbx = bool(workbook.twbx_path) or fake_data
     if (out.suffix.lower() == ".twbx") != twbx:
         raise SanitizeError(
