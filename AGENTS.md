@@ -199,8 +199,13 @@ These add to the steps above; practices were collected from popular release and 
 treat the sources as unverified). Owner rules are marked (owner).
 
 - **Merged is not released.** A release is cut only on the owner's explicit word. (owner)
-- **Agents never publish a release, push to `main`, force-push or merge.** An agent prepares the PR; the owner
-  merges it and publishes the GitHub Release. (owner)
+- **Agents never publish a release, push to `main` or force-push. Implementer and reviewer agents never merge.** An
+  agent prepares the PR. The coordinator (the main Claude session) merges it (owner, 2026-11-20), only when CI is
+  fully green on the exact head commit (`gh pr merge --squash --match-head-commit <full 40-character sha>`), the
+  commit author is DDSNA with no Claude, `Co-Authored-By` or "Generated with" lines, and one PR at a time, reading the
+  push CI on `main` before the next merge. Releases stay with the owner: merging a release PR is part of the release
+  flow, and it and the publishing of the GitHub Release wait for the owner's explicit word. See
+  [docs/dev-loop.md](docs/dev-loop.md). (owner)
 - **The release commit changes only `pyproject.toml`**; there is no `CHANGELOG.md`, so the notes go in the PR and the
   GitHub Release body. Start from a clean `main` that matches `origin/main`.
 - **Pick the bump from the change, not the calendar.** While we are 0.x, a breaking change to the CLI, the Python
