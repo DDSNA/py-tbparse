@@ -14,6 +14,7 @@ finds unused; a dry run unless `--write -o OUT`) and
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import sys
@@ -25,7 +26,7 @@ from pathlib import Path
 import pandas as pd
 from lxml import etree
 
-from .errors import INTERRUPTED, InputError, OutputRefusedError, UsageError, exit_code_for
+from .errors import INTERRUPTED, InputError, OutputRefusedError, UsageError, _ENVIRONMENT_ERRNOS, exit_code_for
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
@@ -98,7 +99,8 @@ def _create_output(output, text: str, inputs=()) -> None:
     """Write ``text`` to a new file ``output``; never replace anything.
 
     ``OutputRefusedError`` when ``output`` is one of ``inputs`` or already exists ("x" mode, so a file created
-    after the check is refused as well). Other ``OSError`` (missing folder, no permission) pass through.
+    after the check is refused as well). Other ``OSError`` (missing folder, no permission) pass through. A file this call created is removed again
+    if writing it fails.
     """
     out = Path(output)
     for src in inputs:
@@ -109,10 +111,18 @@ def _create_output(output, text: str, inputs=()) -> None:
         if same:
             raise OutputRefusedError(f"{out} is the input file; refusing to overwrite it, give another -o")
     try:
-        with open(out, "x", encoding="utf-8") as fh:
-            fh.write(text)
+        fh = open(out, "x", encoding="utf-8")
     except FileExistsError:
         raise OutputRefusedError(f"{out} already exists; move or delete it first") from None
+    try:
+        with fh:
+            fh.write(text)
+    except BaseException:
+        try:
+            out.unlink()    # this call created the file: do not leave a partial or empty one behind
+        except OSError:
+            pass
+        raise
 
 
 def _write(text: str, output: str | None, stream=None, inputs=()) -> None:
@@ -1689,21 +1699,41 @@ _SUBCOMMANDS = {
 }
 
 
+def _stdout_to_devnull() -> None:
+    """Point file descriptor 1 at the null device, so the flush Python does at shutdown cannot fail again."""
+    try:
+        fd = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(fd, sys.stdout.fileno())
+        finally:
+            os.close(fd)
+    except (OSError, ValueError, AttributeError):
+        pass   # stdout has no file descriptor (captured by a test runner, replaced by a host program)
+
+
+def _is_closed_pipe(e: BaseException) -> bool:
+    """A reader that went away (``| head``). ``BrokenPipeError`` is EPIPE; Windows reports a closed pipe as
+    ``OSError(EINVAL)`` when stdout is flushed, so that counts too (not testable on Linux)."""
+    if isinstance(e, BrokenPipeError):
+        return True
+    return isinstance(e, OSError) and (e.errno == errno.EPIPE or (sys.platform == "win32" and e.errno == errno.EINVAL))
+
+
 def _fail(e: BaseException) -> int:
     """Print the error the way the CLI does and return its exit code (``errors.exit_code_for``).
 
     A closed pipe (``| head``) is not an error: nothing is printed and stdout is pointed at the null device, so
     Python does not complain when it flushes at shutdown. An unexpected error (code 3) prints ``internal error:``,
-    the traceback and a request to report it.
+    the traceback and a request to report it; a full disk or similar (also code 3) is the machine's fault, so it
+    gets one ``error:`` line and no request to report a bug.
     """
     code = exit_code_for(e)
     if code == 0:
-        try:
-            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
-        except (OSError, ValueError, AttributeError):
-            pass
+        _stdout_to_devnull()
     elif code == INTERRUPTED:
         print(file=sys.stderr)
+    elif code == 3 and isinstance(e, OSError) and e.errno in _ENVIRONMENT_ERRNOS:
+        print(f"error: {e.strerror or e}" + (f": {e.filename}" if e.filename is not None else ""), file=sys.stderr)
     elif code == 3:
         print(f"internal error: {type(e).__name__}: {e}", file=sys.stderr)
         print("".join(traceback.format_exception(type(e), e, e.__traceback__)), end="", file=sys.stderr)
@@ -1715,12 +1745,29 @@ def _fail(e: BaseException) -> int:
     return code
 
 
+def _flush_stdout() -> None:
+    """Flush stdout inside ``main``'s try. Otherwise a closed pipe or a full disk is found only when Python flushes
+    at shutdown, where it prints "Exception ignored" and exits 120. After a failed flush stdout goes to the null
+    device so the shutdown flush has nothing left to fail on."""
+    try:
+        sys.stdout.flush()
+    except OSError as e:
+        _stdout_to_devnull()
+        if not _is_closed_pipe(e):
+            raise
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the command line and return its exit code. Every exception that escapes a command is mapped here
     with ``errors.exit_code_for``; ``SystemExit`` (argparse usage errors, ``--help``) passes through."""
     try:
-        return _main(argv)
+        code = _main(argv)
+        _flush_stdout()
+        return code
     except (Exception, KeyboardInterrupt) as e:
+        if _is_closed_pipe(e):
+            _stdout_to_devnull()
+            return 0
         return _fail(e)
 
 

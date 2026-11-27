@@ -263,3 +263,58 @@ def test_malformed_workbook_is_bad_input(tmp_path, capsys):
     txt = tmp_path / "x.txt"
     txt.write_text("hello")
     assert code_of([txt, "overview"]) == 4
+
+
+# ---- real processes: what the shell sees (flush at shutdown is where mock-based tests cannot look) ----
+
+def _run_cli(argv, **kw):
+    import os
+    import subprocess
+    import sys as _sys
+    env = dict(os.environ, PYTHONPATH=str(HERE.parent) + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    return subprocess.Popen([_sys.executable, "-m", "py_tbparse.cli", *map(str, argv)], env=env,
+                            stderr=subprocess.PIPE, **kw)
+
+
+@pytest.mark.parametrize("argv", [
+    [WENJIE, "fields"],
+    [WENJIE, "fields", "-f", "json"],
+    ["batch", str(HERE / "fixtures")],
+], ids=["table", "json", "batch"])
+def test_real_closed_pipe_exits_0_and_prints_nothing(argv):
+    import subprocess
+    p = _run_cli(argv, stdout=subprocess.PIPE)
+    p.stdout.read(10)
+    p.stdout.close()
+    err = p.stderr.read()
+    p.stderr.close()
+    assert p.wait(timeout=60) == 0
+    assert err == b""
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not Path("/dev/full").exists(), reason="needs /dev/full")
+def test_real_full_disk_is_3_with_one_error_line():
+    with open("/dev/full", "wb") as full:
+        p = _run_cli([WENJIE, "overview"], stdout=full)
+        err = p.stderr.read().decode()
+        p.stderr.close()
+        assert p.wait(timeout=60) == 3
+    assert err.startswith("error: ") and "Traceback" not in err and "bug" not in err and "Exception ignored" not in err
+
+
+def test_failed_write_leaves_no_file_behind(tmp_path, monkeypatch, capsys):
+    monkeypatch.setitem(cli.TABLE_SPECS, "overview", lambda *a, **k: __import__("pandas").DataFrame({"a": ["\ud800"]}))
+    out = tmp_path / "o.csv"
+    assert code_of([WENJIE, "overview", "-f", "csv", "-o", out]) == 3
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("argv", [["audit", WENJIE, "--fail-on", "never"], ["diff-xml", WENJIE, WENJIE],
+                                  ["rename", WENJIE]], ids=["audit", "diff-xml", "rename"])
+def test_o_existing_is_5_and_missing_folder_is_4_for_other_writers(argv, tmp_path, capsys):
+    out = tmp_path / "x.out"
+    out.write_text("keep")
+    assert code_of([*argv, "-o", out]) == 5
+    assert out.read_text() == "keep"
+    assert code_of([*argv, "-o", tmp_path / "no" / "x.out"]) == 4
+    assert "Traceback" not in capsys.readouterr().err

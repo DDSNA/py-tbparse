@@ -2,7 +2,8 @@
 
 pre-commit calls a hook once with many file names (`entry [args] file1 file2 ...`), but `audit`,
 `validate` and `template check` take one file each. This runs the command for every file and
-returns the worst exit code (0 to 3, the codes of the commands themselves). Which arguments are
+returns the largest exit code of the files (the codes of the commands themselves, 0 to 7; the numeric maximum
+is not the precedence of `errors.PRECEDENCE`, which A8 applies). Which arguments are
 files: those ending in `.twb` or `.twbx`; everything else is passed to the
 command as an option (`--fail-on warning`).
 

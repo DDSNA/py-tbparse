@@ -45,7 +45,7 @@ Owner decisions (2026-10-16, with the plan's choices confirmed 2026-11-20, see "
 | A5 | checks: `validate`, `audit`, `template check`/`drift`, `diff-xml`, `style check` | planned for 0.6.0 | WP5 | `exit-wp5-check-commands.md` | A4 |
 | A6 | writers: `sanitize`, `prune`, `slice`, `rename`, `scaffold`, `docs` | planned for 0.6.0 | WP6 | `exit-wp6-writer-commands.md` | A4 |
 | A7 | partial results and clashes: `sheet copy`, `dashboard copy`, `library`, `style`, `template` writers, `apply-folder` | planned for 0.6.0 | WP7 | `exit-wp7-partial-and-refused.md` | A4 (dry-run codes answered: 0 if clean, 1 if changes found) |
-| A8 | pre-commit wrapper by precedence, all docs, grep guard | planned for 0.6.0 | WP8 | `exit-wp8-precommit-and-docs.md` | A5, A6, A7 |
+| A8 | pre-commit wrapper by precedence, all docs, grep guard | planned for 0.6.0 | WP8 | `exit-wp8-precommit-and-docs.md` | A5, A6, A7 NOTE from the A4 review: `precommit.py` combines codes with `max()`, which contradicts `errors.PRECEDENCE` (3, 2, 4, 5, 6, 7, 1, 0); A8 must replace it (`first_by_precedence`). |
 | A9 | `webgui.py` `ValueError` sites | planned for 0.6.0 (owner 2026-11-20, no longer optional) | WP9 | `exit-wp9-webgui-errors.md` | A3 |
 | A10 | release notes and the 0.6.0 version bump | planned for 0.6.0 (owner-run) | WP10 | `exit-wp10-release-checklist.md` | everything planned for 0.6.0 |
 | A11 | library API `on_clash` default `rename` to `fail` | built, unreleased (#225); #128 closes when 0.6.0 ships | [plan-0.6.0-clash-default.md](plan-0.6.0-clash-default.md) | `clash-flip-library-default.md` | nothing |
