@@ -300,6 +300,15 @@ def _swaps(tpl=None, extra=()):
                   key=lambda p: -len(p[0]))
 
 
+# The folders this server makes are named py-tbparse-<8 characters>; whatever path leads up to one (a library
+# that spelled it another way: forward slashes, a Windows short name, file:///) is not the browser's business.
+_OWN_FOLDER = re.compile(r"[^\s\"']*py-tbparse-(?:copy-|tpl-)?[A-Za-z0-9_]{8}")
+
+
+def _hide_folders(text: str) -> str:
+    return _OWN_FOLDER.sub("(upload)", text)
+
+
 def _session_paths():
     """The paths of this session's own files, for `_send_json`: the upload folders, and the open workbook
     (always in server mode, where a path on the server's disk is nobody's business; in local mode only when
@@ -1452,13 +1461,13 @@ class Handler(BaseHTTPRequestHandler):
             for spelled in {form, json.dumps(form)[1:-1]}:  # as text, and as JSON escapes it (Windows backslashes)
                 if spelled in text:
                     text = text.replace(spelled, json.dumps(label)[1:-1])
-        self._send(code, text, "application/json; charset=utf-8")
+        self._send(code, _hide_folders(text), "application/json; charset=utf-8")
 
     def _send_text(self, code: int, message: str):
         """A plain-text answer (the download routes) with the same path scrubbing as `_send_json`."""
         for form, label in _swaps(_tpl_state(), _session_paths()):
             message = message.replace(form, label)
-        self._send(code, message, "text/plain")
+        self._send(code, _hide_folders(message), "text/plain")
 
     def _fail(self, exc: BaseException, what: str, *, text: bool = False, status: int | None = None,
               prefix: bool = False, scrub=None) -> None:
