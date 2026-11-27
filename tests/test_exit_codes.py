@@ -1,8 +1,8 @@
-"""Guard for the exit-code table in docs/cli.md (issue #127: the codes are documented as they are, not unified).
+"""Guard for the exit-code table in docs/cli.md (issue #127).
 
 Every row of the table has at least one case here that runs a cheap failure or success path and checks that the
 code it really returns is listed in that row (not "not used"). A code that changes without the table, or a row
-without a case, fails. The table is the contract until the 0.6.0 scheme decision."""
+without a case, fails. The table is the contract; 0.6.0 moves the commands to one scheme and this file follows each move."""
 
 import re
 import sys
@@ -29,7 +29,7 @@ def table_rows():
     for line in section.splitlines():
         if line.startswith("|") and not line.startswith("| ---") and not line.startswith("| Command"):
             cells = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
-            assert len(cells) == 5, line
+            assert len(cells) == 9, line
             rows[cells[0]] = cells[1:]
     return rows
 
@@ -83,18 +83,18 @@ def cases(tmp_path, monkeypatch):
     sanitized = tmp_path / "san.twb"
     return [
         ("WORKBOOK [TABLE]", [WENJIE, "overview"], 0),
-        ("WORKBOOK [TABLE]", [missing], 1),
+        ("WORKBOOK [TABLE]", [missing], 4),
         ("WORKBOOK [TABLE]", [WENJIE, "nope"], 2),
         ("WORKBOOK validate", [WENJIE, "validate"], 0),
-        ("WORKBOOK validate", [missing, "validate"], 1),
+        ("WORKBOOK validate", [missing, "validate"], 4),
         ("diff A B", ["diff", WENJIE, WENJIE], 0),
-        ("diff A B", ["diff", WENJIE, missing], 1),
+        ("diff A B", ["diff", WENJIE, missing], 4),
         ("diff A B", ["diff", WENJIE], 2),
         ("diff-xml A B", ["diff-xml", WENJIE, WENJIE], 0),
         ("diff-xml A B", ["diff-xml", WENJIE, TEMPLATE], 1),
         ("diff-xml A B", ["diff-xml", WENJIE, missing], 2),
         ("batch DIR", ["batch", str(HERE / "fixtures"), "overview"], 0),
-        ("batch DIR", ["batch", missing], 1),
+        ("batch DIR", ["batch", missing], 4),
         ("batch DIR", ["batch"], 2),
         ("rename WORKBOOK", ["rename", WENJIE], 0),
         ("rename WORKBOOK", ["rename", missing], 1),
@@ -135,7 +135,9 @@ def cases(tmp_path, monkeypatch):
         ("dashboard copy SRC", ["dashboard", "copy", dsrc, "--dashboards", "Dash,Lone", "--to", ddst,
                                 "--write", "-o", str(tmp_path / "dc.twb")], 2),
         ("docs WORKBOOK", ["docs", WENJIE], 0),
-        ("docs WORKBOOK", ["docs", missing], 2),
+        ("docs WORKBOOK", ["docs", missing], 4),
+        ("docs WORKBOOK", ["docs", WENJIE, "-o", WENJIE], 5),
+        ("docs WORKBOOK", ["docs", WENJIE, "--nope"], 2),
     ]
 
 
@@ -192,7 +194,127 @@ def test_every_row_has_a_case(tmp_path, monkeypatch):
     assert [k for k in uncovered if "precommit" not in k] == [], uncovered
 
 
-def test_table_cells_are_plain_text_of_five_columns():
+def test_table_cells_are_plain_text_of_nine_columns():
     assert len(ROWS) >= 20
     for key, cells in ROWS.items():
-        assert len(cells) == 4, key
+        assert len(cells) == 8, key
+
+
+# ---- central handling in cli.main (WP4): one place maps an escaped exception to its code ----
+
+@pytest.mark.parametrize("target", ["overview", "diff", "batch"])
+def test_unexpected_exception_is_crash(target, monkeypatch, capsys, tmp_path):
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    if target == "overview":
+        monkeypatch.setitem(cli.TABLE_SPECS, "overview", boom)
+        argv = [WENJIE, "overview"]
+    elif target == "diff":
+        monkeypatch.setattr(cli, "diff_workbooks", boom)
+        argv = ["diff", WENJIE, WENJIE]
+    else:
+        monkeypatch.setattr(cli, "scan_folder", boom)
+        argv = ["batch", str(tmp_path)]
+    assert code_of(argv) == 3
+    err = capsys.readouterr().err
+    assert "internal error: RuntimeError: boom" in err and "Traceback" in err
+
+
+def test_closed_pipe_is_exit_0_and_prints_nothing(monkeypatch, capsys):
+    def closed(*a, **k):
+        raise BrokenPipeError(32, "Broken pipe")
+
+    monkeypatch.setitem(cli.TABLE_SPECS, "overview", closed)
+    assert code_of([WENJIE, "overview"]) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_ctrl_c_is_130_without_traceback(monkeypatch, capsys):
+    def interrupted(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setitem(cli.TABLE_SPECS, "overview", interrupted)
+    assert code_of([WENJIE, "overview"]) == 130
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_usage_and_help_pass_through_the_handler(capsys):
+    assert code_of([WENJIE, "overview", "--nope"]) == 2
+    assert code_of(["--help"]) == 0
+
+
+def test_output_refusal_is_5_and_unwritable_output_is_4(tmp_path, capsys):
+    out = tmp_path / "there.csv"
+    out.write_text("keep")
+    assert code_of([WENJIE, "overview", "-o", out]) == 5
+    assert code_of([WENJIE, "overview", "-o", tmp_path / "no" / "such" / "x.csv"]) == 4
+    err = capsys.readouterr().err
+    assert "Traceback" not in err and out.read_text() == "keep"
+
+
+def test_malformed_workbook_is_bad_input(tmp_path, capsys):
+    bad = tmp_path / "bad.twb"
+    bad.write_text("<workbook")
+    assert code_of([bad, "overview"]) == 4
+    err = capsys.readouterr().err
+    assert err.startswith("error:") and "Traceback" not in err
+    assert code_of(["docs", bad]) == 4 and code_of(["diff", bad, WENJIE]) == 4
+    txt = tmp_path / "x.txt"
+    txt.write_text("hello")
+    assert code_of([txt, "overview"]) == 4
+
+
+# ---- real processes: what the shell sees (flush at shutdown is where mock-based tests cannot look) ----
+
+def _run_cli(argv, **kw):
+    import os
+    import subprocess
+    import sys as _sys
+    env = dict(os.environ, PYTHONPATH=str(HERE.parent) + os.pathsep + os.environ.get("PYTHONPATH", ""))
+    return subprocess.Popen([_sys.executable, "-m", "py_tbparse.cli", *map(str, argv)], env=env,
+                            stderr=subprocess.PIPE, **kw)
+
+
+@pytest.mark.parametrize("argv", [
+    [WENJIE, "fields"],
+    [WENJIE, "fields", "-f", "json"],
+    ["batch", str(HERE / "fixtures")],
+], ids=["table", "json", "batch"])
+def test_real_closed_pipe_exits_0_and_prints_nothing(argv):
+    import subprocess
+    p = _run_cli(argv, stdout=subprocess.PIPE)
+    p.stdout.read(10)
+    p.stdout.close()
+    err = p.stderr.read()
+    p.stderr.close()
+    assert p.wait(timeout=60) == 0
+    assert err == b""
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not Path("/dev/full").exists(), reason="needs /dev/full")
+def test_real_full_disk_is_3_with_one_error_line():
+    with open("/dev/full", "wb") as full:
+        p = _run_cli([WENJIE, "overview"], stdout=full)
+        err = p.stderr.read().decode()
+        p.stderr.close()
+        assert p.wait(timeout=60) == 3
+    assert err.startswith("error: ") and "Traceback" not in err and "bug" not in err and "Exception ignored" not in err
+
+
+def test_failed_write_leaves_no_file_behind(tmp_path, monkeypatch, capsys):
+    monkeypatch.setitem(cli.TABLE_SPECS, "overview", lambda *a, **k: __import__("pandas").DataFrame({"a": ["\ud800"]}))
+    out = tmp_path / "o.csv"
+    assert code_of([WENJIE, "overview", "-f", "csv", "-o", out]) == 3
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("argv", [["audit", WENJIE, "--fail-on", "never"], ["diff-xml", WENJIE, WENJIE],
+                                  ["rename", WENJIE]], ids=["audit", "diff-xml", "rename"])
+def test_o_existing_is_5_and_missing_folder_is_4_for_other_writers(argv, tmp_path, capsys):
+    out = tmp_path / "x.out"
+    out.write_text("keep")
+    assert code_of([*argv, "-o", out]) == 5
+    assert out.read_text() == "keep"
+    assert code_of([*argv, "-o", tmp_path / "no" / "x.out"]) == 4
+    assert "Traceback" not in capsys.readouterr().err

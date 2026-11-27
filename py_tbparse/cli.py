@@ -14,9 +14,11 @@ finds unused; a dry run unless `--write -o OUT`) and
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import sys
+import traceback
 import warnings
 import zipfile
 from pathlib import Path
@@ -24,8 +26,7 @@ from pathlib import Path
 import pandas as pd
 from lxml import etree
 
-from .errors import OutputRefusedError, UsageError
-from ._xml import PyTbparseError
+from .errors import INTERRUPTED, InputError, OutputRefusedError, UsageError, _ENVIRONMENT_ERRNOS, exit_code_for
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
@@ -98,7 +99,8 @@ def _create_output(output, text: str, inputs=()) -> None:
     """Write ``text`` to a new file ``output``; never replace anything.
 
     ``OutputRefusedError`` when ``output`` is one of ``inputs`` or already exists ("x" mode, so a file created
-    after the check is refused as well). Other ``OSError`` (missing folder, no permission) pass through.
+    after the check is refused as well). Other ``OSError`` (missing folder, no permission) pass through. A file this call created is removed again
+    if writing it fails.
     """
     out = Path(output)
     for src in inputs:
@@ -109,24 +111,27 @@ def _create_output(output, text: str, inputs=()) -> None:
         if same:
             raise OutputRefusedError(f"{out} is the input file; refusing to overwrite it, give another -o")
     try:
-        with open(out, "x", encoding="utf-8") as fh:
-            fh.write(text)
+        fh = open(out, "x", encoding="utf-8")
     except FileExistsError:
         raise OutputRefusedError(f"{out} already exists; move or delete it first") from None
+    try:
+        with fh:
+            fh.write(text)
+    except BaseException:
+        try:
+            out.unlink()    # this call created the file: do not leave a partial or empty one behind
+        except OSError:
+            pass
+        raise
 
 
 def _write(text: str, output: str | None, stream=None, inputs=()) -> None:
+    """Print ``text``, or create the file ``output``. Failures are not caught here: they reach ``main``, which turns
+    them into an exit code (an existing file or the input is 5, a missing folder or no permission is 4)."""
     if not output:
         print(text, file=stream)
         return
-    try:
-        _create_output(output, text, inputs)
-    except OutputRefusedError as e:
-        print(f"error: {e}", file=sys.stderr)
-        raise SystemExit(1) from None
-    except OSError as e:
-        print(f"error: cannot write {output}: {e.strerror or e}", file=sys.stderr)
-        raise SystemExit(1) from None
+    _create_output(output, text, inputs)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -182,7 +187,7 @@ def build_diff_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
-class _UnreadableWorkbook(PyTbparseError):
+class _UnreadableWorkbook(InputError):
     """A workbook file that exists but cannot be parsed; the message is the one-line CLI error."""
 
 
@@ -202,12 +207,8 @@ def _load_workbook(path) -> TwbParser:
 
 def _run_diff(argv: list[str]) -> int:
     args = build_diff_arg_parser().parse_args(argv)
-    try:
-        a = _load_workbook(args.workbook_a)
-        b = _load_workbook(args.workbook_b)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    a = _load_workbook(args.workbook_a)
+    b = _load_workbook(args.workbook_b)
 
     df = diff_workbooks(
         a, b, table=args.table, dashboard=args.dashboard, include_parameters=args.include_parameters
@@ -236,8 +237,7 @@ def build_batch_arg_parser() -> argparse.ArgumentParser:
 def _run_batch(argv: list[str]) -> int:
     args = build_batch_arg_parser().parse_args(argv)
     if not Path(args.directory).is_dir():
-        print(f"error: not a directory: {args.directory}", file=sys.stderr)
-        return 1
+        raise InputError(f"not a directory: {args.directory}")
 
     df = scan_folder(
         args.directory,
@@ -1637,14 +1637,9 @@ def _run_docs(argv: list[str], prog: str = "py-tbparse docs") -> int:
     ap.add_argument("--output", "-o", help="write the page to this file instead of printing it")
     ap.add_argument("--graph", action="store_true", help="add the relationship graph as a DOT block")
     args = ap.parse_args(argv)
-    try:
-        page = workbook_markdown(TwbParser(args.workbook), graph=args.graph)
-    except _WORKBOOK_ERRORS as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    page = workbook_markdown(_load_workbook(args.workbook), graph=args.graph)
     if args.output and Path(args.output).resolve() == Path(args.workbook).resolve():
-        print("error: --output is the workbook itself; refusing to overwrite it", file=sys.stderr)
-        return 2
+        raise OutputRefusedError("--output is the workbook itself; refusing to overwrite it")
     if args.output:
         _write(page, args.output, inputs=(args.workbook,))
         print(f"wrote {args.output}", file=sys.stderr)
@@ -1683,40 +1678,104 @@ def _run_diff_xml(argv: list[str]) -> int:
     return 1 if text else 0
 
 
+# subcommand name -> (runner, extra keyword arguments); the one place that lists the subcommands
+_SUBCOMMANDS = {
+    "diff": (_run_diff, {}),
+    "diff-xml": (_run_diff_xml, {}),
+    "batch": (_run_batch, {}),
+    "rename": (_run_rename, {}),
+    "template": (_run_template, {}),
+    "library": (_run_library, {}),
+    "audit": (_run_audit, {}),
+    "sanitize": (_run_sanitize, {}),
+    "prune": (_run_prune, {}),
+    "sheet": (_run_sheet, {}),
+    "dashboard": (_run_dashboard, {}),
+    "slice": (_run_slice, {}),
+    "docs": (_run_docs, {}),
+    "dictionary": (_run_docs, {"prog": "py-tbparse dictionary"}),
+    "style": (_run_style, {}),
+    "scaffold": (_run_scaffold, {}),
+}
+
+
+def _stdout_to_devnull() -> None:
+    """Point file descriptor 1 at the null device, so the flush Python does at shutdown cannot fail again."""
+    try:
+        fd = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(fd, sys.stdout.fileno())
+        finally:
+            os.close(fd)
+    except (OSError, ValueError, AttributeError):
+        pass   # stdout has no file descriptor (captured by a test runner, replaced by a host program)
+
+
+def _is_closed_pipe(e: BaseException) -> bool:
+    """A reader that went away (``| head``). ``BrokenPipeError`` is EPIPE; Windows reports a closed pipe as
+    ``OSError(EINVAL)`` when stdout is flushed, so that counts too (not testable on Linux)."""
+    if isinstance(e, BrokenPipeError):
+        return True
+    return isinstance(e, OSError) and (e.errno == errno.EPIPE or (sys.platform == "win32" and e.errno == errno.EINVAL))
+
+
+def _fail(e: BaseException) -> int:
+    """Print the error the way the CLI does and return its exit code (``errors.exit_code_for``).
+
+    A closed pipe (``| head``) is not an error: nothing is printed and stdout is pointed at the null device, so
+    Python does not complain when it flushes at shutdown. An unexpected error (code 3) prints ``internal error:``,
+    the traceback and a request to report it; a full disk or similar (also code 3) is the machine's fault, so it
+    gets one ``error:`` line and no request to report a bug.
+    """
+    code = exit_code_for(e)
+    if code == 0:
+        _stdout_to_devnull()
+    elif code == INTERRUPTED:
+        print(file=sys.stderr)
+    elif code == 3 and isinstance(e, OSError) and e.errno in _ENVIRONMENT_ERRNOS:
+        print(f"error: {e.strerror or e}" + (f": {e.filename}" if e.filename is not None else ""), file=sys.stderr)
+    elif code == 3:
+        print(f"internal error: {type(e).__name__}: {e}", file=sys.stderr)
+        print("".join(traceback.format_exception(type(e), e, e.__traceback__)), end="", file=sys.stderr)
+        print("this is a bug in py-tbparse; please report it with the command you ran", file=sys.stderr)
+    elif isinstance(e, OSError) and e.strerror and e.filename is not None:
+        print(f"error: {e.strerror}: {e.filename}", file=sys.stderr)   # no "[Errno 2]" noise
+    else:
+        print(f"error: {e}", file=sys.stderr)
+    return code
+
+
+def _flush_stdout() -> None:
+    """Flush stdout inside ``main``'s try. Otherwise a closed pipe or a full disk is found only when Python flushes
+    at shutdown, where it prints "Exception ignored" and exits 120. After a failed flush stdout goes to the null
+    device so the shutdown flush has nothing left to fail on."""
+    try:
+        sys.stdout.flush()
+    except OSError as e:
+        _stdout_to_devnull()
+        if not _is_closed_pipe(e):
+            raise
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Run the command line and return its exit code. Every exception that escapes a command is mapped here
+    with ``errors.exit_code_for``; ``SystemExit`` (argparse usage errors, ``--help``) passes through."""
+    try:
+        code = _main(argv)
+        _flush_stdout()
+        return code
+    except (Exception, KeyboardInterrupt) as e:
+        if _is_closed_pipe(e):
+            _stdout_to_devnull()
+            return 0
+        return _fail(e)
+
+
+def _main(argv: list[str] | None) -> int:
     raw_argv = sys.argv[1:] if argv is None else list(argv)
-    if _is_reserved_subcommand(raw_argv, "diff"):
-        return _run_diff(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "diff-xml"):
-        return _run_diff_xml(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "batch"):
-        return _run_batch(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "rename"):
-        return _run_rename(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "template"):
-        return _run_template(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "library"):
-        return _run_library(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "audit"):
-        return _run_audit(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "sanitize"):
-        return _run_sanitize(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "prune"):
-        return _run_prune(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "sheet"):
-        return _run_sheet(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "dashboard"):
-        return _run_dashboard(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "slice"):
-        return _run_slice(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "docs"):
-        return _run_docs(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "dictionary"):
-        return _run_docs(raw_argv[1:], prog="py-tbparse dictionary")
-    if _is_reserved_subcommand(raw_argv, "style"):
-        return _run_style(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "scaffold"):
-        return _run_scaffold(raw_argv[1:])
+    for name, (run, extra) in _SUBCOMMANDS.items():
+        if _is_reserved_subcommand(raw_argv, name):
+            return run(raw_argv[1:], **extra)
 
     ap = build_arg_parser()
     args = ap.parse_args(argv)
@@ -1728,11 +1787,7 @@ def main(argv: list[str] | None = None) -> int:
             print(name)
         return 0
 
-    try:
-        parser = _load_workbook(args.workbook)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    parser = _load_workbook(args.workbook)
 
     if args.table == "graph":
         dot = parser.get_relationship_graph_dot(include_inferred=args.include_inferred)

@@ -92,7 +92,7 @@ def test_output_reached_by_another_path_to_the_input_is_refused(wb, tmp_path, ca
     sneaky = tmp_path / "sub" / ".." / wb.name
     (tmp_path / "sub").mkdir()
     rc, err = run(capsys, wb, "fields", "-f", "csv", "-o", sneaky)
-    assert rc == 1 and "input" in err
+    assert rc == 5 and "input" in err
     assert wb.read_bytes() == before
 
 
@@ -133,8 +133,8 @@ def test_save_library_raises_output_refused(tmp_path):
 
 def test_missing_folder_is_a_clean_error(wb, tmp_path, capsys):
     rc, err = run(capsys, wb, "fields", "-f", "csv", "-o", tmp_path / "nodir" / "x.csv")
-    assert rc == 1
-    assert err.startswith("error: cannot write ") and "No such file" in err and "Traceback" not in err
+    assert rc == 4
+    assert err.startswith("error: ") and "No such file" in err and "Errno" not in err and "Traceback" not in err
 
 
 @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="needs permissions")
@@ -146,4 +146,4 @@ def test_read_only_folder_is_a_clean_error(wb, tmp_path, capsys):
         rc, err = run(capsys, wb, "fields", "-f", "csv", "-o", ro / "x.csv")
     finally:
         ro.chmod(stat.S_IRWXU)
-    assert rc == 1 and "Permission denied" in err and "Traceback" not in err
+    assert rc == 4 and "Permission denied" in err and "Traceback" not in err

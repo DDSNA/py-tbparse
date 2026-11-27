@@ -45,10 +45,10 @@ def test_validate_ok_exit_code(wenjie_path, capsys):
     assert "ok: True" in out
 
 
-def test_missing_file_returns_1(capsys):
+def test_missing_file_returns_4(capsys):
     rc = cli.main(["does_not_exist.twb"])
     err = capsys.readouterr().err
-    assert rc == 1
+    assert rc == 4
     assert "error:" in err
 
 
@@ -105,7 +105,7 @@ def test_diff_subcommand_self_is_empty(wenjie_path, capsys):
 def test_diff_subcommand_missing_file(wenjie_path, capsys):
     rc = cli.main(["diff", wenjie_path, "nope.twb"])
     err = capsys.readouterr().err
-    assert rc == 1
+    assert rc == 4
     assert "error:" in err
 
 
@@ -120,7 +120,7 @@ def test_batch_subcommand_lists_both_fixtures(capsys):
 def test_batch_subcommand_not_a_directory(wenjie_path, capsys):
     rc = cli.main(["batch", wenjie_path])
     err = capsys.readouterr().err
-    assert rc == 1
+    assert rc == 4
     assert "error:" in err
 
 
@@ -134,7 +134,7 @@ def test_diff_keyword_does_not_shadow_a_real_file_named_diff(tmp_path, monkeypat
     err = capsys.readouterr().err
     # Reaches TwbParser("diff") and fails on the extension check, not on
     # the diff subcommand's "workbook_a/workbook_b required" usage error.
-    assert rc == 1
+    assert rc == 4
     assert "Unsupported file type" in err
 
 
