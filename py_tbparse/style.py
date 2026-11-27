@@ -29,7 +29,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
-from .errors import OutputRefusedError, RefusedError, UsageError
+from .errors import InputError, OutputRefusedError, RefusedError, UsageError
 from . import templates as _templates
 from .dashboards import zone_kind
 from ._xml import PathLike, PyTbparseError, parse_bytes, parse_file
@@ -50,6 +50,11 @@ class StyleClashError(StyleError, RefusedError):
 
 class StyleUsageError(StyleError, UsageError):
     """The output name is wrong, known without opening a file (exit code 2)."""
+
+
+class StyleReadError(StyleError, InputError):
+    """A style or `.tps` file that cannot be parsed at all: not JSON, not XML, or not a `Preferences.tps` (exit code 4).
+    A file that parses but breaks the style schema raises a plain `StyleError`, which `check_style_file` reports as a problem."""
 
 
 STYLE_FORMAT = "py-tbparse-style"
@@ -129,9 +134,9 @@ def _parse_tps(path):
     try:
         tree = parse_file(path)
     except etree.XMLSyntaxError as e:
-        raise StyleError(f"{path} is not XML: {e}") from e
+        raise StyleReadError(f"{path} is not XML: {e}") from e
     if tree.getroot().tag != "workbook":
-        raise StyleError(f"{path} is not a Preferences.tps (the root is <{tree.getroot().tag}>, not <workbook>)")
+        raise StyleReadError(f"{path} is not a Preferences.tps (the root is <{tree.getroot().tag}>, not <workbook>)")
     return tree
 
 
@@ -350,7 +355,7 @@ def load_style(path: Union[str, os.PathLike]) -> dict:
         with open(path, encoding="utf-8-sig") as fh:
             style = json.load(fh)
     except json.JSONDecodeError as e:
-        raise StyleError(f"{path} is not JSON: {e}") from e
+        raise StyleReadError(f"{path} is not JSON: {e}") from e
     return _check_style(style)
 
 
@@ -683,22 +688,39 @@ def export_palettes(sources: list, output_path: PathLike, select=None, on_clash:
 
 # ------------------------------------------------------------------ check --
 
-def check_style_file(path: Union[str, os.PathLike]) -> list[str]:
+def check_style_file(path: Union[str, os.PathLike], *, raise_unreadable: bool = False) -> list[str]:
     """Problems in a `.tps` or `.style.json` file; an empty list means nothing was found. A line starting
-    `warning:` is worth a look but does not make the file unusable."""
+    `warning:` is worth a look but does not make the file unusable.
+
+    With `raise_unreadable=True` (the command line uses it) a file that cannot be read is an error and not a list
+    entry: a missing file raises `InputError`, one that is not JSON, not XML or not a `.tps` raises `StyleReadError`
+    (also an `InputError`), a wrong extension raises `StyleUsageError`. Problems inside a readable file stay list entries."""
     path = Path(path)
     if not path.exists():
+        if raise_unreadable:
+            raise InputError(f"file not found: {path}")
         return [f"file not found: {path}"]
     if path.name.lower().endswith(".style.json"):
         try:
             style = load_style(path)
+        except StyleReadError as e:
+            if raise_unreadable:
+                raise
+            return [str(e)]
         except StyleError as e:
             return [str(e)]
         return [f"warning: {w}" for w in style_warnings(style)]
     if path.suffix.lower() != ".tps":
-        return [f"expected a .tps or .style.json file, got {path.name}"]
+        msg = f"expected a .tps or .style.json file, got {path.name}"
+        if raise_unreadable:
+            raise StyleUsageError(msg)
+        return [msg]
     try:
         records = _collect(path)
+    except StyleReadError as e:
+        if raise_unreadable:
+            raise
+        return [str(e)]
     except StyleError as e:
         return [str(e)]
     return palette_problems(records)

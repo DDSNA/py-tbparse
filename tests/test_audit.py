@@ -390,14 +390,14 @@ def test_cli_exit_codes_and_formats(tmp_path, capsys):
     assert capsys.readouterr().out.startswith("rule,severity,object,detail,fix")
 
 
-def test_cli_errors_are_exit_2(tmp_path, capsys):
-    assert main(["audit", str(tmp_path / "missing.twb")]) == 2
+def test_cli_errors_are_exit_2_or_4(tmp_path, capsys):
+    assert main(["audit", str(tmp_path / "missing.twb")]) == 4
     path = workbook(tmp_path)
     assert main(["audit", path, "--only", "A999"]) == 2
     assert main(["audit", path, "--only", " "]) == 2
     bad = tmp_path / "bad.twb"
     bad.write_text("not xml", encoding="utf-8")
-    assert main(["audit", str(bad)]) == 2
+    assert main(["audit", str(bad)]) == 4
     assert "error:" in capsys.readouterr().err
 
 

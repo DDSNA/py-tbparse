@@ -15,7 +15,7 @@ Mapping of severities:
 - SARIF: `error` -> `error`, `warning` -> `warning`, `info` -> `note`. The location is the file.
 - GitHub: `::error`, `::warning`, `::notice` (for `info`) with `file=` and `title=` (the rule id).
 
-The exit code is not decided here: it stays the one of the command (0, 1, 2, 3).
+The exit code is not decided here: it stays the one of the command (0, 1, 2, 3, 4, 6).
 """
 
 from __future__ import annotations
