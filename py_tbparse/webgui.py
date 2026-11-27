@@ -300,13 +300,36 @@ def _swaps(tpl=None, extra=()):
                   key=lambda p: -len(p[0]))
 
 
-# The folders this server makes are named py-tbparse-<8 characters>; whatever path leads up to one (a library
-# that spelled it another way: forward slashes, a Windows short name, file:///) is not the browser's business.
-_OWN_FOLDER = re.compile(r"[^\s\"']*py-tbparse-(?:copy-|tpl-)?[A-Za-z0-9_]{8}")
+# The folders this server makes are named py-tbparse-<8 characters>. A library may spell the path leading to one in
+# a way no exact swap matches (forward slashes, a Windows short name like RUNNER~1, file:/), so this is the fallback
+# for ERROR answers only. Linear: one scan for the folder name, then a look back of at most 300 characters.
+_OWN_FOLDER = re.compile(r"py-tbparse-(?:copy-|tpl-)?[A-Za-z0-9_]{8}")
+_DRIVE_START = re.compile(r"(?:file:/*)?(?<![A-Za-z0-9])[A-Za-z]:[\\/]|file:/+")
+_LOOK_BACK = 300
 
 
 def _hide_folders(text: str) -> str:
-    return _OWN_FOLDER.sub("(upload)", text)
+    """`text` with each server-made folder (and the path before it) replaced by `(upload)`. A Windows path may hold
+    spaces (`C:\\Users\\John Smith\\...`), so a drive letter or `file:` start is taken from the look-back window; a
+    path without one is the run of non-blank characters before the folder name."""
+    if "py-tbparse-" not in text:
+        return text
+    out, pos = [], 0
+    for m in _OWN_FOLDER.finditer(text):
+        if m.start() < pos:
+            continue
+        lo = max(pos, m.start() - _LOOK_BACK)
+        window = text[lo:m.start()]
+        starts = [d.start() for d in _DRIVE_START.finditer(window)]
+        if starts:
+            cut = starts[-1]
+        else:
+            cut = max(window.rfind(c) for c in ' \t\r\n"\'<>') + 1
+        out.append(text[pos:lo + cut])
+        out.append("(upload)")
+        pos = m.end()
+    out.append(text[pos:])
+    return "".join(out)
 
 
 def _session_paths():
@@ -1461,13 +1484,13 @@ class Handler(BaseHTTPRequestHandler):
             for spelled in {form, json.dumps(form)[1:-1]}:  # as text, and as JSON escapes it (Windows backslashes)
                 if spelled in text:
                     text = text.replace(spelled, json.dumps(label)[1:-1])
-        self._send(code, _hide_folders(text), "application/json; charset=utf-8")
+        self._send(code, _hide_folders(text) if code >= 400 else text, "application/json; charset=utf-8")
 
     def _send_text(self, code: int, message: str):
         """A plain-text answer (the download routes) with the same path scrubbing as `_send_json`."""
         for form, label in _swaps(_tpl_state(), _session_paths()):
             message = message.replace(form, label)
-        self._send(code, _hide_folders(message), "text/plain")
+        self._send(code, _hide_folders(message) if code >= 400 else message, "text/plain")
 
     def _fail(self, exc: BaseException, what: str, *, text: bool = False, status: int | None = None,
               prefix: bool = False, scrub=None) -> None:

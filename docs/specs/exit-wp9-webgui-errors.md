@@ -13,7 +13,7 @@ Plan open question 10: do this in 0.6.0, or leave the 40 `ValueError`s in `webgu
 
 ## Goal
 
-The 40 `raise ValueError(...)` in `py_tbparse/webgui.py` (count on `1130fa9`; the plan counted 39) become `UsageError` (a malformed request: wrong type, missing key, out-of-range number, unknown option) or `InputError` (a file the user added is unusable: a library or palette upload that does not parse). The HTTP answers stay the same: status 400 and `{"error": str(e)}` with the same text.
+The 40 `raise ValueError(...)` in `py_tbparse/webgui.py` (count on `1130fa9`; the plan counted 39) become `UsageError` (a malformed request: wrong type, missing key, out-of-range number, unknown option) or `InputError` (a file the user added is unusable: a library or palette upload that does not parse). The JSON shape and the message text stay the same (`{"error": str(e)}`). The status follows `http_status_for` (owner 2026-11-27): 400 for usage and input errors, 409 for a refusal (a clash under `fail`, nothing copyable), 422 for an integrity error, 500 for anything else; a plain third-party `ValueError` that used to answer 400 now answers 500 as "could not ...: message".
 
 ## How
 
@@ -25,7 +25,7 @@ The 40 `raise ValueError(...)` in `py_tbparse/webgui.py` (count on `1130fa9`; th
 ## Tests
 
 - The allow-list test above.
-- `test_gui_errors_unchanged` (in `tests/test_webgui.py` or a new `tests/test_webgui_errors.py`): three routes that answer 400 today (for example `POST /style/export` with `select: []`, `GET /style/palettes?offset=x`, `POST /library/plan` without an upload; read `tests/test_webgui_styles.py` and `tests/test_webgui_libraries.py` for how they call the server) still answer 400 with the same message text.
+- `test_gui_errors_unchanged` (in `tests/test_webgui.py` or a new `tests/test_webgui_errors.py`): three routes that answer 400 today (for example `POST /style/export` with `select: []`, `GET /style/palettes?offset=x`, `POST /library/plan` without an upload; read `tests/test_webgui_styles.py` and `tests/test_webgui_libraries.py` for how they call the server) still answer 400 with the same message text (clash and integrity routes answer 409 and 422).
 - All `tests/test_webgui*.py` and `tests/test_server_mode.py` pass unchanged.
 
 ## Docs
@@ -51,4 +51,4 @@ Low. A message changed by accident would show in the GUI; the route tests compar
 
 ## Definition of done
 
-Only when the owner said yes: no plain `ValueError` in `webgui.py`, HTTP answers unchanged, tests green, CI green, no version bump.
+Only when the owner said yes: no plain `ValueError` in `webgui.py`, message texts unchanged, statuses as `http_status_for` says (owner 2026-11-27), tests green, CI green, no version bump.

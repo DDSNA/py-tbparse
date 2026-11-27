@@ -93,7 +93,7 @@ In a shared server ([Running as a server](deployment.md)) there are no path boxe
 
 ## Errors
 
-Every error answer is JSON, `{"error": "<message>"}` (plain text for the download routes), and the page shows the message as it is. The status comes from one table (`http_status_for` in `py_tbparse/errors.py`, built on the same categories as the command line's exit codes):
+Every error answer is JSON, `{"error": "<message>"}` (plain text for the download routes), and the page shows the message as it is. The status comes from one table (`http_status_for` in `py_tbparse/errors.py`, built on the same categories as the command line's exit codes). The Templates view answers with its own fixed 400, 409 and 500 and follows the same meanings:
 
 | Status | When |
 |---|---|
@@ -103,4 +103,4 @@ Every error answer is JSON, `{"error": "<message>"}` (plain text for the downloa
 | 422 | the result would have broken references (for example a slice that would leave a dangling reference) |
 | 500 | anything the code did not expect: the message says what failed ("could not audit the workbook: ..."), with no traceback |
 
-A 409 or 422 was a 400 before 0.6.0; the page treats all non-2xx answers alike, so nothing changes on screen. In server mode (`--server-mode`) the server's own paths never reach the browser: the temp folder shows as `(temp)`, an uploaded file by its name, and the session's folders as `(upload)`. This is done once, where the answer is written, so a message from deep inside the library cannot name the server's disk. In local mode the upload folders are hidden the same way, but your own file paths are shown.
+A 409 or 422 was a 400 before 0.6.0; the page treats all non-2xx answers alike, so nothing changes on screen. In server mode (`--server-mode`) the server's own paths never reach the browser: the temp folder shows as `(temp)`, an uploaded file by its name, and the session's folders as `(upload)`. This is done once, where the answer is written (error answers only; data answers are never rewritten), so a message from deep inside the library cannot name the server's disk. In local mode the upload folders are hidden the same way, but your own file paths are shown.

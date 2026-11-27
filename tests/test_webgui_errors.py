@@ -25,6 +25,7 @@ from py_tbparse.sheetcopy import SheetCopyRefused  # noqa: E402
 from py_tbparse.slicer import SliceIntegrityError  # noqa: E402
 from py_tbparse.style import StyleClashError  # noqa: E402
 from py_tbparse.templates import TemplateError  # noqa: E402
+from py_tbparse._xml import PackageTooLargeError  # noqa: E402
 
 JSON_H = {"Content-Type": "application/json"}
 PUBLIC = "tbparse.example.com"
@@ -38,6 +39,7 @@ PUBLIC = "tbparse.example.com"
     (InputError("x"), 400),
     (LibraryError("x"), 400),
     (TemplateError("x"), 400),
+    (PackageTooLargeError("x"), 400),
     (RefusedError("x"), 409),
     (OutputRefusedError("x"), 409),
     (LibraryClashError("x"), 409),
@@ -183,13 +185,11 @@ def test_an_unexpected_error_is_a_500_without_path_or_traceback(gui, monkeypatch
     assert gui.get("/dashboards")[0] == 200
 
 
-def test_a_plain_value_error_from_inside_is_a_500_not_a_400(gui, monkeypatch):
     monkeypatch.setattr(webgui, "_style_palettes_answer", lambda qs: (_ for _ in ()).throw(ValueError("bug")))
     status, raw = gui.get("/style/palettes")
     assert status == 500 and "bug" in json.loads(raw)["error"]
 
 
-def test_an_error_in_a_download_is_plain_text_and_scrubbed(gui, monkeypatch):
     import tempfile
     secret = str(Path(tempfile.gettempdir()) / "py-tbparse-secret")
     monkeypatch.setattr(webgui.Handler, "_renamed_workbook",
@@ -264,3 +264,33 @@ def test_the_plan_still_retries_as_rename_on_a_clash_but_add_refuses(tmp_path, w
         assert status == 400 and json.loads(raw)["error"].startswith("on_clash: use")
     finally:
         _stop(srv, thread, saved)
+
+
+# ---- the fallback scrub of the server's own folders ----
+
+def test_hide_folders_windows_spellings_on_any_system():
+    hide = webgui._hide_folders
+    assert hide("bad (file:/C:/Users/RUNNER~1/AppData/Local/Temp/py-tbparse-abcd1234/a.twb, line 1)") == \
+        "bad ((upload)/a.twb, line 1)"
+    assert hide(r"cannot read C:\Users\John Smith\AppData\Local\Temp\py-tbparse-copy-abcd1234\t.twbx") == \
+        r"cannot read (upload)\t.twbx"
+    escaped = json.dumps({"error": r"x C:\Users\John Smith\Temp\py-tbparse-tpl-abcd1234\a"})
+    assert json.loads(hide(escaped))["error"] == "x (upload)" + "\\a"
+    assert hide("see /var/tmp/py-tbparse-abcd1234/a.twb and /tmp/py-tbparse-wxyz5678/b") == "see (upload)/a.twb and (upload)/b"
+    assert hide("file:/(temp)/py-tbparse-abcd1234/a.twb") == "(upload)/a.twb"
+
+
+def test_hide_folders_is_linear_and_leaves_other_text_alone():
+    import time
+    for text in ("a" * 1_000_000, "/" * 1_000_000, ("py-tbparse-" * 90_000), ("x/" * 500_000 + "py-tbparse-abcd1234")):
+        t = time.perf_counter()
+        webgui._hide_folders(text)
+        assert time.perf_counter() - t < 2.0
+    assert webgui._hide_folders("nothing here") == "nothing here"
+
+
+def test_a_successful_answer_is_never_rewritten(gui, monkeypatch):
+    caption = "see https://x/py-tbparse-examples and py-tbparse-template_xxxxxxxx " + "a" * 50_000
+    monkeypatch.setattr(webgui, "_style_palettes_answer", lambda qs: {"caption": caption})
+    status, raw = gui.get("/style/palettes")
+    assert status == 200 and json.loads(raw)["caption"] == caption
