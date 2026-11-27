@@ -272,8 +272,8 @@ def test_validate_ci_formats_keep_exit_codes(wenjie_path, monkeypatch, capsys):
     assert rc == 2 and json.loads(out)["ok"] is False
 
 
-def test_validate_unreadable_workbook_is_still_exit_1(tmp_path, capsys):
-    assert main([str(tmp_path / "missing.twb"), "validate", "--format", "sarif"]) == 1
+def test_validate_unreadable_workbook_is_exit_4(tmp_path, capsys):
+    assert main([str(tmp_path / "missing.twb"), "validate", "--format", "sarif"]) == 4
 
 
 def test_ci_format_on_another_table_is_a_usage_error(wenjie_path, capsys):

@@ -1,5 +1,5 @@
 """A malformed .twb or a corrupt .twbx gives one `error:` line, not a traceback, and the exit code each command
-already had (1 for the plain table commands, `diff` and `rename`)."""
+(4 for the plain table commands and `diff`; `rename` keeps 1 until A6)."""
 
 import sys
 import zipfile
@@ -36,9 +36,9 @@ def broken(tmp_path, kind):
 KINDS = ["empty", "truncated", "not-zip", "damaged-zip"]
 
 
-def check(capsys, code, path):
+def check(capsys, code, path, expected=1):
     err = capsys.readouterr().err
-    assert code == 1
+    assert code == expected
     assert "Traceback" not in err
     lines = err.strip().splitlines()
     assert len(lines) == 1
@@ -50,7 +50,7 @@ def check(capsys, code, path):
 @pytest.mark.parametrize("table", ["overview", "validate", "graph", "fields"])
 def test_table_commands(tmp_path, capsys, kind, table):
     path = broken(tmp_path, kind)
-    check(capsys, cli.main([path, table]), path)
+    check(capsys, cli.main([path, table]), path, 4)
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -79,10 +79,10 @@ def test_rename_reference(tmp_path, capsys, kind):
 def test_diff(tmp_path, capsys, kind, first):
     path = broken(tmp_path, kind)
     argv = ["diff", path, GOOD] if first else ["diff", GOOD, path]
-    check(capsys, cli.main(argv), path)
+    check(capsys, cli.main(argv), path, 4)
 
 
 def test_missing_file_message_is_unchanged(tmp_path, capsys):
     code = cli.main([str(tmp_path / "nope.twb"), "overview"])
     err = capsys.readouterr().err
-    assert code == 1 and err.startswith("error: ") and "not a readable" not in err
+    assert code == 4 and err.startswith("error: ") and "not a readable" not in err
