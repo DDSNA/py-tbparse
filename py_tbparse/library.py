@@ -495,8 +495,11 @@ def save_library(library: dict, path: Union[str, os.PathLike], overwrite: bool =
     """Write a library as `*.library.json` (UTF-8, indent 2, keys sorted). An existing file is only replaced
     with `overwrite=True`."""
     text = json.dumps(library, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
-    with open(path, "w" if overwrite else "x", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
+    try:
+        with open(path, "w" if overwrite else "x", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+    except FileExistsError:
+        raise OutputRefusedError(f"{path} already exists; move or delete it first (or pass --overwrite)") from None
     return str(path)
 
 

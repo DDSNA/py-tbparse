@@ -94,11 +94,39 @@ def _df_text(df: pd.DataFrame, fmt: str) -> str:
         return df.to_string(index=False)
 
 
-def _write(text: str, output: str | None, stream=None) -> None:
-    if output:
-        Path(output).write_text(text, encoding="utf-8")
-    else:
+def _create_output(output, text: str, inputs=()) -> None:
+    """Write ``text`` to a new file ``output``; never replace anything.
+
+    ``OutputRefusedError`` when ``output`` is one of ``inputs`` or already exists ("x" mode, so a file created
+    after the check is refused as well). Other ``OSError`` (missing folder, no permission) pass through.
+    """
+    out = Path(output)
+    for src in inputs:
+        try:
+            same = out.exists() and os.path.samefile(out, src)
+        except OSError:
+            same = False
+        if same:
+            raise OutputRefusedError(f"{out} is the input file; refusing to overwrite it, give another -o")
+    try:
+        with open(out, "x", encoding="utf-8") as fh:
+            fh.write(text)
+    except FileExistsError:
+        raise OutputRefusedError(f"{out} already exists; move or delete it first") from None
+
+
+def _write(text: str, output: str | None, stream=None, inputs=()) -> None:
+    if not output:
         print(text, file=stream)
+        return
+    try:
+        _create_output(output, text, inputs)
+    except OutputRefusedError as e:
+        print(f"error: {e}", file=sys.stderr)
+        raise SystemExit(1) from None
+    except OSError as e:
+        print(f"error: cannot write {output}: {e.strerror or e}", file=sys.stderr)
+        raise SystemExit(1) from None
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -184,7 +212,7 @@ def _run_diff(argv: list[str]) -> int:
     df = diff_workbooks(
         a, b, table=args.table, dashboard=args.dashboard, include_parameters=args.include_parameters
     )
-    _write(_df_text(df, args.format), args.output)
+    _write(_df_text(df, args.format), args.output, inputs=(args.workbook_a, args.workbook_b))
     return 0
 
 
@@ -329,7 +357,7 @@ def _run_rename(argv: list[str]) -> int:
         except ValueError as e:
             print(f"error: {e}", file=sys.stderr)
             return 1
-        _write(_df_text(gaps, args.format), args.output)
+        _write(_df_text(gaps, args.format), args.output, inputs=(args.workbook,))
         return 0
 
     kwargs = dict(reference=ref, style=args.style, fuzzy_cutoff=args.cutoff, datasource=args.datasource)
@@ -347,7 +375,7 @@ def _run_rename(argv: list[str]) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
     df = everything[everything["changed"]].reset_index(drop=True) if args.only_changed else everything
-    _write(_df_text(df, args.format), args.output)
+    _write(_df_text(df, args.format), args.output, inputs=(args.workbook,))
     if args.write_workbook is not None:
         try:
             out = apply_field_renames(
@@ -796,7 +824,7 @@ def _run_template(argv: list[str]) -> int:
             if args.output and Path(args.output).resolve() == Path(args.template).resolve():
                 raise OutputRefusedError(f"--output {args.output} is the template itself; it would be overwritten")
             if args.output:
-                Path(args.output).write_text(page, encoding="utf-8")
+                _create_output(args.output, page, inputs=(args.template,))
                 print(f"wrote {args.output}", file=sys.stderr)
             else:
                 sys.stdout.write(page)
@@ -1346,7 +1374,7 @@ def _run_audit(argv: list[str]) -> int:
     except _WORKBOOK_ERRORS as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
-    _write(format_findings(found, args.format, path=args.workbook), args.output)
+    _write(format_findings(found, args.format, path=args.workbook), args.output, inputs=(args.workbook,))
     print(findings_summary(found), file=sys.stderr)
     crashed = found.attrs.get("crashed") or []
     if crashed:
@@ -1617,9 +1645,11 @@ def _run_docs(argv: list[str], prog: str = "py-tbparse docs") -> int:
     if args.output and Path(args.output).resolve() == Path(args.workbook).resolve():
         print("error: --output is the workbook itself; refusing to overwrite it", file=sys.stderr)
         return 2
-    sys.stdout.write(page) if not args.output else Path(args.output).write_text(page, encoding="utf-8")
     if args.output:
+        _write(page, args.output, inputs=(args.workbook,))
         print(f"wrote {args.output}", file=sys.stderr)
+    else:
+        sys.stdout.write(page)
     return 0
 
 
@@ -1647,7 +1677,7 @@ def _run_diff_xml(argv: list[str]) -> int:
         if any(Path(args.output).resolve() == Path(w).resolve() for w in (args.workbook_a, args.workbook_b)):
             print("error: --output is one of the workbooks; refusing to overwrite it", file=sys.stderr)
             return 2
-        Path(args.output).write_text(text, encoding="utf-8")
+        _write(text, args.output, inputs=(args.workbook_a, args.workbook_b))
     else:
         sys.stdout.write(text)
     return 1 if text else 0
@@ -1706,7 +1736,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.table == "graph":
         dot = parser.get_relationship_graph_dot(include_inferred=args.include_inferred)
-        _write(dot, args.output)
+        _write(dot, args.output, inputs=(args.workbook,))
         return 0
 
     if args.table == "validate":
@@ -1714,7 +1744,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.format in CI_FORMATS:
             # the exit code stays the one of the plain formats: 0, or 2 when a relationship is broken
             _write(format_findings(validation_findings(result, args.workbook), args.format, path=args.workbook),
-                   args.output)
+                   args.output, inputs=(args.workbook,))
         elif args.format == "json":
             payload = {
                 "ok": result["ok"],
@@ -1723,13 +1753,13 @@ def main(argv: list[str] | None = None) -> int:
                     for name, df in result["issues"].items()
                 },
             }
-            _write(json.dumps(payload, indent=2, default=str), args.output)
+            _write(json.dumps(payload, indent=2, default=str), args.output, inputs=(args.workbook,))
         else:
             lines = [f"ok: {result['ok']}"]
             for name, df in result["issues"].items():
                 lines.append(f"\n{name}:")
                 lines.append(df.to_string(index=False))
-            _write("\n".join(lines), args.output)
+            _write("\n".join(lines), args.output, inputs=(args.workbook,))
         return 0 if result["ok"] else 2
 
     getter = TABLE_SPECS[args.table]
@@ -1738,7 +1768,7 @@ def main(argv: list[str] | None = None) -> int:
         dashboard=args.dashboard,
         include_parameters=args.include_parameters,
     )
-    _write(_df_text(df, args.format), args.output)
+    _write(_df_text(df, args.format), args.output, inputs=(args.workbook,))
     return 0
 
 
