@@ -223,7 +223,7 @@ def test_the_default_policy_is_fail_and_every_clash_is_listed(server, plain):
     assert plan["clashes"][0]["name"] == "Acme Brand"
     assert plan["rows"][0]["colors"] == ["#112233", "#445566"]
     status, d, _ = _post(server, "/style/add", {})
-    assert status == 400 and b"Acme Brand" in d
+    assert status == 409 and b"Acme Brand" in d
     for policy, will_add in (("skip", 1), ("rename", 2), ("replace", 2)):
         _, plan = _postj(server, "/style/plan", {"on_clash": policy})
         assert plan["blocked"] is False and plan["will_add"] == will_add, policy

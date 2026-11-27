@@ -257,7 +257,7 @@ def test_a_sheet_whose_datasource_the_target_lacks_is_refused_and_named(server, 
     assert all(r["status"] == "refused" and r["reason"] for r in d["rows"])
     assert str(tmp_path) not in json.dumps(d)
     status, body, _ = _post(server, "/copy/download", {"sheets": ["S1"]})
-    assert status == 400 and "nothing was made" in json.loads(body)["error"]
+    assert status == 409 and "nothing was made" in json.loads(body)["error"]
 
 
 def test_the_plan_needs_a_target_and_names_and_a_known_policy(server, src, tgt):
@@ -284,11 +284,11 @@ def test_download_makes_the_copy_and_changes_neither_input(server, src, tgt):
     assert sorted(p.name for p in Path(tgt).parent.iterdir()) == ["_for_target.twb", "target.twb"]
     # the stop policy stops the download too, with the clash named
     status, body, _ = _post(server, "/copy/download", {"sheets": ["S3"]})
-    assert status == 400 and "on_clash='fail'" in json.loads(body)["error"]
+    assert status == 409 and "on_clash='fail'" in json.loads(body)["error"]
     status, data, _ = _post(server, "/copy/download", {"sheets": ["S3"], "on_clash": "rename"})
     assert status == 200 and "S3 (2)" in _doc(data).xpath("/workbook/worksheets/worksheet/@name")
     status, body, _ = _post(server, "/copy/download", {"sheets": ["S3"], "on_clash": "skip"})
-    assert status == 400 and "nothing was made" in json.loads(body)["error"]
+    assert status == 409 and "nothing was made" in json.loads(body)["error"]
 
 
 def test_the_target_folder_goes_when_replaced_cleared_or_another_workbook_opens(server, src, tgt):

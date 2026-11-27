@@ -36,6 +36,7 @@ import pandas as pd
 from . import __version__, template_gui
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from ._xml import PyTbparseError
+from .errors import InputError, RefusedError, UsageError, http_status_for
 from .dashboards import _dashboard_xpath, dashboard_targets, dashboard_zone_labels
 from .docgen import workbook_markdown
 from .findings import SEVERITY, exceeds, rules as _audit_rules, format_findings, summary as findings_summary
@@ -283,10 +284,9 @@ def _path_forms(path: str) -> set:
     return {f for f in forms | {Path(f).as_posix() for f in forms} if f and f not in (os.sep, "/")}
 
 
-def _scrub(value, tpl=None, extra=()):
-    """`value` with every server temp path replaced by a label: an uploaded file's path by its file name, the
-    session's directory by `(upload)`, and in server mode the whole temp root by `(temp)`. Applied to every
-    /template/ answer, so a message from deep inside the template API cannot name the server's disk."""
+def _swaps(tpl=None, extra=()):
+    """(path form, label) pairs, longest path first: an uploaded file's path by its file name, the session's
+    directory by `(upload)`, and in server mode the whole temp root by `(temp)`."""
     pairs = list(extra)
     if tpl is not None:
         for slot in ("template", "data"):
@@ -296,8 +296,28 @@ def _scrub(value, tpl=None, extra=()):
             pairs.append((tpl["dir"], "(upload)"))
     if _CONFIG["server_mode"]:
         pairs.append((tempfile.gettempdir(), "(temp)"))
-    swaps = sorted({(form, label) for path, label in pairs if path for form in _path_forms(str(path))},
-                   key=lambda p: -len(p[0]))
+    return sorted({(form, label) for path, label in pairs if path for form in _path_forms(str(path))},
+                  key=lambda p: -len(p[0]))
+
+
+def _session_paths():
+    """The paths of this session's own files, for `_send_json`: the upload folders, and the open workbook
+    (always in server mode, where a path on the server's disk is nobody's business; in local mode only when
+    it was dropped in and so has no path the user knows)."""
+    pairs = [(_UPLOAD["dir"], "(upload)")]
+    cpy = _STATE["cpy"]
+    if cpy:
+        pairs.append((cpy.get("dir"), "(upload)"))
+    path = _STATE["path"]
+    if path and (_CONFIG["server_mode"] or _STATE["uploaded"]):
+        pairs.append((path, os.path.basename(str(path).replace("\\", "/"))))
+    return pairs
+
+
+def _scrub(value, tpl=None, extra=()):
+    """`value` with every server temp path replaced by a label (see `_swaps`). Applied to every /template/
+    answer, so a message from deep inside the template API cannot name the server's disk."""
+    swaps = _swaps(tpl, extra)
     if not swaps:
         return value
 
@@ -509,7 +529,7 @@ def _rename_options(src: dict) -> dict:
         except (FileNotFoundError, ValueError):
             raise
         except Exception as e:  # malformed XML, bad zip, permissions, etc.
-            raise ValueError(f"failed to parse reference workbook: {e}") from e
+            raise InputError(f"failed to parse reference workbook: {e}") from e
     ds = one("datasource")
     if ds:
         opts["datasource"] = ds
@@ -525,7 +545,7 @@ def _rename_exclude(src: dict):
     if value is None:
         return None
     if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
-        raise ValueError("exclude must be a list of rename ids (strings)")
+        raise UsageError("exclude must be a list of rename ids (strings)")
     return value
 
 
@@ -742,7 +762,7 @@ def _largest(zones: list, cap: int) -> list:
 def _cards_answer(qs: dict) -> dict:
     names = list(dict.fromkeys(n for n in (qs.get("name") or []) if n))
     if len(names) > CARD_PAGE_MAX:
-        raise ValueError(f"Ask for at most {CARD_PAGE_MAX} dashboards at a time.")
+        raise UsageError(f"Ask for at most {CARD_PAGE_MAX} dashboards at a time.")
     parser = _STATE["parser"]
     known = set(parser.get_dashboards()["name"])
     cards = []
@@ -791,7 +811,7 @@ def _draw_order(zones: list) -> list:
 def _layout_answer(qs: dict) -> dict:
     names = [n for n in (qs.get("name") or []) if n]
     if len(names) != 1:
-        raise ValueError("Ask for exactly one dashboard name.")
+        raise UsageError("Ask for exactly one dashboard name.")
     name = names[0]
     parser = _STATE["parser"]
     if name not in set(parser.get_dashboards()["name"]):
@@ -821,7 +841,7 @@ def _audit_ids(qs: dict, key: str) -> list[str]:
     ids = [i.strip().upper() for part in (qs.get(key) or []) for i in part.split(",") if i.strip()]
     unknown = sorted(set(ids) - known)
     if unknown:
-        raise ValueError(f"{key}: unknown rule {', '.join(unknown)}; known: {', '.join(sorted(known))}")
+        raise UsageError(f"{key}: unknown rule {', '.join(unknown)}; known: {', '.join(sorted(known))}")
     return ids
 
 
@@ -841,7 +861,7 @@ def _audit_filtered(found: pd.DataFrame, qs: dict) -> pd.DataFrame:
     severities = [v.strip().lower() for part in (qs.get("severity") or []) for v in part.split(",") if v.strip()]
     bad = sorted(set(severities) - set(SEVERITY))
     if bad:
-        raise ValueError(f"severity: unknown {', '.join(bad)}; use {', '.join(SEVERITY)}")
+        raise UsageError(f"severity: unknown {', '.join(bad)}; use {', '.join(SEVERITY)}")
     rules_ = _audit_ids(qs, "rule")
     if severities:
         found = found[found["severity"].isin(severities)]
@@ -864,7 +884,7 @@ def _audit_answer(qs: dict) -> dict:
         offset = max(0, int((qs.get("offset") or ["0"])[0]))
         limit = min(AUDIT_PAGE_MAX, max(1, int((qs.get("limit") or [str(AUDIT_PAGE)])[0])))
     except ValueError:
-        raise ValueError("offset and limit must be whole numbers")
+        raise UsageError("offset and limit must be whole numbers")
     page = shown.iloc[offset:offset + limit]
     exit_code = 3 if crashed else (1 if exceeds(found, "error") else 0)
     return {
@@ -910,7 +930,7 @@ def _lib_datasource(value) -> str | None:
     if value in (None, ""):
         return None
     if not isinstance(value, str):
-        raise ValueError("datasource must be text")
+        raise UsageError("datasource must be text")
     return value
 
 
@@ -944,7 +964,7 @@ def _library_entries_answer(qs: dict) -> dict:
     src = _lib_source(parser, ds)
     kind = (qs.get("kind") or [""])[0]
     if kind not in ("", "calc", "parameter"):
-        raise ValueError("kind: use calc or parameter")
+        raise UsageError("kind: use calc or parameter")
     text = (qs.get("q") or [""])[0].strip().lower()
     rows = src["entries"]
     if kind:
@@ -955,7 +975,7 @@ def _library_entries_answer(qs: dict) -> dict:
         offset = max(0, int((qs.get("offset") or ["0"])[0]))
         limit = min(LIBRARY_PAGE_MAX, max(1, int((qs.get("limit") or [str(LIBRARY_PAGE)])[0])))
     except ValueError:
-        raise ValueError("offset and limit must be whole numbers")
+        raise UsageError("offset and limit must be whole numbers")
     page = [{
         "name": e["name"], "caption": e.get("caption") or e["name"].strip("[]"), "kind": e["kind"],
         "datatype": e.get("datatype") or "", "folder": e.get("folder") or "",
@@ -986,17 +1006,17 @@ def _library_export(payload: dict) -> tuple[str, str]:
     parser = _STATE["parser"]
     select = payload.get("select")
     if not isinstance(select, list) or not all(isinstance(x, str) for x in select) or not select:
-        raise ValueError("Tick at least one calculation or parameter to export.")
+        raise UsageError("Tick at least one calculation or parameter to export.")
     if len(select) > 50_000:
-        raise ValueError("Too many items selected.")
+        raise UsageError("Too many items selected.")
     name = payload.get("name") or ""
     description = payload.get("description") or ""
     if not isinstance(name, str) or not isinstance(description, str):
-        raise ValueError("name and description must be text")
+        raise UsageError("name and description must be text")
     if len(name) > MAX_NAME:
-        raise ValueError(f"'name' is longer than {MAX_NAME} characters")
+        raise UsageError(f"'name' is longer than {MAX_NAME} characters")
     if len(description) > MAX_DESCRIPTION:
-        raise ValueError(f"'description' is longer than {MAX_DESCRIPTION} characters")
+        raise UsageError(f"'description' is longer than {MAX_DESCRIPTION} characters")
     lib = _library.export_library(
         parser, datasource=_lib_datasource(payload.get("datasource")), select=select,
         with_dependencies=payload.get("with_dependencies", True) is not False,
@@ -1008,14 +1028,14 @@ def _library_upload_ok(raw: bytes, name: str) -> dict:
     try:
         lib = json.loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
-        raise ValueError(f"{name} is not a library file ({e})")
+        raise InputError(f"{name} is not a library file ({e})")
     if not isinstance(lib, dict) or lib.get("format") != _library.FORMAT:
-        raise ValueError(f"{name} is not a py-tbparse library (it has no format \"{_library.FORMAT}\")")
+        raise InputError(f"{name} is not a py-tbparse library (it has no format \"{_library.FORMAT}\")")
     if not isinstance(lib.get("version"), int) or lib["version"] > _library.VERSION:
-        raise ValueError(f"{name}: library version {lib.get('version')!r} is newer than this py-tbparse reads ({_library.VERSION})")
+        raise InputError(f"{name}: library version {lib.get('version')!r} is newer than this py-tbparse reads ({_library.VERSION})")
     for key in ("entries", "required"):
         if not isinstance(lib.get(key), list):
-            raise ValueError(f"{name}: the library has no {key!r} list")
+            raise InputError(f"{name}: the library has no {key!r} list")
     return lib
 
 
@@ -1032,7 +1052,7 @@ def _library_summary(lib: dict, name: str) -> dict:
 def _library_loaded() -> dict:
     st = _lib_state()
     if st["library"] is None:
-        raise ValueError("Add a library file first.")
+        raise UsageError("Add a library file first.")
     return st["library"]
 
 
@@ -1042,7 +1062,7 @@ def _library_plan(payload: dict) -> dict:
     ds = _lib_datasource(payload.get("datasource"))
     policy = payload.get("on_clash", "fail")
     if policy not in _library.CLASH_POLICIES:
-        raise ValueError(f"on_clash: use {', '.join(_library.CLASH_POLICIES)}")
+        raise UsageError(f"on_clash: use {', '.join(_library.CLASH_POLICIES)}")
     blocked = None
     try:
         plan = _library.plan_import(parser, lib, datasource=ds, on_clash=policy)
@@ -1058,7 +1078,7 @@ def _library_plan(payload: dict) -> dict:
         offset = max(0, int(payload.get("offset", 0)))
         limit = min(LIBRARY_PAGE_MAX, max(1, int(payload.get("limit", LIBRARY_PAGE))))
     except (TypeError, ValueError):
-        raise ValueError("offset and limit must be whole numbers")
+        raise UsageError("offset and limit must be whole numbers")
     clash_actions = ("add-renamed", "skip-clash")
     clashes = plan[plan["action"].isin(clash_actions)]
     counts = {a: int(n) for a, n in plan["action"].value_counts().items()}
@@ -1077,7 +1097,7 @@ def _library_add(payload: dict) -> tuple[bytes, str, dict]:
     lib = _library_loaded()
     policy = payload.get("on_clash", "fail")
     if policy not in _library.CLASH_POLICIES:
-        raise ValueError(f"on_clash: use {', '.join(_library.CLASH_POLICIES)}")
+        raise UsageError(f"on_clash: use {', '.join(_library.CLASH_POLICIES)}")
     report: dict = {}
     data = _library.build_imported_workbook(parser, lib, datasource=_lib_datasource(payload.get("datasource")),
                                             on_clash=policy, report=report)
@@ -1106,7 +1126,7 @@ def _sty_page(qs_or_payload, get) -> tuple[int, int]:
         offset = max(0, int(get("offset", 0)))
         limit = min(STYLE_PAGE, max(1, int(get("limit", STYLE_PAGE))))
     except (TypeError, ValueError):
-        raise ValueError("offset and limit must be whole numbers")
+        raise UsageError("offset and limit must be whole numbers")
     return offset, limit
 
 
@@ -1143,17 +1163,17 @@ def _style_filename(name: str, fmt: str) -> str:
 def _style_export(payload: dict) -> tuple[bytes, str]:
     select = payload.get("select")
     if not isinstance(select, list) or not all(isinstance(x, str) for x in select) or not select:
-        raise ValueError("Tick at least one palette to export.")
+        raise UsageError("Tick at least one palette to export.")
     if len(select) > 50_000:
-        raise ValueError("Too many palettes selected.")
+        raise UsageError("Too many palettes selected.")
     fmt = payload.get("format", "style")
     if fmt not in ("style", "tps"):
-        raise ValueError("format: use style or tps")
+        raise UsageError("format: use style or tps")
     name = payload.get("name") or ""
     if not isinstance(name, str):
-        raise ValueError("name must be text")
+        raise UsageError("name must be text")
     if len(name) > MAX_NAME:
-        raise ValueError(f"'name' is longer than {MAX_NAME} characters")
+        raise UsageError(f"'name' is longer than {MAX_NAME} characters")
     data = _style.build_export([_STATE["parser"]], "tps" if fmt == "tps" else "json", select=select, name=name or None)
     return data, _style_filename(name or _workbook_stem(), fmt)
 
@@ -1161,14 +1181,14 @@ def _style_export(payload: dict) -> tuple[bytes, str]:
 def _style_loaded() -> list:
     st = _sty_state()
     if st["records"] is None:
-        raise ValueError("Add a palette file first.")
+        raise UsageError("Add a palette file first.")
     return st["records"]
 
 
 def _style_policy(payload: dict) -> str:
     policy = payload.get("on_clash", "fail")
     if policy not in _style.CLASH_POLICIES:
-        raise ValueError(f"on_clash: use {', '.join(_style.CLASH_POLICIES)}")
+        raise UsageError(f"on_clash: use {', '.join(_style.CLASH_POLICIES)}")
     return policy
 
 
@@ -1229,23 +1249,23 @@ def _cpy_page(get) -> tuple[int, int]:
         offset = max(0, int(get("offset", 0)))
         limit = min(COPY_PAGE, max(1, int(get("limit", COPY_PAGE))))
     except (TypeError, ValueError):
-        raise ValueError("offset and limit must be whole numbers")
+        raise UsageError("offset and limit must be whole numbers")
     return offset, limit
 
 
 def _cpy_names(payload: dict, key: str) -> list:
     names = payload.get(key)
     if (not isinstance(names, list) or not names or not all(isinstance(x, str) for x in names)):
-        raise ValueError("Tick at least one dashboard." if key == "dashboards" else "Tick at least one worksheet.")
+        raise UsageError("Tick at least one dashboard." if key == "dashboards" else "Tick at least one worksheet.")
     if len(names) > _COPY_MAX_PICK:
-        raise ValueError("Too many items selected.")
+        raise UsageError("Too many items selected.")
     return list(dict.fromkeys(names))
 
 
 def _cpy_flag(payload: dict, key: str, default: bool) -> bool:
     v = payload.get(key, default)
     if not isinstance(v, bool):
-        raise ValueError(f"{key} must be true or false")
+        raise UsageError(f"{key} must be true or false")
     return v
 
 
@@ -1332,14 +1352,14 @@ def _cpy_slice_download(payload: dict) -> tuple[bytes, str, dict]:
 def _cpy_target():
     cpy = _STATE["cpy"]
     if not cpy or not cpy.get("parser") or not cpy.get("dir"):
-        raise ValueError("Choose the target workbook first.")
+        raise UsageError("Choose the target workbook first.")
     return cpy
 
 
 def _cpy_policy(payload: dict) -> str:
     policy = payload.get("on_clash", "fail")
     if policy not in _COPY_POLICIES:
-        raise ValueError(f"on_clash: use {', '.join(_COPY_POLICIES)}")
+        raise UsageError(f"on_clash: use {', '.join(_COPY_POLICIES)}")
     return policy
 
 
@@ -1393,9 +1413,9 @@ def _cpy_copy_download(payload: dict) -> tuple[bytes, str, dict]:
     try:
         data, report = build_sheet_copy(_STATE["parser"], cpy["parser"], sheets, policy, strict)
     except SheetCopyAbort as e:
-        raise ValueError(_cpy_scrub(str(e))) from e
+        raise type(e)(_cpy_scrub(str(e))) from e
     if not report["copied"]:
-        raise ValueError("No sheet can be copied with these choices, so nothing was made.")
+        raise RefusedError("No sheet can be copied with these choices, so nothing was made.")
     stem = re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.splitext(cpy["name"])[0]).strip("._") or "target"
     return data, f"{stem[:80]}_sheetcopy{_cpy_ext(cpy['parser'])}", report
 
@@ -1408,6 +1428,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, code: int, body, ctype: str = "text/html; charset=utf-8", headers=None):
         data = body.encode("utf-8") if isinstance(body, str) else body
+        self._answered = True
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
@@ -1424,7 +1445,39 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _send_json(self, obj, code: int = 200):
-        self._send(code, json.dumps(obj), "application/json; charset=utf-8")
+        """Every JSON answer goes through here, so the server's paths are scrubbed in one place: the upload
+        folders and (in server mode) the temp root and the open workbook's path, whatever route made the text."""
+        text = json.dumps(obj)
+        for form, label in _swaps(_tpl_state(), _session_paths()):
+            for spelled in {form, json.dumps(form)[1:-1]}:  # as text, and as JSON escapes it (Windows backslashes)
+                if spelled in text:
+                    text = text.replace(spelled, json.dumps(label)[1:-1])
+        self._send(code, text, "application/json; charset=utf-8")
+
+    def _send_text(self, code: int, message: str):
+        """A plain-text answer (the download routes) with the same path scrubbing as `_send_json`."""
+        for form, label in _swaps(_tpl_state(), _session_paths()):
+            message = message.replace(form, label)
+        self._send(code, message, "text/plain")
+
+    def _fail(self, exc: BaseException, what: str, *, text: bool = False, status: int | None = None,
+              prefix: bool = False, scrub=None) -> None:
+        """The one place a route's exception becomes an answer: `{"error": message}` (or plain text for a
+        download) with the status `http_status_for` gives. A 4xx says what is wrong in the exception's own words;
+        a 5xx says `what` failed, and never carries a traceback. `status` overrides the table for the few
+        routes whose answer is fixed (a file that does not parse is 400 whatever the library raised), and
+        `prefix` puts `what` before the text of a 4xx too."""
+        code = status if status is not None else http_status_for(exc)
+        message = f"{what}: {exc}" if code >= 500 or prefix else str(exc)
+        if scrub is not None:
+            message = scrub(message)
+        if getattr(self, "_answered", False):  # the answer is already on the wire; do not write a second one
+            self.close_connection = True
+            return
+        if text:
+            self._send_text(code, message)
+        else:
+            self._send_json({"error": message}, code)
 
     def _table_df(self, qs: dict):
         name = (qs.get("name") or [""])[0]
@@ -1472,16 +1525,22 @@ class Handler(BaseHTTPRequestHandler):
         _CTX.session = session
 
     def do_GET(self):  # noqa: N802 (stdlib method name)
+        self._answered = False
         self._bind_session()
         try:
             self._do_get()
+        except Exception as e:  # nothing a route did not expect may drop the connection or show a traceback
+            self._fail(e, "could not complete this")
         finally:
             _CTX.session = None
 
     def do_POST(self):  # noqa: N802
+        self._answered = False
         self._bind_session()
         try:
             self._do_post()
+        except Exception as e:
+            self._fail(e, "could not complete this")
         finally:
             _CTX.session = None
 
@@ -1516,8 +1575,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 df, name = self._table_df(qs)
-            except (FileNotFoundError, ValueError) as e:
-                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                self._fail(e, "could not read the table")
                 return
             if df is None:
                 self._send_json({"error": f"unknown table '{name}'"}, 404)
@@ -1554,7 +1613,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     _STATE["report"] = _STATE["parser"].get_report()
                 except Exception as e:
-                    self._send_json({"error": f"could not build the report: {e}"}, 500)
+                    self._fail(e, "could not build the report", status=500)
                     return
             self._send_json(_STATE["report"])
             return
@@ -1572,7 +1631,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif parsed.path == "/audit/export":
                     fmt = (qs.get("format") or ["csv"])[0]
                     if fmt not in ("csv", "json"):
-                        raise ValueError("format: use csv or json")
+                        raise UsageError("format: use csv or json")
                     found, _skip = _audit_frame(qs)
                     body = format_findings(_audit_filtered(found, qs), fmt)
                     ctype = "text/csv; charset=utf-8" if fmt == "csv" else "application/json; charset=utf-8"
@@ -1582,16 +1641,11 @@ class Handler(BaseHTTPRequestHandler):
                     page = workbook_markdown(_STATE["parser"])
                     self._send(200, page, "text/markdown; charset=utf-8", {
                         "Content-Disposition": f'attachment; filename="{_workbook_stem()}-dictionary.md"'})
-            except ValueError as e:
-                if parsed.path == "/audit":
-                    self._send_json({"error": str(e)}, 400)
-                else:
-                    self._send(400, str(e), "text/plain")
             except Exception as e:  # a rule or the page builder failed: say so, do not drop the connection
                 if parsed.path == "/audit":
-                    self._send_json({"error": f"could not audit the workbook: {e}"}, 500)
+                    self._fail(e, "could not audit the workbook")
                 else:
-                    self._send(500, f"could not build the file: {e}", "text/plain")
+                    self._fail(e, "could not build the file", text=True)
             return
 
         if parsed.path == "/library/entries":
@@ -1600,10 +1654,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 self._send_json(_library_entries_answer(qs))
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
             except Exception as e:
-                self._send_json({"error": f"could not read the workbook's fields: {e}"}, 500)
+                self._fail(e, "could not read the workbook's fields")
             return
 
         if parsed.path == "/library/state":
@@ -1617,10 +1669,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 self._send_json(_style_palettes_answer(qs))
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
             except Exception as e:
-                self._send_json({"error": f"could not read the workbook's palettes: {e}"}, 500)
+                self._fail(e, "could not read the workbook's palettes")
             return
 
         if parsed.path == "/style/state":
@@ -1634,10 +1684,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 self._send_json((_cpy_dashboards_answer if parsed.path.endswith("dashboards") else _cpy_sheets_answer)(qs))
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
             except Exception as e:
-                self._send_json({"error": f"could not read the workbook: {e}"}, 500)
+                self._fail(e, "could not read the workbook")
             return
 
         if parsed.path == "/copy/state":
@@ -1651,10 +1699,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 self._send_json(_cards_answer(qs))
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
             except Exception as e:
-                self._send_json({"error": f"could not read the dashboard layouts: {e}"}, 500)
+                self._fail(e, "could not read the dashboard layouts")
             return
 
         if parsed.path == "/dashboard-layout":
@@ -1663,12 +1709,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 self._send_json(_layout_answer(qs))
-            except _UnknownDashboard:                         # before ValueError: it is one (every py-tbparse error is)
+            except _UnknownDashboard:                         # a PyTbparseError, so it must come before the general answer
                 self._send_json({"error": "No dashboard with that name in this workbook"}, 404)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
             except Exception as e:
-                self._send_json({"error": f"could not read the dashboard layout: {e}"}, 500)
+                self._fail(e, "could not read the dashboard layout")
             return
 
         if parsed.path == "/dashboards":
@@ -1685,8 +1729,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 df, name = self._table_df(qs)
-            except (FileNotFoundError, ValueError) as e:
-                self._send(400, str(e), "text/plain")
+            except Exception as e:
+                self._fail(e, "could not export the table", text=True)
                 return
             if df is None:
                 self._send(404, f"unknown table '{name}'", "text/plain")
@@ -1706,8 +1750,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 data, filename, _n = self._renamed_workbook(_rename_options(qs), _rename_exclude(qs))
-            except (FileNotFoundError, ValueError) as e:
-                self._send(400, str(e), "text/plain")
+            except Exception as e:
+                self._fail(e, "could not make the workbook", text=True)
                 return
             self._send(
                 200,
@@ -1749,8 +1793,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             data, filename, _n = self._renamed_workbook(_rename_options(payload), _rename_exclude(payload))
-        except (FileNotFoundError, ValueError) as e:
-            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            self._fail(e, "could not make the workbook")
             return
         self._send(200, data, "application/octet-stream", {"Content-Disposition": _attachment(filename)})
 
@@ -1775,8 +1819,8 @@ class Handler(BaseHTTPRequestHandler):
         except FileExistsError:
             self._send_json({"error": f"{out} already exists; move or delete it first"}, 409)
             return
-        except (FileNotFoundError, ValueError, OSError) as e:
-            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            self._fail(e, "could not save the workbook")
             return
         self._send_json({"ok": True, "path": out, "renamed": renamed})
 
@@ -1867,7 +1911,7 @@ class Handler(BaseHTTPRequestHandler):
         _UPLOAD["dir"] = folder
         dest = os.path.join(folder, name)
         try:
-            with open(dest, "wb") as fh:
+            with open(dest, "xb") as fh:  # the folder is new; "xb" refuses an existing file instead of overwriting it
                 fh.write(head)
                 left = length - len(head)
                 while left > 0:
@@ -1879,16 +1923,16 @@ class Handler(BaseHTTPRequestHandler):
             parser = TwbParser(dest)
         except (FileNotFoundError, ValueError, OSError) as e:
             _clear_upload()
-            self._send_json({"error": str(e)}, 400)
+            self._fail(e, "could not read the upload")
             return
-        except Exception as e:  # malformed workbook, broken zip
+        except Exception as e:  # malformed workbook, broken zip: the file's fault whatever was raised
             _clear_upload()
-            self._send_json({"error": f"failed to parse workbook: {e}"}, 400)
+            self._fail(e, "failed to parse workbook", status=400, prefix=True)
             return
         self._send_json(_open_response(parser, dest, uploaded=True, name=name))
 
     def _receive(self, dest: str, head: bytes, length: int) -> None:
-        with open(dest, "wb") as fh:
+        with open(dest, "xb") as fh:  # "xb": the folder is new, and an existing file would be refused, not overwritten
             fh.write(head)
             left = length - len(head)
             while left > 0:
@@ -1924,8 +1968,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             lib = _library_upload_ok(raw, name)
             summary = _library_summary(lib, name)
-        except ValueError as e:
-            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            self._fail(e, "could not read the library file", status=400, prefix=not isinstance(e, ValueError))
             return
         st = _lib_state()
         st["library"] = lib
@@ -1955,10 +1999,8 @@ class Handler(BaseHTTPRequestHandler):
                     "Content-Disposition": _attachment(filename),
                     "X-Library-Added": str(report.get("added", 0)),
                     "Access-Control-Expose-Headers": "X-Library-Added, Content-Disposition"})
-        except (ValueError, FileNotFoundError) as e:  # LibraryError is a ValueError
-            self._send_json({"error": str(e)}, 400)
         except Exception as e:
-            self._send_json({"error": f"could not complete this: {e}"}, 500)
+            self._fail(e, "could not complete this")
 
     def _style_upload(self) -> None:
         """Receive a palette file (.style.json or .tps) as raw bytes (X-Filename) into memory, at most
@@ -1985,8 +2027,8 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         try:
             records = _style.palettes_from_bytes(raw, name)
-        except ValueError as e:
-            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            self._fail(e, "could not read the palette file", status=400, prefix=not isinstance(e, ValueError))
             return
         usable = [r for r in records if r["status"] in ("ok", "warning")]
         summary = {"file": name, "palettes": len(records), "usable": len(usable),
@@ -2021,10 +2063,8 @@ class Handler(BaseHTTPRequestHandler):
                     "Content-Disposition": _attachment(filename),
                     "X-Style-Added": str(len(report.get("added", [])) + len(report.get("renamed", [])) + len(report.get("replaced", []))),
                     "Access-Control-Expose-Headers": "X-Style-Added, Content-Disposition"})
-        except (ValueError, FileNotFoundError) as e:  # StyleError is a ValueError
-            self._send_json({"error": str(e)}, 400)
         except Exception as e:
-            self._send_json({"error": f"could not complete this: {e}"}, 500)
+            self._fail(e, "could not complete this")
 
     def _copy_upload(self) -> None:
         """Receive the target workbook (.twb or .twbx) as raw bytes (X-Filename), streamed into a private temp folder
@@ -2065,11 +2105,11 @@ class Handler(BaseHTTPRequestHandler):
             parser = TwbParser(dest)
         except (FileNotFoundError, ValueError, OSError) as e:
             shutil.rmtree(folder, ignore_errors=True)
-            self._send_json({"error": str(e).replace(dest, name)}, 400)
+            self._fail(e, "could not read the upload", scrub=lambda m: m.replace(dest, name))
             return
         except Exception as e:  # malformed workbook, broken zip
             shutil.rmtree(folder, ignore_errors=True)
-            self._send_json({"error": f"failed to parse workbook: {str(e).replace(dest, name)}"}, 400)
+            self._fail(e, "failed to parse workbook", status=400, prefix=True, scrub=lambda m: m.replace(dest, name))
             return
         doc = parser.xml_doc
         summary = {"file": name, "worksheets": len(doc.xpath("/workbook/worksheets/worksheet")),
@@ -2101,10 +2141,8 @@ class Handler(BaseHTTPRequestHandler):
                     "Content-Disposition": _attachment(filename),
                     "X-Copy-Count": str(report["copied"] if "copied" in report else len(report["kept_dashboards"])),
                     "Access-Control-Expose-Headers": "X-Copy-Count, Content-Disposition"})
-        except (ValueError, FileNotFoundError) as e:  # SliceError and SheetCopyError are ValueErrors
-            self._send_json({"error": _cpy_scrub(str(e))}, 400)
         except Exception as e:
-            self._send_json({"error": f"could not complete this: {_cpy_scrub(str(e))}"}, 500)
+            self._fail(e, "could not complete this", scrub=_cpy_scrub)
 
     # ---- the Templates view ----
 
@@ -2536,10 +2574,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parser = TwbParser(path)
         except (FileNotFoundError, ValueError) as e:
-            self._send_json({"error": str(e)}, 400)
+            self._fail(e, "could not open the workbook")
             return
         except Exception as e:  # malformed workbook, permissions, etc.
-            self._send_json({"error": f"failed to parse workbook: {e}"}, 400)
+            self._fail(e, "failed to parse workbook", status=400, prefix=True)
             return
 
         self._send_json(_open_response(parser, path))

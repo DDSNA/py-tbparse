@@ -290,7 +290,7 @@ def test_add_with_fail_stops_on_a_clash_and_sends_no_workbook(server, source, tm
     _load(server, str(clash))
     assert _upload(server, data)[0] == 200
     status, body = _postj(server, "/library/add", {})
-    assert status == 400 and "already in the target" in body["error"]
+    assert status == 409 and "already in the target" in body["error"]  # a refusal, not a bad request
     status, wb, headers = _post(server, "/library/add", {"on_clash": "rename"})
     assert status == 200 and headers["X-Library-Added"] == "1" and wb.startswith(b"<?xml")
 
