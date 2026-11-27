@@ -196,3 +196,56 @@ def test_table_cells_are_plain_text_of_five_columns():
     assert len(ROWS) >= 20
     for key, cells in ROWS.items():
         assert len(cells) == 4, key
+
+
+# ---- central handling in cli.main (WP4): one place maps an escaped exception to its code ----
+
+@pytest.mark.parametrize("target", ["overview", "diff", "batch"])
+def test_unexpected_exception_is_crash(target, monkeypatch, capsys, tmp_path):
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    if target == "overview":
+        monkeypatch.setitem(cli.TABLE_SPECS, "overview", boom)
+        argv = [WENJIE, "overview"]
+    elif target == "diff":
+        monkeypatch.setattr(cli, "diff_workbooks", boom)
+        argv = ["diff", WENJIE, WENJIE]
+    else:
+        monkeypatch.setattr(cli, "scan_folder", boom)
+        argv = ["batch", str(tmp_path)]
+    assert code_of(argv) == 3
+    err = capsys.readouterr().err
+    assert "internal error: RuntimeError: boom" in err and "Traceback" in err
+
+
+def test_closed_pipe_is_exit_0_and_prints_nothing(monkeypatch, capsys):
+    def closed(*a, **k):
+        raise BrokenPipeError(32, "Broken pipe")
+
+    monkeypatch.setitem(cli.TABLE_SPECS, "overview", closed)
+    assert code_of([WENJIE, "overview"]) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_ctrl_c_is_130_without_traceback(monkeypatch, capsys):
+    def interrupted(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setitem(cli.TABLE_SPECS, "overview", interrupted)
+    assert code_of([WENJIE, "overview"]) == 130
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_usage_and_help_pass_through_the_handler(capsys):
+    assert code_of([WENJIE, "overview", "--nope"]) == 2
+    assert code_of(["--help"]) == 0
+
+
+def test_output_refusal_is_5_and_unwritable_output_is_4(tmp_path, capsys):
+    out = tmp_path / "there.csv"
+    out.write_text("keep")
+    assert code_of([WENJIE, "overview", "-o", out]) == 5
+    assert code_of([WENJIE, "overview", "-o", tmp_path / "no" / "such" / "x.csv"]) == 4
+    err = capsys.readouterr().err
+    assert "Traceback" not in err and out.read_text() == "keep"

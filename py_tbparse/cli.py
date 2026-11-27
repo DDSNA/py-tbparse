@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import sys
+import traceback
 import warnings
 import zipfile
 from pathlib import Path
@@ -24,8 +25,7 @@ from pathlib import Path
 import pandas as pd
 from lxml import etree
 
-from .errors import OutputRefusedError, UsageError
-from ._xml import PyTbparseError
+from .errors import INTERRUPTED, InputError, OutputRefusedError, UsageError, exit_code_for
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
@@ -116,17 +116,12 @@ def _create_output(output, text: str, inputs=()) -> None:
 
 
 def _write(text: str, output: str | None, stream=None, inputs=()) -> None:
+    """Print ``text``, or create the file ``output``. Failures are not caught here: they reach ``main``, which turns
+    them into an exit code (an existing file or the input is 5, a missing folder or no permission is 4)."""
     if not output:
         print(text, file=stream)
         return
-    try:
-        _create_output(output, text, inputs)
-    except OutputRefusedError as e:
-        print(f"error: {e}", file=sys.stderr)
-        raise SystemExit(1) from None
-    except OSError as e:
-        print(f"error: cannot write {output}: {e.strerror or e}", file=sys.stderr)
-        raise SystemExit(1) from None
+    _create_output(output, text, inputs)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -182,7 +177,7 @@ def build_diff_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
-class _UnreadableWorkbook(PyTbparseError):
+class _UnreadableWorkbook(InputError):
     """A workbook file that exists but cannot be parsed; the message is the one-line CLI error."""
 
 
@@ -1683,40 +1678,67 @@ def _run_diff_xml(argv: list[str]) -> int:
     return 1 if text else 0
 
 
+# subcommand name -> (runner, extra keyword arguments); the one place that lists the subcommands
+_SUBCOMMANDS = {
+    "diff": (_run_diff, {}),
+    "diff-xml": (_run_diff_xml, {}),
+    "batch": (_run_batch, {}),
+    "rename": (_run_rename, {}),
+    "template": (_run_template, {}),
+    "library": (_run_library, {}),
+    "audit": (_run_audit, {}),
+    "sanitize": (_run_sanitize, {}),
+    "prune": (_run_prune, {}),
+    "sheet": (_run_sheet, {}),
+    "dashboard": (_run_dashboard, {}),
+    "slice": (_run_slice, {}),
+    "docs": (_run_docs, {}),
+    "dictionary": (_run_docs, {"prog": "py-tbparse dictionary"}),
+    "style": (_run_style, {}),
+    "scaffold": (_run_scaffold, {}),
+}
+
+
+def _fail(e: BaseException) -> int:
+    """Print the error the way the CLI does and return its exit code (``errors.exit_code_for``).
+
+    A closed pipe (``| head``) is not an error: nothing is printed and stdout is pointed at the null device, so
+    Python does not complain when it flushes at shutdown. An unexpected error (code 3) prints ``internal error:``,
+    the traceback and a request to report it.
+    """
+    code = exit_code_for(e)
+    if code == 0:
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        except (OSError, ValueError, AttributeError):
+            pass
+    elif code == INTERRUPTED:
+        print(file=sys.stderr)
+    elif code == 3:
+        print(f"internal error: {type(e).__name__}: {e}", file=sys.stderr)
+        print("".join(traceback.format_exception(type(e), e, e.__traceback__)), end="", file=sys.stderr)
+        print("this is a bug in py-tbparse; please report it with the command you ran", file=sys.stderr)
+    elif isinstance(e, OSError) and e.strerror and e.filename is not None:
+        print(f"error: {e.strerror}: {e.filename}", file=sys.stderr)   # no "[Errno 2]" noise
+    else:
+        print(f"error: {e}", file=sys.stderr)
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Run the command line and return its exit code. Every exception that escapes a command is mapped here
+    with ``errors.exit_code_for``; ``SystemExit`` (argparse usage errors, ``--help``) passes through."""
+    try:
+        return _main(argv)
+    except (Exception, KeyboardInterrupt) as e:
+        return _fail(e)
+
+
+def _main(argv: list[str] | None) -> int:
     raw_argv = sys.argv[1:] if argv is None else list(argv)
-    if _is_reserved_subcommand(raw_argv, "diff"):
-        return _run_diff(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "diff-xml"):
-        return _run_diff_xml(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "batch"):
-        return _run_batch(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "rename"):
-        return _run_rename(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "template"):
-        return _run_template(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "library"):
-        return _run_library(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "audit"):
-        return _run_audit(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "sanitize"):
-        return _run_sanitize(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "prune"):
-        return _run_prune(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "sheet"):
-        return _run_sheet(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "dashboard"):
-        return _run_dashboard(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "slice"):
-        return _run_slice(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "docs"):
-        return _run_docs(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "dictionary"):
-        return _run_docs(raw_argv[1:], prog="py-tbparse dictionary")
-    if _is_reserved_subcommand(raw_argv, "style"):
-        return _run_style(raw_argv[1:])
-    if _is_reserved_subcommand(raw_argv, "scaffold"):
-        return _run_scaffold(raw_argv[1:])
+    for name, (run, extra) in _SUBCOMMANDS.items():
+        if _is_reserved_subcommand(raw_argv, name):
+            return run(raw_argv[1:], **extra)
 
     ap = build_arg_parser()
     args = ap.parse_args(argv)
