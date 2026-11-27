@@ -280,10 +280,10 @@ def test_cli(twb, tmp_path, capsys):
     assert main(["sanitize", str(twb), str(out), "--report"]) == 0
     captured = capsys.readouterr()
     assert "removed:" in captured.out and out.exists()
-    assert main(["sanitize", str(twb), str(out)]) == 2          # exists
+    assert main(["sanitize", str(twb), str(out)]) == 5          # exists
     assert "refusing" in capsys.readouterr().err
-    assert main(["sanitize", str(twb), str(twb), "--overwrite"]) == 2
-    assert main(["sanitize", str(tmp_path / "missing.twb"), str(tmp_path / "x.twb")]) == 2
+    assert main(["sanitize", str(twb), str(twb), "--overwrite"]) == 5
+    assert main(["sanitize", str(tmp_path / "missing.twb"), str(tmp_path / "x.twb")]) == 4
     assert main(["sanitize", str(twb), str(tmp_path / "y.twb"), "--keep", "nope"]) == 2
     assert main(["sanitize", str(twb), str(tmp_path / "z.twb"), "--placeholders"]) == 0
     with pytest.raises(SystemExit):

@@ -147,8 +147,8 @@ def test_cli_overwrite_refusals_unchanged(tmp_path, capsys):
     out = str(tmp_path / "o.twb")
     assert cli.main(["sanitize", str(WENJIE), out]) == 0
     capsys.readouterr()
-    assert cli.main(["sanitize", str(WENJIE), out]) == 2
+    assert cli.main(["sanitize", str(WENJIE), out]) == 5
     assert capsys.readouterr().err.startswith("error: refusing to overwrite")
     existing_out = existing(tmp_path, "s.twb")
-    assert cli.main(["slice", str(FILTERING), "-d", "setTest", "--write", "-o", str(existing_out)]) == 2
+    assert cli.main(["slice", str(FILTERING), "-d", "setTest", "--write", "-o", str(existing_out)]) == 5
     assert capsys.readouterr().err.startswith("error: refusing to overwrite")

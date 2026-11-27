@@ -26,7 +26,7 @@ from pathlib import Path
 import pandas as pd
 from lxml import etree
 
-from .errors import INTERRUPTED, InputError, OutputRefusedError, UsageError, _ENVIRONMENT_ERRNOS, exit_code_for
+from .errors import INTERRUPTED, ExitCode, InputError, OutputRefusedError, UsageError, _ENVIRONMENT_ERRNOS, exit_code_for
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
@@ -55,12 +55,12 @@ from .templates import (
 )
 from .template_batch import DEFAULT_PATTERNS as DEFAULT_BATCH_PATTERNS, apply_template_folder
 from .template_update import template_update_report, update_from_answers
-from .prune import PruneError, format_report as prune_report, prune
+from .prune import format_report as prune_report, prune
 from .dashboardcopy import copy_dashboards, format_report as dashcopy_report, plan_dashboard_copy
 from .sheetcopy import SheetCopyAbort, copy_sheets, format_report as sheetcopy_report, plan_sheet_copy
 from .sheetcopy_core import SheetCopyError
-from .slicer import SliceError, format_report as slice_report, slice_workbook
-from .sanitize import CATEGORIES as SANITIZE_CATEGORIES, SanitizeError, format_report as sanitize_report, sanitize
+from .slicer import format_report as slice_report, slice_workbook
+from .sanitize import CATEGORIES as SANITIZE_CATEGORIES, format_report as sanitize_report, sanitize
 from .workbook_audit import audit, rules_help as audit_rules_help
 from .docgen import template_markdown, workbook_markdown
 from .ci_formats import CI_FORMATS
@@ -328,35 +328,32 @@ def _run_rename(argv: list[str]) -> int:
         ap.error("--missing and --apply cannot be combined")
     try:
         wb = _load_workbook(args.workbook)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    except Exception as e:
+        return _fail(e)
     if args.apply:
         try:
             mapping = load_rename_mapping(args.apply)
             out = apply_field_renames(wb, renames=mapping, output_path=args.write_workbook or None)
-        except (FileNotFoundError, FileExistsError, ValueError, OSError, pd.errors.ParserError) as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 1
+        except Exception as e:
+            return _fail(e)
         print(f"wrote {out} ({int(mapping['changed'].sum())} renames from {args.apply})", file=sys.stderr)
         return 0
     try:
         ref = _load_workbook(args.reference) if args.reference else None
     except _UnreadableWorkbook as e:
         print(f"error: reference workbook: {e}", file=sys.stderr)
-        return 1
+        return exit_code_for(e)
     except Exception as e:  # unreadable / malformed reference workbook
         print(f"error: cannot read reference workbook: {e}", file=sys.stderr)
-        return 1
+        return exit_code_for(e)
 
     if args.missing:
         try:
             gaps = compare_field_schemas(
                 wb, ref, datasource=args.datasource, style=args.style, fuzzy_cutoff=args.cutoff
             )
-        except ValueError as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 1
+        except Exception as e:
+            return _fail(e)
         _write(_df_text(gaps, args.format), args.output, inputs=(args.workbook,))
         return 0
 
@@ -371,9 +368,8 @@ def _run_rename(argv: list[str]) -> int:
         )
     try:
         everything = suggest_renames(wb, kinds=kinds, **kwargs) if kinds else suggest_field_renames(wb, **kwargs)
-    except ValueError as e:  # e.g. --cutoff outside 0..1
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    except Exception as e:  # e.g. --cutoff outside 0..1
+        return _fail(e)
     df = everything[everything["changed"]].reset_index(drop=True) if args.only_changed else everything
     _write(_df_text(df, args.format), args.output, inputs=(args.workbook,))
     if args.write_workbook is not None:
@@ -381,9 +377,8 @@ def _run_rename(argv: list[str]) -> int:
             out = apply_field_renames(
                 wb, renames=everything, output_path=args.write_workbook or None
             )
-        except (FileExistsError, ValueError, OSError) as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 1
+        except Exception as e:
+            return _fail(e)
         print(f"wrote {out}", file=sys.stderr)
     return 0
 
@@ -1331,10 +1326,8 @@ def _run_scaffold(argv: list[str]) -> int:
         print(f"new dashboard {args.name!r}: {report['zones']} zone(s); existing dashboards untouched", file=sys.stderr)
         print("not opened in Tableau: check a copy first", file=sys.stderr)
         return 0
-    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile, etree.XMLSyntaxError,
-            json.JSONDecodeError) as e:   # ScaffoldError is a ValueError
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    except Exception as e:
+        return _fail(e)
 
 
 def _is_reserved_subcommand(argv: list[str], name: str) -> bool:
@@ -1416,9 +1409,8 @@ def _run_sanitize(argv: list[str]) -> int:
         sanitize(args.workbook, args.output, keep=args.keep, placeholders=args.placeholders,
                  fake_data=args.fake_data, seed=args.seed, fake_rows=args.rows, overwrite=args.overwrite,
                  report=report)
-    except (SanitizeError, FileExistsError, *_WORKBOOK_ERRORS) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    except Exception as e:
+        return _fail(e)
     if args.report:
         print(sanitize_report(report))
     else:
@@ -1464,9 +1456,8 @@ def _run_prune(argv: list[str]) -> int:
         report = prune(args.workbook, args.output if args.write else None, sheets=args.sheets,
                        calculations=not args.no_calculations, parameters=not args.no_parameters,
                        overwrite=args.overwrite, datasources=args.datasources)
-    except (PruneError, FileExistsError, *_WORKBOOK_ERRORS) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    except Exception as e:
+        return _fail(e)
     if args.format == "json":
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
@@ -1610,18 +1601,17 @@ def _run_slice(argv: list[str]) -> int:
     try:
         report = slice_workbook(args.workbook, args.dashboards, args.output if args.write else None,
                                 strict=args.strict, prune=not args.no_prune, overwrite=args.overwrite)
-    except (SliceError, FileExistsError, *_WORKBOOK_ERRORS) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    except Exception as e:
+        return _fail(e)
     if args.format == "json":
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
         print(slice_report(report))
     if report["dry_run"] and report["integrity_new"]:
-        # --write would refuse this result with exit 2, so the dry run predicts it
+        # --write would refuse this result with exit 6, so the dry run predicts it
         print("error: the result has new integrity problems; --write would refuse it and write nothing",
               file=sys.stderr)
-        return 2
+        return int(ExitCode.INTEGRITY)
     return 0
 
 

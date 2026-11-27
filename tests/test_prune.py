@@ -249,7 +249,7 @@ def test_cli_write_and_json(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["counts"] == {"calculations": 1, "parameters": 0, "sheets": 0} and payload["output"] == str(out)
     assert out.exists()
-    assert main(["prune", path, "--write", "-o", str(out)]) == 2          # exists
+    assert main(["prune", path, "--write", "-o", str(out)]) == 5          # exists
     assert "refusing to overwrite" in capsys.readouterr().err
 
 
@@ -260,4 +260,4 @@ def test_cli_option_errors(tmp_path, capsys):
         with pytest.raises(SystemExit) as e:
             main(argv)
         assert e.value.code == 2
-    assert main(["prune", str(tmp_path / "missing.twb")]) == 2
+    assert main(["prune", str(tmp_path / "missing.twb")]) == 4

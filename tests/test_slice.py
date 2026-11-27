@@ -208,9 +208,9 @@ def test_cli_dry_run_write_json_and_errors(tmp_path, capsys):
     assert main(["slice", path, "-d", "D1", "--write", "-o", str(out), "--format", "json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["kept_dashboards"] == ["D1"] and out.exists()
-    assert main(["slice", path, "-d", "Nope"]) == 2
+    assert main(["slice", path, "-d", "Nope"]) == 4
     assert "valid dashboards: 'D1', 'D2', 'D3'" in capsys.readouterr().err
-    assert main(["slice", path, "-d", "D1", "--strict"]) == 2
+    assert main(["slice", path, "-d", "D1", "--strict"]) == 5
     assert "--strict" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         main(["slice", path, "-d", "D1", "-o", str(out)])
@@ -230,10 +230,10 @@ def test_dry_run_and_write_exit_the_same_when_integrity_is_new(tmp_path, capsys,
         return found
 
     monkeypatch.setattr(slicer, "integrity_check", fake)
-    assert main(["slice", path, "-d", "D1"]) == 2
+    assert main(["slice", path, "-d", "D1"]) == 6
     cap = capsys.readouterr()
     assert "INTEGRITY  X: made up" in cap.out and "would refuse" in cap.err
-    assert main(["slice", path, "-d", "D1", "--write", "-o", str(out)]) == 2
+    assert main(["slice", path, "-d", "D1", "--write", "-o", str(out)]) == 6
     assert not out.exists()
 
 

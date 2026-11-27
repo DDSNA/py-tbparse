@@ -28,7 +28,7 @@ def test_mapping_round_trip_applies_hand_edits(wenjie_path, tmp_path, capsys):
     fixed = TwbParser(str(tmp_path / "book_renamed.twb"))
     assert "My Custom Name" in set(fixed.get_fields()["caption"].dropna())
     # applying again would overwrite the output
-    assert main(["rename", str(src), "--apply", str(csv_path)]) == 1
+    assert main(["rename", str(src), "--apply", str(csv_path)]) == 5
 
 
 def test_load_rename_mapping_blank_means_unchanged_and_validates():
@@ -46,10 +46,10 @@ def test_load_rename_mapping_blank_means_unchanged_and_validates():
 
 
 def test_cli_apply_errors(wenjie_path, tmp_path, capsys):
-    assert main(["rename", str(wenjie_path), "--apply", str(tmp_path / "nope.csv")]) == 1
+    assert main(["rename", str(wenjie_path), "--apply", str(tmp_path / "nope.csv")]) == 4
     bad = tmp_path / "bad.csv"
     bad.write_text("a,b\n1,2\n")
-    assert main(["rename", str(wenjie_path), "--apply", str(bad)]) == 1
+    assert main(["rename", str(wenjie_path), "--apply", str(bad)]) == 4
     assert "missing column" in capsys.readouterr().err
 
 
