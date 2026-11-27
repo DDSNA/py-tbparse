@@ -18,6 +18,7 @@ from typing import Optional
 import pandas as pd
 from lxml import etree
 
+from .errors import InputError
 from . import templates as _t
 from ._xml import check_package, parse_file
 from .template_check import check_template
@@ -137,12 +138,12 @@ def mapping_frame(rows: dict, base: pd.DataFrame, data: Optional[DataSource] = N
     known = set(df["field"])
     for field in rows:
         if field not in known:
-            raise ValueError(f"the template has no field {field!r}")
+            raise InputError(f"the template has no field {field!r}")
     columns = set(data.names()) if data is not None else None
     for field, column in rows.items():
         column = "" if column is None else str(column).strip()
         if column and columns is not None and column not in columns and data.column(column) not in columns:
-            raise ValueError(f"the data has no column {column!r}")
+            raise InputError(f"the data has no column {column!r}")
         at = df["field"] == field
         df.loc[at, "mapped_to"] = column
         if data is not None:

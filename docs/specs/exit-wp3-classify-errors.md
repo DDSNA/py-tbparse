@@ -119,3 +119,11 @@ Nothing to check in Tableau.
 ## Definition of done
 
 Both tables done (or the PR says which row differs and why), allow-list test in, no message or exit code changed, whole non-browser suite and CI green, no version bump.
+
+## As built (corrections to this text, found while building on `0f51091`)
+
+- The line numbers in the tables had drifted; the sites were found by function and message. The plain `ValueError` count outside `webgui.py` was 34 on that base (`cli.py:774` and others had already become `OutputRefusedError` in A2). The allow-list is unchanged: `findings.py` x2, `docgen.py` x2.
+- Other "output must end in" checks got the same usage treatment as the three the plan named: `SheetCopyUsageError` (`sheetcopy.py`, `dashboardcopy.py`), `LibraryUsageError`, `ScaffoldUsageError`, and the two further `style.py` sites (`StyleUsageError`). `rename.py` raises `UsageError` directly.
+- `sheetcopy.py` wraps a `LibraryError` from the library planner in `SheetCopyAbort` (two places). A `LibraryClashError` there becomes `SheetCopyRefused` (5); any other `LibraryError` stays `SheetCopyAbort` (4).
+- `LibraryClashError` is also what `webgui.py` `_library_plan` catches to re-plan as `rename` under `on_clash='fail'` (it used to catch every `LibraryError`). That one-word change is in this PR; `tests/test_webgui_libraries.py` pins it.
+- `errors.exit_code_for` changed beyond the first spec: `BrokenPipeError` 0, `KeyboardInterrupt` 130 (`errors.INTERRUPTED`), disk full / I/O error / quota / timeouts / connection errors 3, and `UnicodeDecodeError`, `pandas.errors.EmptyDataError`, `zipfile.LargeZipFile` 4. See `tests/test_errors.py`.

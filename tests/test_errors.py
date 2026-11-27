@@ -1,5 +1,6 @@
 """py_tbparse.errors: categories and exit codes (A1 of the 0.6.0 plan; no command changes)."""
 
+import errno
 import json
 import pickle
 import zipfile
@@ -82,10 +83,40 @@ def test_exit_code_for_each_class(exc, code):
         json.JSONDecodeError("x", "", 0),
         _xml_error(),
         pandas.errors.ParserError("x"),
+        pandas.errors.EmptyDataError("x"),
+        zipfile.LargeZipFile("x"),
+        UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+        OSError(errno.ENOENT, "x"),
+        OSError(errno.EACCES, "x"),
     ],
 )
 def test_exit_code_for_builtins(exc):
     assert exit_code_for(exc) == 4
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        OSError(errno.ENOSPC, "No space left on device"),
+        OSError(errno.EDQUOT, "Disk quota exceeded"),
+        OSError(errno.EIO, "Input/output error"),
+        TimeoutError("x"),
+        ConnectionResetError("x"),
+        UnicodeEncodeError("ascii", "\u00e9", 0, 1, "ordinal not in range"),
+        MemoryError(),
+    ],
+)
+def test_exit_code_for_machine_failures_are_crashes(exc):
+    assert exit_code_for(exc) == 3
+
+
+def test_a_closed_pipe_is_not_an_error():
+    assert exit_code_for(BrokenPipeError(errno.EPIPE, "Broken pipe")) == 0
+
+
+def test_ctrl_c_is_130_and_beats_everything():
+    assert exit_code_for(KeyboardInterrupt()) == errors.INTERRUPTED == 130
+    assert first_by_precedence([4, 130, 3]) == 130
 
 
 @pytest.mark.parametrize("exc", [KeyError("x"), RuntimeError("x"), ValueError("x"), TypeError("x")])

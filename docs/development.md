@@ -51,3 +51,14 @@ git config core.hooksPath scripts/git-hooks
 ```
 
 or copy it: `cp scripts/git-hooks/pre-push .git/hooks/pre-push` (in a linked worktree, use the `hooks` folder of the main `.git`). `git push --no-verify` skips it, so it stops mistakes, not a determined push. Branch protection on `main` in the GitHub repository settings is the stronger option, because the server enforces it; that setting belongs to the repository owner.
+
+## Errors
+
+Library code raises a class from `py_tbparse.errors` (or a feature class that derives from one), not a bare `ValueError`; the command line turns the class into an exit code (`errors.exit_code_for`). Pick the class like this:
+
+- `UsageError` when the problem is knowable without opening a file: a bad option value, an unknown format or rule id, a wrong output extension.
+- `InputError` when a file, or a name inside a file, cannot be used: missing columns in a mapping CSV, a `.twbx` without a `.twb`, an unknown sheet.
+- A refusal (exit 5) or an integrity problem (exit 6) raises a subclass with two parents, the feature class first: `class SliceStrictError(SliceError, RefusedError)`.
+- A plain `ValueError` is for programmer errors only (a scope name in code, a rule registered twice). `tests/test_error_categories.py` lists the allowed sites.
+
+New messages follow the rules in the 0.6.0 plan (section 5): one sentence, what failed then which value, the path or value last, no trailing full stop, no error numbers. Existing messages are not reworded.

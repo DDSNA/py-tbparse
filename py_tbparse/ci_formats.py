@@ -27,6 +27,8 @@ from typing import Callable, Optional
 
 import pandas as pd
 
+from .errors import UsageError
+
 CI_FORMATS = ("junit", "sarif", "github")
 
 SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
@@ -184,5 +186,5 @@ def render(df: pd.DataFrame, fmt: str, path: Optional[str] = None, scope: Option
     frame's own `attrs["scope"]`) picks the rule catalog."""
     formatter = FORMATTERS.get(fmt)
     if formatter is None:
-        raise ValueError(f"unknown CI format {fmt!r}; use {', '.join(CI_FORMATS)}")
+        raise UsageError(f"unknown CI format {fmt!r}; use {', '.join(CI_FORMATS)}")
     return formatter(df, path if path is not None else df.attrs.get("path"), scope or df.attrs.get("scope"))

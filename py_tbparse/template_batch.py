@@ -19,7 +19,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
-from .errors import OutputRefusedError
+from .errors import OutputRefusedError, UsageError
 from ._xml import PathLike
 from .connections import is_target_file
 from .templates import (
@@ -203,9 +203,9 @@ def apply_template_folder(
     template serves many customers on one database (a different `dbname` or `schema` in each file).
     """
     if on_error not in ("skip", "stop"):
-        raise ValueError("on_error must be 'skip' or 'stop'")
+        raise UsageError("on_error must be 'skip' or 'stop'")
     if min_mapped is not None and not 0 <= min_mapped <= 1:
-        raise ValueError("min_mapped is a share between 0 and 1")
+        raise UsageError("min_mapped is a share between 0 and 1")
     if not Path(directory).is_dir():
         raise FileNotFoundError(f"no such folder: {directory}")
     template_path = template.path if isinstance(template, Template) else str(template)

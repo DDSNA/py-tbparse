@@ -57,7 +57,7 @@ def main(argv=None):
         return _fail(e)
 ```
 
-Keep `raise SystemExit(main())` at the bottom. Do not catch `BaseException`. `BrokenPipeError` (an `OSError`) would become 4 with an `error:` line; the current code does nothing special for it, so do nothing special now and note it in the PR.
+Keep `raise SystemExit(main())` at the bottom. Do not catch `BaseException`. `BrokenPipeError` gives 0 from `exit_code_for` since A3 (`| head` is not an error): in `_fail` print nothing for code 0, and exit 0 without the traceback Python prints when it flushes stdout at shutdown (redirect stdout to `os.devnull` first, as the Python docs describe). `KeyboardInterrupt` is not an `Exception`: catch it in `main`, print nothing but a newline, and return `errors.INTERRUPTED` (130). A full disk (ENOSPC) gives 3.
 
 Inside `_main`:
 

@@ -11,6 +11,7 @@ import collections
 
 import pandas as pd
 
+from .errors import UsageError
 from ._clean import is_missing
 from ._tables import TABLE_SPECS
 from .parser import TwbParser
@@ -79,7 +80,7 @@ def diff_workbooks(a: TwbParser, b: TwbParser, table: str = "datasources", **kwa
     """Diff one named table (see `_tables.TABLE_SPECS`) between two
     `TwbParser` instances."""
     if table not in TABLE_SPECS:
-        raise ValueError(f"unknown table '{table}'")
+        raise UsageError(f"unknown table '{table}'")
     getter = TABLE_SPECS[table]
     a_df = getter(a, **kwargs)
     b_df = getter(b, **kwargs)

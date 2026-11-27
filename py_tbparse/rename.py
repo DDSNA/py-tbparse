@@ -23,7 +23,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
-from .errors import OutputRefusedError
+from .errors import InputError, OutputRefusedError, UsageError
 from ._clean import is_missing
 from ._xml import PathLike, check_package, read_member
 from .parser import TwbParser
@@ -89,7 +89,7 @@ def normalize_name(
     if is_missing(name):
         return None
     if style not in STYLES:
-        raise ValueError(f"style must be one of {STYLES}, got {style!r}")
+        raise UsageError(f"style must be one of {STYLES}, got {style!r}")
     s = _COPY_SUFFIX.sub("", str(name).strip())
     words = _words(s)
     if not words:
@@ -234,7 +234,7 @@ def suggest_field_renames(
         return pd.DataFrame(columns=RENAME_COLUMNS)
 
     if not 0 <= fuzzy_cutoff <= 1:
-        raise ValueError(f"fuzzy_cutoff must be between 0 and 1, got {fuzzy_cutoff}")
+        raise UsageError(f"fuzzy_cutoff must be between 0 and 1, got {fuzzy_cutoff}")
     ref_by_key: dict[str, str] = {}
     for n in _reference_names(reference):
         ref_by_key.setdefault(_match_key(n), n)
@@ -392,7 +392,7 @@ def suggest_renames(
     wanted = (kinds,) if isinstance(kinds, str) else tuple(kinds)
     unknown = [k for k in wanted if k not in KINDS]
     if unknown:
-        raise ValueError(f"unknown kind(s) {', '.join(map(repr, unknown))}; choose from {', '.join(KINDS)}")
+        raise UsageError(f"unknown kind(s) {', '.join(map(repr, unknown))}; choose from {', '.join(KINDS)}")
     opts = dict(style=style, fuzzy_cutoff=fuzzy_cutoff, acronyms=acronyms)
     frames, extra = [], []
     if "field" in wanted:
@@ -469,7 +469,7 @@ def load_rename_mapping(source: Union[str, os.PathLike, pd.DataFrame]) -> pd.Dat
     df.columns = [str(c).strip() for c in df.columns]
     missing = [c for c in ("datasource", "name", "suggested") if c not in df.columns]
     if missing:
-        raise ValueError(f"mapping is missing column(s): {', '.join(missing)}")
+        raise InputError(f"mapping is missing column(s): {', '.join(missing)}")
     for col, default in (("current", ""), ("reason", ""), ("kind", "field")):
         if col not in df.columns:
             df[col] = default
@@ -477,7 +477,7 @@ def load_rename_mapping(source: Union[str, os.PathLike, pd.DataFrame]) -> pd.Dat
     for rec in df.to_dict("records"):
         kind = "field" if is_missing(rec["kind"]) or not str(rec["kind"]).strip() else str(rec["kind"]).strip()
         if kind not in KINDS:
-            raise ValueError(f"unknown kind {kind!r} in mapping; choose from {', '.join(KINDS)}")
+            raise InputError(f"unknown kind {kind!r} in mapping; choose from {', '.join(KINDS)}")
         ds, name = rec["datasource"], rec["name"]
         suggested = "" if is_missing(rec["suggested"]) else str(rec["suggested"]).strip()
         if is_missing(name) or not str(name).strip():
@@ -500,7 +500,7 @@ def load_rename_mapping(source: Union[str, os.PathLike, pd.DataFrame]) -> pd.Dat
         slot = (group, r["datasource"], r["suggested"].lower())
         if slot in taken and taken[slot] != r["name"]:
             where = f" in {r['datasource']}" if r["datasource"] else ""
-            raise ValueError(
+            raise InputError(
                 f"{r['suggested']!r} is the new name of both {taken[slot]} and {r['name']}{where}"
             )
         taken[slot] = r["name"]
@@ -579,7 +579,7 @@ def select_renames(renames: pd.DataFrame, exclude=None) -> pd.DataFrame:
     if exclude is None:
         return renames
     if not isinstance(exclude, list) or not all(isinstance(x, str) for x in exclude):
-        raise ValueError("exclude must be a list of rename ids (strings)")
+        raise UsageError("exclude must be a list of rename ids (strings)")
     if not exclude:
         return renames
     todo = applicable_renames(renames)
@@ -587,13 +587,13 @@ def select_renames(renames: pd.DataFrame, exclude=None) -> pd.DataFrame:
     unknown = sorted(set(exclude) - known)
     if unknown:
         shown = ", ".join(repr(u.replace("\x1f", " / ")) for u in unknown[:3])
-        raise ValueError(
+        raise InputError(
             f"{len(unknown)} of the excluded ids {'is' if len(unknown) == 1 else 'are'} not one of the suggested renames "
             f"({shown}). Reload the suggestions and try again."
         )
     gone = set(exclude)
     if known <= gone:
-        raise ValueError("Every rename is left out, so there is nothing to apply. Tick at least one rename.")
+        raise InputError("Every rename is left out, so there is nothing to apply. Tick at least one rename.")
     keep = [rename_id(r.get("kind"), r["datasource"], r["name"]) not in gone for r in renames.to_dict("records")]
     _check_sheet_names(renames, keep)
     return renames[keep]
@@ -607,7 +607,7 @@ def _check_sheet_names(renames: pd.DataFrame, keep: list) -> None:
         applied = kept and r["changed"] and r["reason"] != "conflict"
         new = r["suggested"] if applied else r["name"]
         if new in final and final[new] != r["name"]:
-            raise ValueError(
+            raise InputError(
                 f"Leaving out a rename would give two sheets or dashboards the name {new!r}. "
                 "Leave out the other one as well, or keep every rename."
             )
@@ -817,7 +817,7 @@ def apply_field_renames(
     source = Path(parser.twbx_path or parser.path)
     out = Path(output_path) if output_path else Path(default_renamed_path(parser))
     if out.suffix.lower() != source.suffix.lower():
-        raise ValueError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
+        raise UsageError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
     if out.exists() and (out.resolve() == source.resolve() or not overwrite):
         raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     data = build_renamed_workbook(parser, renames)

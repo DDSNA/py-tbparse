@@ -31,11 +31,13 @@ from urllib.parse import quote
 
 from lxml import etree
 
-from .errors import OutputRefusedError
+from .errors import OutputRefusedError, UsageError
 from .dashboards import _SHEET_ZONE_TYPES, _dashboard_xpath, dashboard_targets, integrity_check, zone_kind
 from .library import CLASH_POLICIES, _PARAMETERS
 from .rename import _serialize_workbook
-from .sheetcopy import SheetCopyAbort, _free_name, _parser, _run
+from .sheetcopy import (
+    SheetCopyAbort, SheetCopyIntegrityError, SheetCopyRefused, SheetCopyUsageError, _free_name, _parser, _run,
+)
 from .sheetcopy_core import (
     _ACTION_GROUP, _BUILTIN, SheetCopyError, _base_of_instance, add_window, match_datasource, new_uuid,
     renew_uuids, rewrite_references, windows_element,
@@ -260,7 +262,7 @@ def _run_dashboards(source, target, dashboards: Iterable[str], on_clash: str = "
             continue
         if d in target_names:
             if on_clash == "fail":
-                raise SheetCopyAbort(f"{d!r} is already a sheet or dashboard of the target (on_clash='fail')")
+                raise SheetCopyRefused(f"{d!r} is already a sheet or dashboard of the target (on_clash='fail')")
             if on_clash == "skip":
                 results[d].update(status="skipped", reason="the target already has a sheet or dashboard of that name")
 
@@ -333,7 +335,7 @@ def _run_dashboards(source, target, dashboards: Iterable[str], on_clash: str = "
                     results[d]["dropped"].append(f"action {row['caption'] or row['name']}: {row['reason']}")
     if strict and any(results[d]["dropped"] for d in live):
         what = "; ".join(f"{d}: {', '.join(results[d]['dropped'])}" for d in live if results[d]["dropped"])
-        raise SheetCopyAbort("--strict: the copy would drop " + what)
+        raise SheetCopyRefused("--strict: the copy would drop " + what)
 
     # write into the working copy
     if live:
@@ -382,7 +384,7 @@ def _run_dashboards(source, target, dashboards: Iterable[str], on_clash: str = "
     before = integrity_check(dst.xml_doc)
     new = [p for p in problems if p not in before]
     if new:
-        raise SheetCopyAbort("integrity check failed on the result: "
+        raise SheetCopyIntegrityError("integrity check failed on the result: "
                              + "; ".join(p["check"] + " " + p["detail"] for p in new))
 
     out = [results[d] for d in wanted]
@@ -419,7 +421,7 @@ def copy_dashboards(source, target, dashboards: Iterable[str], output_path: Opti
     tpath = Path(tp.twbx_path or tp.path)
     out = Path(output_path) if output_path else tpath.with_name(f"{tpath.stem}_dashcopy{tpath.suffix}")
     if out.suffix.lower() != tpath.suffix.lower():
-        raise SheetCopyAbort(f"output must end in {tpath.suffix}, got {out.suffix or 'no extension'}")
+        raise SheetCopyUsageError(f"output must end in {tpath.suffix}, got {out.suffix or 'no extension'}")
     sp = _parser(source)
     for p in (tpath, Path(sp.twbx_path or sp.path)):
         if out.exists() and out.resolve() == p.resolve():
@@ -428,7 +430,7 @@ def copy_dashboards(source, target, dashboards: Iterable[str], output_path: Opti
         raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     data, report = build_dashboard_copy(sp, tp, dashboards, on_clash, strict)
     if report["copied"] == 0:
-        raise SheetCopyAbort("no dashboard could be copied; nothing written")
+        raise SheetCopyRefused("no dashboard could be copied; nothing written")
     with open(out, "wb" if overwrite else "xb") as fh:
         fh.write(data)
     return str(out), report

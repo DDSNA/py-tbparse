@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sys
 
+from .errors import UsageError
 from .cli import main as cli_main
 
 _FILE_SUFFIXES = (".twb", ".twbx")
@@ -29,7 +30,7 @@ def build_argv(command: str, options: list[str], path: str) -> list[str]:
         return ["template", "check", *options, path]
     if command == "validate":
         return [path, "validate", *options]
-    raise ValueError(f"unknown hook command {command!r}; use audit, validate or template-check")
+    raise UsageError(f"unknown hook command {command!r}; use audit, validate or template-check")
 
 
 def main(argv: list[str] | None = None) -> int:

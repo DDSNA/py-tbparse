@@ -26,7 +26,7 @@ from typing import Iterable, Optional, Union
 import pandas as pd
 from lxml import etree
 
-from .errors import OutputRefusedError
+from .errors import OutputRefusedError, RefusedError, UsageError
 from ._clean import is_missing
 from ._xml import PathLike, PyTbparseError, parse_bytes
 from .parser import TwbParser
@@ -56,6 +56,14 @@ _MAPPED = ("matched", "close match")
 
 class LibraryError(PyTbparseError):
     """The library cannot be made, read or applied as asked."""
+
+
+class LibraryClashError(LibraryError, RefusedError):
+    """A name is already in the target and `on_clash='fail'` refuses to touch it (exit code 5)."""
+
+
+class LibraryUsageError(LibraryError, UsageError):
+    """The output name is wrong for the target, known without opening a file (exit code 2)."""
 
 
 # ---------------------------------------------------------------- helpers --
@@ -765,7 +773,7 @@ def _plan(parser: TwbParser, library: dict, datasource: Optional[str], mapping, 
         new_caption, reason = caption, []
         if shown in caps:
             if on_clash == "fail":
-                raise LibraryError(f"{shown!r} is already in the target datasource (on_clash='fail')")
+                raise LibraryClashError(f"{shown!r} is already in the target datasource (on_clash='fail')")
             if on_clash == "skip":
                 other = next(((n, c) for n, c in (p_cols if is_param else t_cols).items()
                               if (c.get("caption") or _unbracket(n)) == shown), None)
@@ -959,7 +967,7 @@ def import_library(
     source = Path(parser.twbx_path or parser.path)
     out = Path(output_path) if output_path else source.with_name(f"{source.stem}_library{source.suffix}")
     if out.suffix.lower() != source.suffix.lower():
-        raise LibraryError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
+        raise LibraryUsageError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
     if out.exists() and (out.resolve() == source.resolve() or not overwrite):
         raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     data = build_imported_workbook(parser, library, datasource, mapping, on_clash, report)
