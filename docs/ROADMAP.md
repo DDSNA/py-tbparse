@@ -41,7 +41,7 @@ Owner decisions (2026-10-16, with the plan's choices confirmed 2026-11-20, see "
 | A1 | `errors.py`: base classes, `ExitCode`, `exit_code_for` (no behaviour change) | built, unreleased (#227) | exit-codes plan, WP1 | `docs/specs/exit-wp1-errors-module.md` | nothing |
 | A2 | 25 `raise FileExistsError` sites become `OutputRefusedError` | in progress (branch `feat/exit-a2-output-refused`) | WP2 | `exit-wp2-output-refused.md` | A1 (built) |
 | A3 | 38 library `raise ValueError` sites get a class; feature subclasses for refusal and integrity | planned for 0.6.0 | WP3 | `exit-wp3-classify-errors.md` | A2 (owner may veto rows in the PR) |
-| A4 | central exit handling in `cli.py`, crash = 3 everywhere, table commands, `diff`, `batch`, `docs` | planned for 0.6.0 | WP4 | `exit-wp4-central-handling.md` | A3 |
+| A4 | central exit handling in `cli.py`, crash = 3 everywhere, table commands, `diff`, `batch`, `docs` | in progress (branch `feat/exit-central-handling`) | WP4 | `exit-wp4-central-handling.md` | A3 |
 | A5 | checks: `validate`, `audit`, `template check`/`drift`, `diff-xml`, `style check` | planned for 0.6.0 | WP5 | `exit-wp5-check-commands.md` | A4 |
 | A6 | writers: `sanitize`, `prune`, `slice`, `rename`, `scaffold`, `docs` | planned for 0.6.0 | WP6 | `exit-wp6-writer-commands.md` | A4 |
 | A7 | partial results and clashes: `sheet copy`, `dashboard copy`, `library`, `style`, `template` writers, `apply-folder` | planned for 0.6.0 | WP7 | `exit-wp7-partial-and-refused.md` | A4 (dry-run codes answered: 0 if clean, 1 if changes found) |

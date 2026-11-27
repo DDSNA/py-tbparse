@@ -1,8 +1,8 @@
-"""Guard for the exit-code table in docs/cli.md (issue #127: the codes are documented as they are, not unified).
+"""Guard for the exit-code table in docs/cli.md (issue #127).
 
 Every row of the table has at least one case here that runs a cheap failure or success path and checks that the
 code it really returns is listed in that row (not "not used"). A code that changes without the table, or a row
-without a case, fails. The table is the contract until the 0.6.0 scheme decision."""
+without a case, fails. The table is the contract; 0.6.0 moves the commands to one scheme and this file follows each move."""
 
 import re
 import sys
@@ -29,7 +29,7 @@ def table_rows():
     for line in section.splitlines():
         if line.startswith("|") and not line.startswith("| ---") and not line.startswith("| Command"):
             cells = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
-            assert len(cells) == 5, line
+            assert len(cells) == 9, line
             rows[cells[0]] = cells[1:]
     return rows
 
@@ -83,18 +83,18 @@ def cases(tmp_path, monkeypatch):
     sanitized = tmp_path / "san.twb"
     return [
         ("WORKBOOK [TABLE]", [WENJIE, "overview"], 0),
-        ("WORKBOOK [TABLE]", [missing], 1),
+        ("WORKBOOK [TABLE]", [missing], 4),
         ("WORKBOOK [TABLE]", [WENJIE, "nope"], 2),
         ("WORKBOOK validate", [WENJIE, "validate"], 0),
-        ("WORKBOOK validate", [missing, "validate"], 1),
+        ("WORKBOOK validate", [missing, "validate"], 4),
         ("diff A B", ["diff", WENJIE, WENJIE], 0),
-        ("diff A B", ["diff", WENJIE, missing], 1),
+        ("diff A B", ["diff", WENJIE, missing], 4),
         ("diff A B", ["diff", WENJIE], 2),
         ("diff-xml A B", ["diff-xml", WENJIE, WENJIE], 0),
         ("diff-xml A B", ["diff-xml", WENJIE, TEMPLATE], 1),
         ("diff-xml A B", ["diff-xml", WENJIE, missing], 2),
         ("batch DIR", ["batch", str(HERE / "fixtures"), "overview"], 0),
-        ("batch DIR", ["batch", missing], 1),
+        ("batch DIR", ["batch", missing], 4),
         ("batch DIR", ["batch"], 2),
         ("rename WORKBOOK", ["rename", WENJIE], 0),
         ("rename WORKBOOK", ["rename", missing], 1),
@@ -135,7 +135,9 @@ def cases(tmp_path, monkeypatch):
         ("dashboard copy SRC", ["dashboard", "copy", dsrc, "--dashboards", "Dash,Lone", "--to", ddst,
                                 "--write", "-o", str(tmp_path / "dc.twb")], 2),
         ("docs WORKBOOK", ["docs", WENJIE], 0),
-        ("docs WORKBOOK", ["docs", missing], 2),
+        ("docs WORKBOOK", ["docs", missing], 4),
+        ("docs WORKBOOK", ["docs", WENJIE, "-o", WENJIE], 5),
+        ("docs WORKBOOK", ["docs", WENJIE, "--nope"], 2),
     ]
 
 
@@ -192,10 +194,10 @@ def test_every_row_has_a_case(tmp_path, monkeypatch):
     assert [k for k in uncovered if "precommit" not in k] == [], uncovered
 
 
-def test_table_cells_are_plain_text_of_five_columns():
+def test_table_cells_are_plain_text_of_nine_columns():
     assert len(ROWS) >= 20
     for key, cells in ROWS.items():
-        assert len(cells) == 4, key
+        assert len(cells) == 8, key
 
 
 # ---- central handling in cli.main (WP4): one place maps an escaped exception to its code ----
@@ -249,3 +251,15 @@ def test_output_refusal_is_5_and_unwritable_output_is_4(tmp_path, capsys):
     assert code_of([WENJIE, "overview", "-o", tmp_path / "no" / "such" / "x.csv"]) == 4
     err = capsys.readouterr().err
     assert "Traceback" not in err and out.read_text() == "keep"
+
+
+def test_malformed_workbook_is_bad_input(tmp_path, capsys):
+    bad = tmp_path / "bad.twb"
+    bad.write_text("<workbook")
+    assert code_of([bad, "overview"]) == 4
+    err = capsys.readouterr().err
+    assert err.startswith("error:") and "Traceback" not in err
+    assert code_of(["docs", bad]) == 4 and code_of(["diff", bad, WENJIE]) == 4
+    txt = tmp_path / "x.txt"
+    txt.write_text("hello")
+    assert code_of([txt, "overview"]) == 4

@@ -197,12 +197,8 @@ def _load_workbook(path) -> TwbParser:
 
 def _run_diff(argv: list[str]) -> int:
     args = build_diff_arg_parser().parse_args(argv)
-    try:
-        a = _load_workbook(args.workbook_a)
-        b = _load_workbook(args.workbook_b)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    a = _load_workbook(args.workbook_a)
+    b = _load_workbook(args.workbook_b)
 
     df = diff_workbooks(
         a, b, table=args.table, dashboard=args.dashboard, include_parameters=args.include_parameters
@@ -231,8 +227,7 @@ def build_batch_arg_parser() -> argparse.ArgumentParser:
 def _run_batch(argv: list[str]) -> int:
     args = build_batch_arg_parser().parse_args(argv)
     if not Path(args.directory).is_dir():
-        print(f"error: not a directory: {args.directory}", file=sys.stderr)
-        return 1
+        raise InputError(f"not a directory: {args.directory}")
 
     df = scan_folder(
         args.directory,
@@ -1632,14 +1627,9 @@ def _run_docs(argv: list[str], prog: str = "py-tbparse docs") -> int:
     ap.add_argument("--output", "-o", help="write the page to this file instead of printing it")
     ap.add_argument("--graph", action="store_true", help="add the relationship graph as a DOT block")
     args = ap.parse_args(argv)
-    try:
-        page = workbook_markdown(TwbParser(args.workbook), graph=args.graph)
-    except _WORKBOOK_ERRORS as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    page = workbook_markdown(_load_workbook(args.workbook), graph=args.graph)
     if args.output and Path(args.output).resolve() == Path(args.workbook).resolve():
-        print("error: --output is the workbook itself; refusing to overwrite it", file=sys.stderr)
-        return 2
+        raise OutputRefusedError("--output is the workbook itself; refusing to overwrite it")
     if args.output:
         _write(page, args.output, inputs=(args.workbook,))
         print(f"wrote {args.output}", file=sys.stderr)
@@ -1750,11 +1740,7 @@ def _main(argv: list[str] | None) -> int:
             print(name)
         return 0
 
-    try:
-        parser = _load_workbook(args.workbook)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    parser = _load_workbook(args.workbook)
 
     if args.table == "graph":
         dot = parser.get_relationship_graph_dot(include_inferred=args.include_inferred)

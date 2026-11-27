@@ -134,7 +134,7 @@ def test_cli_docs_and_dictionary(tmp_path, capsys):
 
 def test_cli_docs_errors(tmp_path, capsys):
     path = workbook(tmp_path)
-    assert main(["docs", path, "-o", path]) == 2
+    assert main(["docs", path, "-o", path]) == 5
     assert Path(path).read_text(encoding="utf-8").startswith("<?xml")
-    assert main(["docs", str(tmp_path / "missing.twb")]) == 2
+    assert main(["docs", str(tmp_path / "missing.twb")]) == 4
     assert "error:" in capsys.readouterr().err
