@@ -181,6 +181,7 @@ This text goes into the 0.6.0 release notes (and a short form into [ci.md](ci.md
 > - `validate`: a broken relationship was 2 and is now 6. A workbook that cannot be loaded was 1 and is now 4.
 > - `sanitize`, `prune`, `slice`, `docs`: every error was 2. Test for non-zero if you only want to know that it failed, or use 4 (input), 5 (refused), 6 (integrity).
 > - `sheet copy`, `dashboard copy`, `library import`, `style export`, `style import`: "some entries were refused, the rest is written" was 2 and is now 7; every other error was 1 and is now 4 or 5.
+> - **Breaking: `-o` never overwrites.** `py-tbparse WB TABLE -o FILE`, `diff`, `batch`, `audit`, `docs`, `rename`, `template show --markdown` and `library export` used to replace an existing `FILE` silently, the input workbook included (`-o demo.twb` turned it into CSV). They now refuse with `already exists; move or delete it first` and leave the file alone. A script that re-ran a command into the same file has to delete it first.
 > - `if [ $? -ne 0 ]` and `set -e` keep working: every failure is still non-zero, and nothing that succeeded changed.
 > - The pre-commit hooks still fail for the same files.
 

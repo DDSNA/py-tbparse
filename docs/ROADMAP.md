@@ -49,6 +49,7 @@ Owner decisions (2026-10-16, with the plan's choices confirmed 2026-11-20, see "
 | A9 | `webgui.py` `ValueError` sites | planned for 0.6.0 (owner 2026-11-20, no longer optional) | WP9 | `exit-wp9-webgui-errors.md` | A3 |
 | A10 | release notes and the 0.6.0 version bump | planned for 0.6.0 (owner-run) | WP10 | `exit-wp10-release-checklist.md` | everything planned for 0.6.0 |
 | A11 | library API `on_clash` default `rename` to `fail` | built, unreleased (#225); #128 closes when 0.6.0 ships | [plan-0.6.0-clash-default.md](plan-0.6.0-clash-default.md) | `clash-flip-library-default.md` | nothing |
+| A12 | `-o` never overwrites: shared `_write` refuses an existing file or the input (`OutputRefusedError`), clean error for an unwritable path; breaking, owner 2026-11-27 | built, unreleased (in review) | none | none | nothing |
 
 Between A4 and A8 `main` has a mixed scheme; there must be no release in that window (the plan says the header of the `cli.md` table states it).
 
