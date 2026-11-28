@@ -90,3 +90,17 @@ The **Templates** button in the top bar opens a view for filling a template with
 Later steps stay locked, with a one-line reason, until the earlier ones are done. **Change** on a card lets you pick another file. A file dropped on the page goes to the card it lands on, or else to the first empty step (a `.twbx` is the template when none is chosen yet), and the drop overlay says which. Your choices are kept on the server for your session, so a reload brings them back. Files are limited to 200 MB each.
 
 In a shared server ([Running as a server](deployment.md)) there are no path boxes: only dropped or chosen files work, and every visitor has their own choices, deleted when their session ends. Making a template works there too: it uses the workbook you dropped on the page and writes only inside your session's folder.
+
+## Errors
+
+Every error answer is JSON, `{"error": "<message>"}` (plain text for the download routes), and the page shows the message as it is. The status comes from one table (`http_status_for` in `py_tbparse/errors.py`, built on the same categories as the command line's exit codes). The Templates view answers with its own fixed 400, 409 and 500 and follows the same meanings:
+
+| Status | When |
+|---|---|
+| 400 | a bad request (wrong type, missing key, unknown option, a step done out of order) or a file that cannot be read (a library, palette, workbook or template upload that does not parse) |
+| 404 | an unknown table or dashboard, or an unknown route |
+| 409 | declined on purpose, nothing was made: a name clash under `fail`, a strict refusal, no sheet copyable, a workbook with no folder to save beside |
+| 422 | the result would have broken references (for example a slice that would leave a dangling reference) |
+| 500 | anything the code did not expect: the message says what failed ("could not audit the workbook: ..."), with no traceback |
+
+A 409 or 422 was a 400 before 0.6.0; the page treats all non-2xx answers alike, so nothing changes on screen. In server mode (`--server-mode`) the server's own paths never reach the browser: the temp folder shows as `(temp)`, an uploaded file by its name, and the session's folders as `(upload)`. This is done once, where the answer is written (error answers only; data answers are never rewritten), so a message from deep inside the library cannot name the server's disk. In local mode the upload folders are hidden the same way, but your own file paths are shown.

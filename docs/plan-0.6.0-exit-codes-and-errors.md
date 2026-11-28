@@ -184,6 +184,7 @@ This text goes into the 0.6.0 release notes (and a short form into [ci.md](ci.md
 > - **Breaking: `-o` never overwrites.** `py-tbparse WB TABLE -o FILE`, `diff`, `batch`, `audit`, `docs`, `rename`, `template show --markdown` and `library export` used to replace an existing `FILE` silently, the input workbook included (`-o demo.twb` turned it into CSV). They now refuse with `already exists; move or delete it first` and leave the file alone. A script that re-ran a command into the same file has to delete it first.
 > - `if [ $? -ne 0 ]` and `set -e` keep working: every failure is still non-zero, and nothing that succeeded changed.
 > - The pre-commit hooks still fail for the same files.
+> - **GUI server (`py-tbparse-gui`): error statuses.** A refused request (a name clash under `fail`, nothing copyable) now answers 409 and an integrity error 422; both were 400. A plain `ValueError` raised from inside the library, which used to answer 400, now answers 500 with the text "could not ...: message". The `{"error": ...}` body and the page are unchanged.
 
 A script that tested `== 2` as "broken" or "partial" now sees "usage error" (it would only get there by a typo in the command, so it will mostly see nothing and silently miss the real code). That is the reason the release note is a "Changed" item and not a footnote, and the reason this is a minor version. There is no compatibility switch in the plan; see Open questions.
 
@@ -236,7 +237,7 @@ PyTbparseError(ValueError)                 # unchanged base, stays a ValueError
 | `parser.py:276` ("Validation failed", from `validate(error=True)`) | `IntegrityError` (exit 6) |
 | `findings.py:77` (rule registered twice), `docgen.py:75,103` (heading level, row width) | stay plain `ValueError`: programmer errors; they are not reachable from user input and a crash (3) is the right answer |
 
-Sites in `webgui.py` (39 `ValueError`): they are validation of a JSON request body, answered as an HTTP 400 with the message. They become `UsageError` (a bad request) or `InputError` (a bad library/palette file the user added), which keeps `except ValueError` and the messages. This has no effect on exit codes and is the last, optional work package.
+Sites in `webgui.py` (39 `ValueError`): they are validation of a JSON request body, answered as an HTTP 400 with the message. (Owner 2026-11-27: the GUI status now follows the category, `http_status_for` in `errors.py`: 400 usage and input, 409 refused, 422 integrity, 500 otherwise.) They become `UsageError` (a bad request) or `InputError` (a bad library/palette file the user added), which keeps `except ValueError` and the messages. This has no effect on exit codes and is the last, optional work package.
 
 ### Message format rules (new and changed messages only)
 

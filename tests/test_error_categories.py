@@ -40,7 +40,7 @@ WENJIE = str(Path(__file__).parent / "fixtures" / "test_for_wenjie.twb")
 def test_no_plain_value_error_outside_the_allow_list():
     found = Counter()
     for path in PKG.glob("*.py"):
-        if path.name in ("webgui.py", "errors.py"):
+        if path.name == "errors.py":
             continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call) \

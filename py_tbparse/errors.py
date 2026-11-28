@@ -120,6 +120,26 @@ def exit_code_for(exc: BaseException) -> int:
     return int(ExitCode.CRASH)
 
 
+#: HTTP status the GUI server answers for each exit code (see ``http_status_for``).
+_HTTP_STATUS = {
+    ExitCode.USAGE: 400,
+    ExitCode.BAD_INPUT: 400,
+    ExitCode.REFUSED: 409,
+    ExitCode.INTEGRITY: 422,
+}
+
+
+def http_status_for(exc: BaseException) -> int:
+    """HTTP status the GUI server answers for ``exc``, derived from ``exit_code_for`` so the two never disagree.
+
+    400 for a usage error or an unusable input (a bad request, an unreadable upload; the GUI always answered 400
+    for these), 409 for a refusal (nothing was made, for example a name clash under ``fail``), 422 for an integrity
+    error (the result would have broken references), 500 for anything else: a plain ``ValueError``, a bug, a full
+    disk, a timeout. Route-specific answers (404 unknown dashboard, 413, 415, 507) are chosen by the route.
+    """
+    return _HTTP_STATUS.get(exit_code_for(exc), 500)
+
+
 def first_by_precedence(codes: Iterable[int]) -> int:
     """The code from ``codes`` that comes first in ``PRECEDENCE`` (unknown codes count as crash; empty gives 0).
 
