@@ -42,7 +42,7 @@ Dropped and reported, never silently:
 
 `--strict` stops the run instead of dropping anything, so a dashboard with an action filter on any sheet fails under `--strict`.
 
-Exit codes: 0 done, 1 an error or the run stopped (a clash under `fail`, `--strict`, nothing copyable), 2 some dashboard was refused (the others are written). Every command's codes: [cli.md](cli.md#exit-codes).
+Exit codes: 0 done, 4 an unreadable file or an unknown dashboard name, 5 the run stopped (a clash under `fail`, `--strict`, nothing copyable, output exists), 7 some dashboard was refused (the others are written; a dry run says 1). Every command's codes: [cli.md](cli.md#exit-codes).
 
 ## Not covered
 

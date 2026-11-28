@@ -376,3 +376,23 @@ def test_apply_folder_one_bad_file_is_partial(tmp_path, capsys):
     assert "initech.csv" in summary and "error" in summary
     capsys.readouterr()
     assert code_of(["template", "apply-folder", template, folder, "-o", out]) == 5   # summary exists now
+
+
+def test_dry_runs(tmp_path, capsys):
+    """Dry-run rule (owner, 2026-11-20): 0 if the dry run ran clean, 1 if it found what --write would refuse or fail."""
+    from test_style import TPS, WB
+    assert code_of(["style", "import", TPS, WB]) == 1
+    assert code_of(["style", "import", TPS, WB, "--on-clash", "rename"]) == 0
+    lib_json = tmp_path / "k.library.json"
+    cli.main(["library", "export", str(LIB / "source.twb"), "-o", str(lib_json)])
+    assert code_of(["library", "import", str(LIB / "target.twb"), str(lib_json), "--on-clash", "rename"]) == 0
+    from lxml import etree
+    doc = etree.parse(str(LIB / "target.twb"))
+    for rec in doc.xpath("//metadata-record[local-name='[Profit]']"):
+        rec.getparent().remove(rec)
+    bad_target = tmp_path / "lt.twb"
+    doc.write(str(bad_target), encoding="utf-8", xml_declaration=True)
+    assert code_of(["library", "import", str(bad_target), str(lib_json), "--on-clash", "rename"]) == 1
+    s, d = _two_sheet_copy(tmp_path)
+    assert code_of(["sheet", "copy", s, "--sheets", "Sheet 1,Sheet 2", "--to", d]) == 1
+    assert code_of(["sheet", "copy", s, "--sheets", "Sheet 1", "--to", d]) == 0

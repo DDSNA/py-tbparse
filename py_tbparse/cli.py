@@ -1007,7 +1007,7 @@ def _run_library(argv: list[str]) -> int:
             bad = rows["action"].str.startswith("fail").sum()
             print(f"plan only, nothing written; add --write to make the workbook"
                   + (f" ({bad} entries cannot be imported; edit a mapping, see --mapping)" if bad else ""), file=sys.stderr)
-            return 0
+            return int(ExitCode.FINDING) if bad else 0
         report = {}
         out = import_library(parser, library, datasource=args.datasource, mapping=args.mapping or None,
                              on_clash=args.on_clash, output_path=args.output, overwrite=args.overwrite, report=report)
@@ -1512,7 +1512,9 @@ def _run_sheet(argv: list[str]) -> int:
     if not report["copied"] and not report["skipped"]:
         print("error: no sheet can be copied", file=sys.stderr)
         return int(ExitCode.REFUSED)
-    return int(ExitCode.PARTIAL) if report["refused"] else 0
+    if report["refused"]:
+        return int(ExitCode.PARTIAL) if out else int(ExitCode.FINDING)   # a dry run reports it as a finding
+    return 0
 
 
 def _run_dashboard(argv: list[str]) -> int:
@@ -1565,7 +1567,9 @@ def _run_dashboard(argv: list[str]) -> int:
     if not report["copied"] and not report["skipped"]:
         print("error: no dashboard can be copied", file=sys.stderr)
         return int(ExitCode.REFUSED)
-    return int(ExitCode.PARTIAL) if report["refused"] else 0
+    if report["refused"]:
+        return int(ExitCode.PARTIAL) if out else int(ExitCode.FINDING)   # a dry run reports it as a finding
+    return 0
 
 
 def _run_slice(argv: list[str]) -> int:
