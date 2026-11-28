@@ -3,6 +3,7 @@
 Nothing here opens Tableau; the schema and reference checks are what we have."""
 
 import json
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -364,7 +365,7 @@ def test_corpus_make_and_apply_never_raise_and_pass_the_checks():
 def test_apply_never_rewrites_the_input_through_a_link(wb_path, scaffold, tmp_path, kind):
     link = tmp_path / "link.twb"
     try:
-        (link.hardlink_to if kind == "hardlink" else link.symlink_to)(wb_path)
+        (os.link(wb_path, link) if kind == "hardlink" else link.symlink_to(wb_path))
     except (OSError, NotImplementedError):
         pytest.skip(f"{kind}s are not supported here")
     before = wb_path.read_bytes()
