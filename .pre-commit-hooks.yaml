@@ -8,7 +8,7 @@
 #           args: [--fail-on, warning]
 #
 # Each hook runs the command on every matching file and fails with the worst exit code (1 a finding
-# at --fail-on, 2 unreadable file or bad option, 3 a rule crashed). Nothing is written or opened in
+# at --fail-on, 2 bad option, 3 a rule crashed, 4 unreadable file). Nothing is written or opened in
 # Tableau. Override `files:` to choose which workbooks are checked.
 - id: py-tbparse-audit
   name: py-tbparse audit (Tableau workbook findings)

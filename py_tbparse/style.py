@@ -709,6 +709,10 @@ def check_style_file(path: Union[str, os.PathLike], *, raise_unreadable: bool = 
             return [str(e)]
         except StyleError as e:
             return [str(e)]
+        except (OSError, UnicodeDecodeError) as e:   # a folder, no permission, not UTF-8
+            if raise_unreadable:
+                raise StyleReadError(f"{path}: cannot be read: {getattr(e, "strerror", None) or e}") from e
+            raise
         return [f"warning: {w}" for w in style_warnings(style)]
     if path.suffix.lower() != ".tps":
         msg = f"expected a .tps or .style.json file, got {path.name}"
@@ -723,6 +727,10 @@ def check_style_file(path: Union[str, os.PathLike], *, raise_unreadable: bool = 
         return [str(e)]
     except StyleError as e:
         return [str(e)]
+    except (OSError, UnicodeDecodeError) as e:
+        if raise_unreadable:
+            raise StyleReadError(f"{path}: cannot be read: {getattr(e, "strerror", None) or e}") from e
+        raise
     return palette_problems(records)
 
 

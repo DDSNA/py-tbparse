@@ -4,7 +4,9 @@ Every row of the table has at least one case here that runs a cheap failure or s
 code it really returns is listed in that row (not "not used"). A code that changes without the table, or a row
 without a case, fails. The table is the contract; 0.6.0 moves the commands to one scheme and this file follows each move."""
 
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -342,3 +344,16 @@ def test_o_existing_is_5_and_missing_folder_is_4_for_other_writers(argv, tmp_pat
     assert out.read_text() == "keep"
     assert code_of([*argv, "-o", tmp_path / "no" / "x.out"]) == 4
     assert "Traceback" not in capsys.readouterr().err
+
+
+def test_style_check_unreadable_folder_and_non_utf8_are_4(tmp_path, capsys):
+    (tmp_path / "dir.style.json").mkdir()
+    (tmp_path / "dir2.tps").mkdir()
+    bad = tmp_path / "latin.style.json"
+    bad.write_bytes(b"\xff\xfe\x00{")
+    for f in ("dir.style.json", "dir2.tps", "latin.style.json"):
+        assert code_of(["style", "check", str(tmp_path / f)]) == 4, f
+        capsys.readouterr()
+        run = subprocess.run([sys.executable, "-m", "py_tbparse.cli", "style", "check", str(tmp_path / f)],
+                             capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(HERE.parent)})
+        assert run.returncode == 4, (f, run.stderr)
