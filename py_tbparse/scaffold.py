@@ -329,7 +329,7 @@ def apply_scaffold(wb: Union[TwbParser, str, os.PathLike], scaffold: Union[dict,
     out = Path(output_path) if output_path else source.with_name(f"{source.stem}_scaffold{source.suffix}")
     if out.suffix.lower() != source.suffix.lower():
         raise ScaffoldUsageError(f"output must end in {source.suffix}, got {out.suffix or 'no extension'}")
-    if out.exists() and (out.resolve() == source.resolve() or not overwrite):
+    if out.exists() and (out.resolve() == source.resolve() or out.samefile(source) or not overwrite):
         raise OutputRefusedError(f"refusing to overwrite existing file: {out}")
     data = build_scaffold_workbook(parser, scaffold, name, sheets, allow_empty, report)
     with open(out, "wb" if overwrite else "xb") as fh:

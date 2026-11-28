@@ -318,6 +318,9 @@ def test_cli_make_show_apply(wb_path, tmp_path, capsys):
                  "-o", str(out), "--write"]) == 0
     assert TwbParser(str(out)).xml_doc.xpath("//dashboard[@name='N']")
     capsys.readouterr()
+    assert main(["scaffold", "apply", str(wb_path), str(sc), "--name", "N", "--sheet", "Sales", "--sheet", "Map",
+                 "-o", str(out), "--write"]) == 5                                                   # output exists
+    capsys.readouterr()
     assert main(["scaffold", "apply", str(wb_path), str(sc), "--name", "N", "--sheets", "Sales"]) == 4
     assert "no sheet for slot 2" in capsys.readouterr().err
     assert main(["scaffold", "make", str(wb_path), "-d", "Floating", "-o", str(tmp_path / "f.json")]) == 4
@@ -355,3 +358,16 @@ def test_corpus_make_and_apply_never_raise_and_pass_the_checks():
             ids = [int(z.get("id")) for z in _dash(doc, "Scaffold Test").xpath("./zones//zone")]
             assert ids == list(range(1, len(ids) + 1))
     assert made > 50 and refused > 20 and schema_checked == made
+
+
+@pytest.mark.parametrize("kind", ["hardlink", "symlink"])
+def test_apply_never_rewrites_the_input_through_a_link(wb_path, scaffold, tmp_path, kind):
+    link = tmp_path / "link.twb"
+    try:
+        (link.hardlink_to if kind == "hardlink" else link.symlink_to)(wb_path)
+    except (OSError, NotImplementedError):
+        pytest.skip(f"{kind}s are not supported here")
+    before = wb_path.read_bytes()
+    with pytest.raises(FileExistsError):
+        apply_scaffold(wb_path, scaffold, "N", ["Sales", "Map"], output_path=link, overwrite=True)
+    assert wb_path.read_bytes() == before

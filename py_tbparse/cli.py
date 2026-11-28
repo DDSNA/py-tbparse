@@ -344,8 +344,11 @@ def _run_rename(argv: list[str]) -> int:
         print(f"error: reference workbook: {e}", file=sys.stderr)
         return exit_code_for(e)
     except Exception as e:  # unreadable / malformed reference workbook
+        code = exit_code_for(e)
+        if code == int(ExitCode.CRASH):
+            return _fail(e)   # a bug or a full disk: same output as every other command
         print(f"error: cannot read reference workbook: {e}", file=sys.stderr)
-        return exit_code_for(e)
+        return code
 
     if args.missing:
         try:
