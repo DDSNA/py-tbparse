@@ -303,27 +303,32 @@ def _swaps(tpl=None, extra=()):
 # The folders this server makes are named py-tbparse-<8 characters>. A library may spell the path leading to one in
 # a way no exact swap matches (forward slashes, a Windows short name like RUNNER~1, file:/), so this is the fallback
 # for ERROR answers only. Linear: one scan for the folder name, then a look back of at most 300 characters.
-_OWN_FOLDER = re.compile(r"py-tbparse-(?:copy-|tpl-)?[A-Za-z0-9_]{8}")
+_OWN_FOLDER = re.compile(r"py-tbparse-(?:copy-|tpl-)?[a-z0-9_]{8}")   # mkdtemp's alphabet
+_NOT_FOLDERS = frozenset({"py-tbparse-examples", "py-tbparse-template"})  # words of our own, not folders
 _DRIVE_START = re.compile(r"(?:file:/*)?(?<![A-Za-z0-9])[A-Za-z]:[\\/]|file:/+")
+# From a drive letter or file: to the folder name there may be no blank, except in `Users\<name with spaces>\`.
+_PATH_TO_FOLDER = re.compile(r"(?:file:/*)?(?:[A-Za-z]:[\\/]+(?:Users[\\/]+[^\\/\n\"']+[\\/]+)?)?[^\s\"']*\Z")
 _LOOK_BACK = 300
 
 
 def _hide_folders(text: str) -> str:
-    """`text` with each server-made folder (and the path before it) replaced by `(upload)`. A Windows path may hold
-    spaces (`C:\\Users\\John Smith\\...`), so a drive letter or `file:` start is taken from the look-back window; a
-    path without one is the run of non-blank characters before the folder name."""
+    """`text` with each server-made folder (and the path before it) replaced by `(upload)`. The path starts at
+    the nearest drive letter or `file:` before the folder name if nothing but a `Users\\<name>` blank lies between
+    them (a Windows path may hold spaces there); otherwise it is the run of non-blank characters before it."""
     if "py-tbparse-" not in text:
         return text
     out, pos = [], 0
     for m in _OWN_FOLDER.finditer(text):
-        if m.start() < pos:
+        if m.start() < pos or m.group() in _NOT_FOLDERS:
             continue
         lo = max(pos, m.start() - _LOOK_BACK)
         window = text[lo:m.start()]
-        starts = [d.start() for d in _DRIVE_START.finditer(window)]
-        if starts:
-            cut = starts[-1]
-        else:
+        cut = None
+        for d in [d.start() for d in _DRIVE_START.finditer(window)][-5:][::-1]:
+            if _PATH_TO_FOLDER.match(window, d):
+                cut = d
+                break
+        if cut is None:
             cut = max(window.rfind(c) for c in ' \t\r\n"\'<>') + 1
         out.append(text[pos:lo + cut])
         out.append("(upload)")

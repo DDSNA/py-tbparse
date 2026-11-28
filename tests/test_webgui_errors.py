@@ -185,11 +185,13 @@ def test_an_unexpected_error_is_a_500_without_path_or_traceback(gui, monkeypatch
     assert gui.get("/dashboards")[0] == 200
 
 
+def test_a_plain_value_error_from_inside_is_a_500_not_a_400(gui, monkeypatch):
     monkeypatch.setattr(webgui, "_style_palettes_answer", lambda qs: (_ for _ in ()).throw(ValueError("bug")))
     status, raw = gui.get("/style/palettes")
     assert status == 500 and "bug" in json.loads(raw)["error"]
 
 
+def test_an_error_in_a_download_is_plain_text_and_scrubbed(gui, monkeypatch):
     import tempfile
     secret = str(Path(tempfile.gettempdir()) / "py-tbparse-secret")
     monkeypatch.setattr(webgui.Handler, "_renamed_workbook",
@@ -278,6 +280,15 @@ def test_hide_folders_windows_spellings_on_any_system():
     assert json.loads(hide(escaped))["error"] == "x (upload)" + "\\a"
     assert hide("see /var/tmp/py-tbparse-abcd1234/a.twb and /tmp/py-tbparse-wxyz5678/b") == "see (upload)/a.twb and (upload)/b"
     assert hide("file:/(temp)/py-tbparse-abcd1234/a.twb") == "(upload)/a.twb"
+
+
+def test_hide_folders_keeps_ordinary_text():
+    hide = webgui._hide_folders
+    same = "D:/data/book.twb: field 'py-tbparse-examples' bad"
+    assert hide(same) == same
+    assert hide("see py-tbparse-template_xxxxxxxx for more") == "see py-tbparse-template_xxxxxxxx for more"
+    assert hide("copied C:\\Users\\me\\book.twb into /tmp/py-tbparse-abcd1234/x") == \
+        "copied C:\\Users\\me\\book.twb into (upload)/x"
 
 
 def test_hide_folders_is_linear_and_leaves_other_text_alone():
