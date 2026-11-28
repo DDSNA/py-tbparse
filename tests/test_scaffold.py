@@ -3,6 +3,7 @@
 Nothing here opens Tableau; the schema and reference checks are what we have."""
 
 import json
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -304,7 +305,7 @@ def test_schema_check_on_a_small_workbook(wb_path, scaffold):
 def test_cli_make_show_apply(wb_path, tmp_path, capsys):
     sc = tmp_path / "o.scaffold.json"
     assert main(["scaffold", "make", str(wb_path), "-d", "Overview", "-o", str(sc)]) == 0
-    assert main(["scaffold", "make", str(wb_path), "-d", "Overview", "-o", str(sc)]) == 1      # exists
+    assert main(["scaffold", "make", str(wb_path), "-d", "Overview", "-o", str(sc)]) == 5      # exists
     capsys.readouterr()
     assert main(["scaffold", "show", str(sc)]) == 0
     shown = capsys.readouterr().out
@@ -318,9 +319,12 @@ def test_cli_make_show_apply(wb_path, tmp_path, capsys):
                  "-o", str(out), "--write"]) == 0
     assert TwbParser(str(out)).xml_doc.xpath("//dashboard[@name='N']")
     capsys.readouterr()
-    assert main(["scaffold", "apply", str(wb_path), str(sc), "--name", "N", "--sheets", "Sales"]) == 1
+    assert main(["scaffold", "apply", str(wb_path), str(sc), "--name", "N", "--sheet", "Sales", "--sheet", "Map",
+                 "-o", str(out), "--write"]) == 5                                                   # output exists
+    capsys.readouterr()
+    assert main(["scaffold", "apply", str(wb_path), str(sc), "--name", "N", "--sheets", "Sales"]) == 4
     assert "no sheet for slot 2" in capsys.readouterr().err
-    assert main(["scaffold", "make", str(wb_path), "-d", "Floating", "-o", str(tmp_path / "f.json")]) == 1
+    assert main(["scaffold", "make", str(wb_path), "-d", "Floating", "-o", str(tmp_path / "f.json")]) == 4
 
 
 # --- the corpus ---
@@ -355,3 +359,16 @@ def test_corpus_make_and_apply_never_raise_and_pass_the_checks():
             ids = [int(z.get("id")) for z in _dash(doc, "Scaffold Test").xpath("./zones//zone")]
             assert ids == list(range(1, len(ids) + 1))
     assert made > 50 and refused > 20 and schema_checked == made
+
+
+@pytest.mark.parametrize("kind", ["hardlink", "symlink"])
+def test_apply_never_rewrites_the_input_through_a_link(wb_path, scaffold, tmp_path, kind):
+    link = tmp_path / "link.twb"
+    try:
+        (os.link(wb_path, link) if kind == "hardlink" else link.symlink_to(wb_path))
+    except (OSError, NotImplementedError):
+        pytest.skip(f"{kind}s are not supported here")
+    before = wb_path.read_bytes()
+    with pytest.raises(FileExistsError):
+        apply_scaffold(wb_path, scaffold, "N", ["Sales", "Map"], output_path=link, overwrite=True)
+    assert wb_path.read_bytes() == before

@@ -28,7 +28,7 @@ Removed:
 
 ## Actions
 
-An action is dropped when its source (`dashboard=` or `worksheet=`) or its target (`target`, or the `sheet` of a go-to-sheet action) is a dashboard or worksheet that did not stay. The filters in kept sheets that such an action drove (`user:ui-action-filter`) are dropped with it, otherwise they would name an action that no longer exists. A removed sheet named in an action's `exclude` list is taken out of the list and the action stays. All of it is listed in the report (`dropped_actions`, `trimmed_actions`, `dropped_filters`). With `--strict` nothing is changed and the command stops with exit code 2, naming what would have been dropped.
+An action is dropped when its source (`dashboard=` or `worksheet=`) or its target (`target`, or the `sheet` of a go-to-sheet action) is a dashboard or worksheet that did not stay. The filters in kept sheets that such an action drove (`user:ui-action-filter`) are dropped with it, otherwise they would name an action that no longer exists. A removed sheet named in an action's `exclude` list is taken out of the list and the action stays. All of it is listed in the report (`dropped_actions`, `trimmed_actions`, `dropped_filters`). With `--strict` nothing is changed and the command stops with exit code 5, naming what would have been dropped.
 
 Not touched: hidden `[Action (...)]` groups in a datasource. If a kept filter still uses one, it stays; otherwise the datasource check of prune only removes a whole datasource, not a group inside one.
 
@@ -37,7 +37,7 @@ Not touched: hidden `[Action (...)]` groups in a datasource. If a kept filter st
 - An unknown dashboard name fails and lists the valid names. Names are separated by commas; a name that contains a comma works when it is the only one.
 - A selection that shows no worksheet (an empty story, say) is refused: a workbook needs at least one worksheet.
 - The output must end in the input's extension, an existing output is refused without `--overwrite`, and the input is never written.
-- Exit code 0, or 2 for any error (there is no 1). Every command's codes: [cli.md](cli.md#exit-codes). If the result has an integrity problem the input did not have (`dashboards.integrity_check`), nothing is written and the command exits 2. A dry run exits 2 too (it prints the `INTEGRITY` lines and says `--write` would refuse), so it predicts the write.
+- Exit code 0; 2 for a usage error; 4 for an unreadable workbook or an unknown dashboard; 5 when `--strict` would drop something, the selection shows no worksheet, or the output is refused; 6 when the result has new integrity problems; 3 for a bug (there is no 1). Every command's codes: [cli.md](cli.md#exit-codes). If the result has an integrity problem the input did not have (`dashboards.integrity_check`), nothing is written and the command exits 6. A dry run exits 6 too (it was 2 before 0.6.0) (it prints the `INTEGRITY` lines and says `--write` would refuse), so it predicts the write.
 
 ## What was checked, and what was not
 

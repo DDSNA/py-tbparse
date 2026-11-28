@@ -1,5 +1,5 @@
 """A malformed .twb or a corrupt .twbx gives one `error:` line, not a traceback, and the exit code each command
-(4 for the plain table commands and `diff`; `rename` keeps 1 until A6)."""
+(4 for the plain table commands and `diff`; `rename` too)."""
 
 import sys
 import zipfile
@@ -36,7 +36,7 @@ def broken(tmp_path, kind):
 KINDS = ["empty", "truncated", "not-zip", "damaged-zip"]
 
 
-def check(capsys, code, path, expected=1):
+def check(capsys, code, path, expected=4):
     err = capsys.readouterr().err
     assert code == expected
     assert "Traceback" not in err
@@ -70,7 +70,7 @@ def test_rename_reference(tmp_path, capsys, kind):
     path = broken(tmp_path, kind)
     code = cli.main(["rename", GOOD, "--reference", path])
     err = capsys.readouterr().err
-    assert code == 1 and "Traceback" not in err
+    assert code == 4 and "Traceback" not in err
     assert err.startswith("error: reference workbook: ") and "not a readable Tableau workbook" in err
 
 

@@ -139,7 +139,7 @@ def test_parser_method_and_cli(wenjie_path, capsys):
 
 
 def test_cli_missing_file(capsys):
-    assert main(["rename", "nope.twb"]) == 1
+    assert main(["rename", "nope.twb"]) == 4
     assert "error" in capsys.readouterr().err
 
 
@@ -238,7 +238,7 @@ def test_cli_write_workbook(wenjie_path, tmp_path, capsys):
     assert main(["rename", str(src), "--only-changed", "--write-workbook"]) == 0
     assert (tmp_path / "book_renamed.twb").exists()
     assert "wrote" in capsys.readouterr().err
-    assert main(["rename", str(src), "--write-workbook"]) == 1  # would overwrite
+    assert main(["rename", str(src), "--write-workbook"]) == 5  # would overwrite
 
 
 def test_apply_field_renames_never_overwrites(wenjie_path, tmp_path):
@@ -355,11 +355,11 @@ def test_build_report_counts_what_was_applied(wenjie_path):
 
 
 def test_cli_bad_cutoff_and_bad_reference(wenjie_path, tmp_path, capsys):
-    assert main(["rename", wenjie_path, "--cutoff", "2"]) == 1
+    assert main(["rename", wenjie_path, "--cutoff", "2"]) == 2
     assert "fuzzy_cutoff" in capsys.readouterr().err
     junk = tmp_path / "junk.twb"
     junk.write_text("<not-a-workbook")
-    assert main(["rename", wenjie_path, "-r", str(junk)]) == 1
+    assert main(["rename", wenjie_path, "-r", str(junk)]) == 4
     assert "reference" in capsys.readouterr().err
 
 
