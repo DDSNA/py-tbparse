@@ -150,7 +150,7 @@ def test_library_export_show_import(tmp_path, capsys):
     assert "wrote" in err and "12 entries" in err
     assert json.loads(lib.read_text(encoding="utf-8"))["name"] == "KPIs"
     # an existing library is not replaced
-    assert cli.main(["library", "export", str(LIB_FIX / "source.twb"), "-o", str(lib)]) == 1
+    assert cli.main(["library", "export", str(LIB_FIX / "source.twb"), "-o", str(lib)]) == 5
     assert "error:" in capsys.readouterr().err
     assert cli.main(["library", "export", str(LIB_FIX / "source.twb"), "-o", str(lib), "--overwrite",
                      "--field", "Margin Gap"]) == 0
@@ -169,7 +169,7 @@ def test_library_import_plan_then_write(tmp_path, capsys):
     target = tmp_path / "t.twb"
     target.write_bytes((LIB_FIX / "target.twb").read_bytes())
     # the default policy is fail: the target already has some of these captions
-    assert cli.main(["library", "import", str(target), str(lib)]) == 1
+    assert cli.main(["library", "import", str(target), str(lib)]) == 5
     cap = capsys.readouterr()
     assert "already in the target" in cap.err
     assert cli.main(["library", "import", str(target), str(lib), "--on-clash", "rename"]) == 0
@@ -181,10 +181,10 @@ def test_library_import_plan_then_write(tmp_path, capsys):
     assert "wrote" in err and "added 12" in err
     assert (tmp_path / "t_library.twb").exists()
     # the output exists now, and --on-clash fail stops before writing
-    assert cli.main(["library", "import", str(target), str(lib), "--on-clash", "rename", "--write"]) == 1
+    assert cli.main(["library", "import", str(target), str(lib), "--on-clash", "rename", "--write"]) == 5
     assert "refusing" in capsys.readouterr().err
     assert cli.main(["library", "import", str(target), str(lib), "--on-clash", "fail", "-o", str(tmp_path / "x.twb"),
-                     "--write"]) == 1
+                     "--write"]) == 5
     assert not (tmp_path / "x.twb").exists()
 
 
@@ -198,17 +198,17 @@ def test_library_import_exit_code_2_when_an_entry_fails(tmp_path, capsys):
     target = tmp_path / "t.twb"
     doc.write(str(target), encoding="utf-8", xml_declaration=True)
     capsys.readouterr()
-    assert cli.main(["library", "import", str(target), str(lib), "--on-clash", "rename", "--write"]) == 2
+    assert cli.main(["library", "import", str(target), str(lib), "--on-clash", "rename", "--write"]) == 7
     err = capsys.readouterr().err
     assert "failed 2" in err and "not imported: " in err and "Margin Gap" in err
     assert (tmp_path / "t_library.twb").exists()          # the entries that could be added were
 
 
 def test_library_errors_exit_1(tmp_path, capsys):
-    assert cli.main(["library", "show", str(tmp_path / "missing.json")]) == 1
+    assert cli.main(["library", "show", str(tmp_path / "missing.json")]) == 4
     bad = tmp_path / "bad.json"
     bad.write_text('{"format": "nope"}')
-    assert cli.main(["library", "show", str(bad)]) == 1
+    assert cli.main(["library", "show", str(bad)]) == 4
     assert "not a py-tbparse library" in capsys.readouterr().err
 
 
@@ -236,7 +236,7 @@ def test_style_export_both_formats(tmp_path, capsys):
     assert cli.main(["style", "check", str(tmp_path / "a.tps")]) == 0
     assert cli.main(["style", "check", str(tmp_path / "a.style.json")]) == 0
     # a second export to the same place is refused
-    assert cli.main(["style", "export", src, "-o", str(tmp_path / "a.tps")]) == 1
+    assert cli.main(["style", "export", src, "-o", str(tmp_path / "a.tps")]) == 5
     assert "refusing to overwrite" in capsys.readouterr().err
 
 
@@ -257,9 +257,9 @@ def test_style_import_plan_then_write(tmp_path, capsys):
     assert "existing marks keep their colours" in err and "restart Tableau" in err and "not opened in Tableau" in err
     assert (tmp_path / "Preferences_palettes.tps").exists() and target.read_bytes() == before
     # writing again needs a new output; the real file is never an output
-    assert cli.main(["style", "import", lib, str(target), "--on-clash", "skip", "--write"]) == 1
+    assert cli.main(["style", "import", lib, str(target), "--on-clash", "skip", "--write"]) == 5
     assert cli.main(["style", "import", lib, str(target), "--on-clash", "skip", "--write", "-o", str(target),
-                     "--overwrite"]) == 1
+                     "--overwrite"]) == 5
     assert target.read_bytes() == before
     assert cli.main(["style", "import", lib, str(target), "--write", "--on-clash", "replace",
                      "-o", str(tmp_path / "r.tps")]) == 0
@@ -270,17 +270,17 @@ def test_style_import_exit_code_2_when_a_palette_is_invalid(tmp_path, capsys):
     out = tmp_path / "o.tps"
     rc = cli.main(["style", "import", str(STYLE_DIR / "bad.tps"), target, "--write", "-o", str(out)])
     err = capsys.readouterr().err
-    assert rc == 2 and "invalid" in err and out.exists()
+    assert rc == 7 and "invalid" in err and out.exists()
     rc = cli.main(["style", "export", str(STYLE_DIR / "bad.tps"), "-o", str(tmp_path / "b.tps")])
-    assert rc == 2
+    assert rc == 7
 
 
 def test_style_check_exit_codes(tmp_path, capsys):
     assert cli.main(["style", "check", str(STYLE_DIR / "bad.tps")]) == 1
     assert "problem" in capsys.readouterr().err
     assert cli.main(["style", "check", str(tmp_path / "nope.tps")]) == 1
-    assert cli.main(["style", "show", str(tmp_path / "nope.tps")]) == 1
-    assert cli.main(["style", "export", str(STYLE_DIR / "palettes.twb"), "-o", str(tmp_path / "x.json")]) == 1
+    assert cli.main(["style", "show", str(tmp_path / "nope.tps")]) == 4
+    assert cli.main(["style", "export", str(STYLE_DIR / "palettes.twb"), "-o", str(tmp_path / "x.json")]) == 2
 
 
 # --- `rename --acronyms` that does nothing (issue #200): a warning on stderr, same exit code and output ---

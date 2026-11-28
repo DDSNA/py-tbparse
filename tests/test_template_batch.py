@@ -211,10 +211,10 @@ def test_a_missing_folder_and_an_empty_one(batch, tmp_path):
 def test_cli_apply_folder(batch, capsys):
     code = main(["template", "apply-folder", batch["template"], str(batch["folder"]), "-o", str(batch["out"])])
     captured = capsys.readouterr()
-    assert code == 1                                    # initech.csv was not written
+    assert code == 7                                    # initech.csv was not written
     assert "2 written, 0 skipped, 1 failed" in captured.err and "acme.csv" in captured.out
     (batch["folder"] / "initech.csv").unlink()
     assert main(["template", "apply-folder", batch["template"], str(batch["folder"]), "-o", str(batch["out"]),
                  "--overwrite", "--format", "csv"]) == 0
-    assert main(["template", "apply-folder", batch["template"], str(batch["folder"]), "-o", str(batch["out"])]) == 1
+    assert main(["template", "apply-folder", batch["template"], str(batch["folder"]), "-o", str(batch["out"])]) == 5
     assert "summary.csv" in capsys.readouterr().err

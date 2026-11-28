@@ -314,15 +314,15 @@ def test_cli_extract(tmp_path, capsys):
     style = load_style(out)
     assert style["name"] == "Acme" and style["fonts"]["all"]["font-size"] == "10"
     assert cli.main(["style", "check", str(out)]) == 0                  # only warnings
-    assert cli.main(["style", "extract", SRC, "-o", str(out)]) == 1     # exists
+    assert cli.main(["style", "extract", SRC, "-o", str(out)]) == 5     # exists
     assert "refusing to overwrite" in capsys.readouterr().err
     assert cli.main(["style", "extract", SRC, "-o", str(out), "--overwrite", "--scope", "workbook", "--no-palettes"]) == 0
     assert load_style(out)["dashboard"] == {}
-    assert cli.main(["style", "extract", SRC, "-o", str(tmp_path / "x.json")]) == 1
-    assert cli.main(["style", "extract", SRC, "-o", str(tmp_path / "s.style.json"), "--scope", "sheets"]) == 1
-    assert cli.main(["style", "extract", SRC, "-o", str(tmp_path / "d.style.json"), "--dashboard", "Nope"]) == 1
+    assert cli.main(["style", "extract", SRC, "-o", str(tmp_path / "x.json")]) == 2
+    assert cli.main(["style", "extract", SRC, "-o", str(tmp_path / "s.style.json"), "--scope", "sheets"]) == 4
+    assert cli.main(["style", "extract", SRC, "-o", str(tmp_path / "d.style.json"), "--dashboard", "Nope"]) == 4
     assert not (tmp_path / "d.style.json").exists() and not (tmp_path / "s.style.json").exists()
-    assert cli.main(["style", "extract", str(tmp_path / "missing.twb"), "-o", str(tmp_path / "m.style.json")]) == 1
+    assert cli.main(["style", "extract", str(tmp_path / "missing.twb"), "-o", str(tmp_path / "m.style.json")]) == 4
     # a bare workbook: written, empty, and it says so rather than inventing defaults
     capsys.readouterr()
     bare_out = tmp_path / "bare.style.json"
@@ -335,7 +335,7 @@ def test_cli_extract_never_overwrites_input(tmp_path, capsys):
     copy = tmp_path / "a.style.json"
     copy.write_text(V2.read_text(encoding="utf-8"), encoding="utf-8")
     before = copy.read_bytes()
-    assert cli.main(["style", "extract", str(copy), "-o", str(copy), "--overwrite"]) == 1
+    assert cli.main(["style", "extract", str(copy), "-o", str(copy), "--overwrite"]) == 5
     assert copy.read_bytes() == before
 
 

@@ -107,33 +107,33 @@ def cases(tmp_path, monkeypatch):
         ("template check TEMPLATE", ["template", "check", WENJIE], 2),
         ("template drift TEMPLATE FILES", ["template", "drift", TEMPLATE, missing], 2),
         ("template make", ["template", "show", TEMPLATE], 0),
-        ("template make", ["template", "show", missing], 1),
+        ("template make", ["template", "show", missing], 4),
         ("template make", ["template", "target-make", "--class", "postgres", "--server", "s", "--dbname", "d",
                            "--column", "a:int", "-o", str(tmp_path / "t.target.json")], 2),
         ("template apply-folder TEMPLATE DIR", ["template", "apply-folder", TEMPLATE, str(tmp_path),
                                                "-o", str(tmp_path / "o")], 0),
-        ("template apply-folder TEMPLATE DIR", ["template", "apply-folder", TEMPLATE, missing], 1),
+        ("template apply-folder TEMPLATE DIR", ["template", "apply-folder", TEMPLATE, missing], 4),
         ("library export", ["library", "show", str(lib_json)], 0),
-        ("library export", ["library", "show", str(tmp_path / "none.json")], 1),
-        ("library import", ["library", "import", str(LIB / "target.twb"), str(lib_json)], 1),
+        ("library export", ["library", "show", str(tmp_path / "none.json")], 4),
+        ("library import", ["library", "import", str(LIB / "target.twb"), str(lib_json)], 5),
         ("library import", ["library", "import", str(lib_target), str(lib_json), "--on-clash", "rename",
-                            "--write", "-o", str(tmp_path / "lo.twb")], 2),
+                            "--write", "-o", str(tmp_path / "lo.twb")], 7),
         ("style show", ["style", "check", str(STYLE / "Preferences.tps")], 0),
         ("style show", ["style", "check", str(STYLE / "bad.tps")], 1),
-        ("style export", ["style", "export", str(STYLE / "bad.tps"), "-o", str(tmp_path / "b.tps")], 2),
-        ("style export", ["style", "show", missing], 1),
+        ("style export", ["style", "export", str(STYLE / "bad.tps"), "-o", str(tmp_path / "b.tps")], 7),
+        ("style export", ["style", "show", missing], 4),
         ("style apply", ["style", "apply", str(STYLE / "format.style.json"), str(STYLE / "format-bare.twb"), "--scope", "workbook"], 0),
-        ("style apply", ["style", "apply", str(STYLE / "format.style.json"), missing], 1),
-        ("scaffold make", ["scaffold", "make", WENJIE, "-d", "nope", "-o", str(tmp_path / "s.json")], 1),
+        ("style apply", ["style", "apply", str(STYLE / "format.style.json"), missing], 4),
+        ("scaffold make", ["scaffold", "make", WENJIE, "-d", "nope", "-o", str(tmp_path / "s.json")], 4),
         ("sanitize IN OUT", ["sanitize", WENJIE, str(sanitized)], 0),
         ("sanitize IN OUT", ["sanitize", WENJIE, str(sanitized)], 2),       # now it exists
         ("prune WORKBOOK", ["prune", WENJIE], 0),
         ("prune WORKBOOK", ["prune", missing], 2),
         ("slice WORKBOOK", ["slice", WENJIE, "-d", "nope"], 2),
-        ("sheet copy SRC", ["sheet", "copy", WENJIE, "--sheets", "nope", "--to", WENJIE], 1),
-        ("dashboard copy SRC", ["dashboard", "copy", dsrc, "--dashboards", "Nope", "--to", ddst], 1),
+        ("sheet copy SRC", ["sheet", "copy", WENJIE, "--sheets", "nope", "--to", WENJIE], 4),
+        ("dashboard copy SRC", ["dashboard", "copy", dsrc, "--dashboards", "Nope", "--to", ddst], 4),
         ("dashboard copy SRC", ["dashboard", "copy", dsrc, "--dashboards", "Dash,Lone", "--to", ddst,
-                                "--write", "-o", str(tmp_path / "dc.twb")], 2),
+                                "--write", "-o", str(tmp_path / "dc.twb")], 7),
         ("docs WORKBOOK", ["docs", WENJIE], 0),
         ("docs WORKBOOK", ["docs", missing], 4),
         ("docs WORKBOOK", ["docs", WENJIE, "-o", WENJIE], 5),
@@ -168,22 +168,22 @@ def test_validate_broken_relationship_is_2(monkeypatch, capsys):
     assert not ROWS[row("WORKBOOK validate")][2].lower().startswith("not used")
 
 
-def test_sheet_copy_partial_refusal_is_2(tmp_path, capsys):
+def test_sheet_copy_partial_refusal_is_7(tmp_path, capsys):
     from test_sheetcopy import SHEET, DS, workbook, target_text, write
     two = workbook().replace("</worksheets>", SHEET.replace("Sheet 1", "Sheet 2").replace(
         "<rows>", f"<rows>[{DS}].[sum:Ghost:qk]") + "</worksheets>")
     s = write(tmp_path, two, "two.twb")
     d = write(tmp_path, target_text(), "d.twb")
     assert code_of(["sheet", "copy", s, "--sheets", "Sheet 1,Sheet 2", "--to", d, "--write",
-                    "-o", str(tmp_path / "p.twb")]) == 2
-    assert not ROWS[row("sheet copy SRC")][2].lower().startswith("not used")
+                    "-o", str(tmp_path / "p.twb")]) == 7
+    assert not ROWS[row("sheet copy SRC")][7].lower().startswith("not used")
 
 
-def test_style_apply_partial_is_2(tmp_path):
+def test_style_apply_partial_is_7(tmp_path):
     out = tmp_path / "o.twb"
     assert code_of(["style", "apply", str(STYLE / "format.style.json"), str(STYLE / "format-bare.twb"), "--write",
-                    "-o", str(out)]) == 2
-    assert out.exists() and not ROWS[row("style apply")][2].lower().startswith("not used")
+                    "-o", str(out)]) == 7
+    assert out.exists() and not ROWS[row("style apply")][7].lower().startswith("not used")
 
 
 def test_every_row_has_a_case(tmp_path, monkeypatch):
@@ -318,3 +318,61 @@ def test_o_existing_is_5_and_missing_folder_is_4_for_other_writers(argv, tmp_pat
     assert out.read_text() == "keep"
     assert code_of([*argv, "-o", tmp_path / "no" / "x.out"]) == 4
     assert "Traceback" not in capsys.readouterr().err
+
+
+# ---- A7: partial results (7) and refusals (5) of the copy, library, style and template writers ----
+
+def _two_sheet_copy(tmp_path):
+    from test_sheetcopy import SHEET, DS, workbook, target_text, write
+    two = workbook().replace("</worksheets>", SHEET.replace("Sheet 1", "Sheet 2").replace(
+        "<rows>", f"<rows>[{DS}].[sum:Ghost:qk]") + "</worksheets>")
+    return write(tmp_path, two, "two.twb"), write(tmp_path, target_text(), "d.twb")
+
+
+def test_partial_writes_the_rest(tmp_path, capsys):
+    s, d = _two_sheet_copy(tmp_path)
+    out = tmp_path / "p.twb"
+    assert code_of(["sheet", "copy", s, "--sheets", "Sheet 1,Sheet 2", "--to", d, "--write", "-o", out]) == 7
+    text = out.read_text(encoding="utf-8")
+    assert "name='Sheet 1'" in text or 'name="Sheet 1"' in text
+    assert "Sheet 2" not in text
+
+
+@pytest.mark.parametrize("which", ["sheet copy", "library import", "style import"])
+def test_clash_under_fail_writes_nothing(which, tmp_path, capsys):
+    out = tmp_path / "never.twb"
+    if which == "sheet copy":
+        from test_sheetcopy import datasource, workbook, target_text, write
+        s = write(tmp_path, workbook(), "s.twb")
+        d = write(tmp_path, target_text(ds=datasource(calc_formula="[Sales] * 3")), "d.twb")   # same calc name, other formula
+        argv = ["sheet", "copy", s, "--sheets", "Sheet 1", "--to", d, "--write", "-o", out]
+    elif which == "library import":
+        lib_json = tmp_path / "k.library.json"
+        assert cli.main(["library", "export", str(LIB / "source.twb"), "-o", str(lib_json)]) == 0
+        argv = ["library", "import", str(LIB / "target.twb"), str(lib_json), "--write", "-o", out]
+    else:
+        from test_style import TPS, WB
+        argv = ["style", "import", TPS, WB, "--write", "-o", out]
+    capsys.readouterr()
+    assert code_of(argv) == 5
+    assert not out.exists()
+    assert capsys.readouterr().err.startswith("error:")
+
+
+def test_apply_folder_one_bad_file_is_partial(tmp_path, capsys):
+    import shutil
+    from py_tbparse import make_template
+    book = tmp_path / "Cache.twbx"
+    shutil.copy(HERE / "fixtures" / "public" / "Cache.twbx", book)
+    template = make_template(str(book), output_path=str(tmp_path / "sales.template.twbx"), template_id="tpl-1")
+    folder = tmp_path / "customers"
+    folder.mkdir()
+    header = "Category,Number of Records,Order Date,Sales Target,Segment\n"
+    (folder / "acme.csv").write_text(header + "Furniture,1,2026-01-31,10,Consumer\n", encoding="utf-8")
+    (folder / "initech.csv").write_text("Order Date,Segment\n2026-01-31,x\n", encoding="utf-8")
+    out = tmp_path / "out"
+    assert code_of(["template", "apply-folder", template, folder, "-o", out]) == 7
+    summary = (out / "summary.csv").read_text(encoding="utf-8")
+    assert "initech.csv" in summary and "error" in summary
+    capsys.readouterr()
+    assert code_of(["template", "apply-folder", template, folder, "-o", out]) == 5   # summary exists now

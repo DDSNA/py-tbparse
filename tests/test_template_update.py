@@ -414,6 +414,6 @@ def test_cli_update_stops_on_a_new_required_field(made, capsys):
         fields(m).append({**field(m, "[Segment]"), "name": "[Region]", "uid": "r1", "remote": "Region",
                           "caption": None, "required": True})
     v2 = revise(made["v1"], made["dir"] / "v2.twbx", edit)
-    assert main(["template", "update", v2, made["out"], "--write"]) == 1
+    assert main(["template", "update", v2, made["out"], "--write"]) == 4
     assert "update stopped" in capsys.readouterr().err
     assert main(["template", "update", v2, made["out"], "--write", "--allow-missing"]) == 0

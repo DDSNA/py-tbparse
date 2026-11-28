@@ -305,13 +305,13 @@ def test_cli_dry_run_then_write_and_exit_codes(src, dst, tmp_path, capsys):
     cap = capsys.readouterr()
     assert json.loads(cap.out)["copied"] == 1 and "wrote" in cap.err
     # a clash under the default policy stops the run (1); a refused sheet next to a copied one is 2
-    assert cli.main(["sheet", "copy", src, "--sheets", "Sheet 1", "--to", o]) == 1
+    assert cli.main(["sheet", "copy", src, "--sheets", "Sheet 1", "--to", o]) == 5
     assert "on_clash='fail'" in capsys.readouterr().err
-    assert cli.main(["sheet", "copy", src, "--sheets", "Sheet 1", "--to", dst, "--strict"]) == 1
-    assert cli.main(["sheet", "copy", src, "--sheets", "Nope", "--to", dst]) == 1
+    assert cli.main(["sheet", "copy", src, "--sheets", "Sheet 1", "--to", dst, "--strict"]) == 5
+    assert cli.main(["sheet", "copy", src, "--sheets", "Nope", "--to", dst]) == 4
     capsys.readouterr()
     other = write(tmp_path, target_text(ds=datasource(path="C:/x/other.xlsx")), "o3.twb")
-    assert cli.main(["sheet", "copy", src, "--sheets", "Sheet 1", "--to", other]) == 1
+    assert cli.main(["sheet", "copy", src, "--sheets", "Sheet 1", "--to", other]) == 5
     with pytest.raises(SystemExit):
         cli.main(["sheet", "copy", src, "--sheets", "Sheet 1", "--to", dst, "-o", o])
 
@@ -322,6 +322,6 @@ def test_cli_partial_refusal_is_exit_2(tmp_path, capsys):
     s = write(tmp_path, two, "two.twb")
     d = write(tmp_path, target_text(), "d.twb")
     assert cli.main(["sheet", "copy", s, "--sheets", "Sheet 1,Sheet 2", "--to", d, "--write",
-                     "-o", str(tmp_path / "p.twb")]) == 2
+                     "-o", str(tmp_path / "p.twb")]) == 7
     assert "refused" in capsys.readouterr().out
     assert names(TwbParser(str(tmp_path / "p.twb")).xml_doc) == ["Other", "Sheet 1"]

@@ -73,7 +73,7 @@ def test_default_is_fail_in_every_entry_point(target, lib, tmp_path, capsys, ser
     t_file.write_bytes((FIX / "target.twb").read_bytes())
     assert cli.main(["library", "export", str(FIX / "source.twb"), "-o", str(lib_file)]) == 0
     rc = cli.main(["library", "import", str(t_file), str(lib_file), "--write", "-o", str(tmp_path / "out.twb")])
-    assert rc != 0 and rc == 1
+    assert rc != 0 and rc == 5
     assert not (tmp_path / "out.twb").exists()
     capsys.readouterr()
     # the GUI: /library/plan with no on_clash is blocked on a clash (a library from `source`, a target that

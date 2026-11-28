@@ -208,7 +208,7 @@ def test_27_a_control_character_does_not_crash_the_command_line(book, tmp_path, 
     capsys.readouterr()
     rc = main(["template", "apply", str(out), "--data", data, "--token", "customer=a\x0bb", "--write",
                str(tmp_path / "x.twbx")])
-    assert rc == 1 and "XML" in capsys.readouterr().err
+    assert rc == 4 and "XML" in capsys.readouterr().err
 
 
 def test_27_three_braces_are_one_literal_brace_around_a_token():

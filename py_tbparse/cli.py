@@ -26,7 +26,7 @@ from pathlib import Path
 import pandas as pd
 from lxml import etree
 
-from .errors import INTERRUPTED, InputError, OutputRefusedError, UsageError, _ENVIRONMENT_ERRNOS, exit_code_for
+from .errors import INTERRUPTED, ExitCode, InputError, OutputRefusedError, UsageError, _ENVIRONMENT_ERRNOS, exit_code_for
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
@@ -58,7 +58,6 @@ from .template_update import template_update_report, update_from_answers
 from .prune import PruneError, format_report as prune_report, prune
 from .dashboardcopy import copy_dashboards, format_report as dashcopy_report, plan_dashboard_copy
 from .sheetcopy import SheetCopyAbort, copy_sheets, format_report as sheetcopy_report, plan_sheet_copy
-from .sheetcopy_core import SheetCopyError
 from .slicer import SliceError, format_report as slice_report, slice_workbook
 from .sanitize import CATEGORIES as SANITIZE_CATEGORIES, SanitizeError, format_report as sanitize_report, sanitize
 from .workbook_audit import audit, rules_help as audit_rules_help
@@ -509,8 +508,8 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
         "apply-folder", help="make one workbook per data file in a folder, with a summary.csv of what happened",
         description="Each .csv/.tsv/.xlsx/.xlsm in DIR (and each *.target.json, a database table: see "
                     "'template target-make') is matched on its own. A file whose required fields do not "
-                    "all find a column is skipped and reported (see --min-mapped). Exit status 1 if any file was "
-                    "not written.",
+                    "all find a column is skipped and reported (see --min-mapped). Exit status 0 when every file was "
+                    "written, 7 when some file was skipped or failed, 4 or 5 for an error before the run.",
     )
     fo.add_argument("template")
     fo.add_argument("directory", help="the folder of data files")
@@ -613,7 +612,7 @@ def _run_apply_folder(ap, args) -> int:
     where = args.output_dir or str(Path(args.directory) / "out")
     print(f"{counts.get('ok', 0)} written, {counts.get('skipped', 0)} skipped, {counts.get('error', 0)} failed; "
           f"summary in {Path(where) / 'summary.csv'}", file=sys.stderr)
-    return 0 if (table["status"] == "ok").all() else 1
+    return 0 if (table["status"] == "ok").all() else int(ExitCode.PARTIAL)
 
 
 def _run_targets() -> int:
@@ -903,10 +902,8 @@ def _run_template(argv: list[str]) -> int:
         print(f"wrote {out} ({report['mapped']} field(s) mapped, {report['missing']} missing, "
               f"{report['parameters']} parameter(s) set)", file=sys.stderr)
         return 0
-    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile,
-            json.JSONDecodeError, etree.XMLSyntaxError, pd.errors.ParserError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    except Exception as e:
+        return _fail(e)
 
 
 def build_library_arg_parser() -> argparse.ArgumentParser:
@@ -940,7 +937,7 @@ def build_library_arg_parser() -> argparse.ArgumentParser:
         description="Without --write nothing is written: the plan says what would be added, skipped or "
                     "renamed. With --write a copy of the workbook is written (never over the original). "
                     "The default clash policy is fail (it used to be rename). "
-                    "Exit codes: 1 error, 2 when an entry could not be imported.",
+                    "Exit codes: 4 error, 5 a clash under --on-clash fail or an existing output, 7 when an entry could not be imported.",
     )
     im.add_argument("workbook")
     im.add_argument("library")
@@ -1021,12 +1018,10 @@ def _run_library(argv: list[str]) -> int:
         if report["failed"] or report["skipped_dependents"]:
             names = report["failed_names"] + report["skipped_dependents_names"]
             print(f"not imported: {', '.join(names)}", file=sys.stderr)
-            return 2
+            return int(ExitCode.PARTIAL)
         return 0
-    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile, etree.XMLSyntaxError,
-            json.JSONDecodeError, pd.errors.ParserError) as e:   # LibraryError is a ValueError
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    except Exception as e:
+        return _fail(e)
 
 
 def build_style_arg_parser() -> argparse.ArgumentParser:
@@ -1055,7 +1050,7 @@ def build_style_arg_parser() -> argparse.ArgumentParser:
         description="Reads SRC (.twb or .twbx) and writes a new version 2 *.style.json. Formats bound to a field, "
                     "colour encodings, device layouts and feature-flag (_.fcp.*) elements are not read and are "
                     "counted. Nothing is invented: a workbook without such formatting gives empty sections. "
-                    "Exit codes: 0 written, 1 error.",
+                    "Exit codes: 0 written, 4 error, 5 output exists.",
     )
     xt.add_argument("source", metavar="SRC", help=".twb or .twbx")
     xt.add_argument("--output", "-o", required=True, help="OUT.style.json (a new file)")
@@ -1079,8 +1074,8 @@ def build_style_arg_parser() -> argparse.ArgumentParser:
         "import", help="add the palettes of LIB to TARGET: print the plan; with --write, write a new file",
         description="Without --write nothing is written. With --write a new file is written next to TARGET "
                     "(or at --output): never over the input and never over an existing Preferences.tps. "
-                    "Exit codes: 1 error or a name clash under --on-clash fail, 2 when a palette was invalid "
-                    "but the rest were written.",
+                    "Exit codes: 4 error, 5 output exists or a name clash under --on-clash fail, 7 when a palette was "
+                    "invalid but the rest were written.",
     )
     im.add_argument("library", metavar="LIB", help=".twb, .twbx, .tps or .style.json to take palettes from")
     im.add_argument("target", metavar="TARGET", help=".tps, .twb or .twbx to add them to (it is not modified)")
@@ -1097,8 +1092,8 @@ def build_style_arg_parser() -> argparse.ArgumentParser:
                     "--output): never over the input and never over an existing file unless --overwrite. A format "
                     "the target already has is kept (even Tableau's own defaults) unless --force. This package "
                     "writes the workbook scope only; dashboard and sheet formatting in the style file is listed "
-                    "as unsupported. Exit codes: 1 error or, under --on-clash fail, a format that would be kept; "
-                    "2 something was unsupported but the rest was written.",
+                    "as unsupported. Exit codes: 4 error, 5 output exists or, under --on-clash fail, a format that would be kept; "
+                    "7 something was unsupported but the rest was written.",
     )
     ap_apply.add_argument("style", metavar="STYLE", help="a .style.json, or a .twb/.twbx whose formatting is extracted")
     ap_apply.add_argument("target", metavar="TARGET", help=".twb or .twbx to restyle (it is not modified)")
@@ -1172,7 +1167,7 @@ def _run_style(argv: list[str]) -> int:
             if int((plan["action"] == "fail").sum()):
                 print(f"{len(kept)} format(s) already set in the target with another value; --on-clash fail writes nothing "
                       "(--on-clash skip keeps them, --force replaces them)", file=sys.stderr)
-                return 1
+                return int(ExitCode.REFUSED)
             if not args.write:
                 if len(kept):
                     print(f"{len(kept)} format(s) would be kept because the target already sets them (any existing "
@@ -1199,7 +1194,7 @@ def _run_style(argv: list[str]) -> int:
             if report["unsupported"] or report["no_target"]:
                 print("not written (unsupported or no target): " + ", ".join(report["unsupported"] + report["no_target"]),
                       file=sys.stderr)
-                return 2
+                return int(ExitCode.PARTIAL)
             return 0
         if args.action == "check":
             problems = _style.check_style_file(args.file)
@@ -1240,12 +1235,10 @@ def _run_style(argv: list[str]) -> int:
             print(f"warning: {w}", file=sys.stderr)
         if report["invalid"]:
             print(f"not written (invalid): {', '.join(report['invalid'])}", file=sys.stderr)
-            return 2
+            return int(ExitCode.PARTIAL)
         return 0
-    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile, etree.XMLSyntaxError,
-            json.JSONDecodeError) as e:   # StyleError is a ValueError
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    except Exception as e:
+        return _fail(e)
 
 
 def build_scaffold_arg_parser() -> argparse.ArgumentParser:
@@ -1274,7 +1267,7 @@ def build_scaffold_arg_parser() -> argparse.ArgumentParser:
         "apply", help="make a new dashboard in a copy of WORKBOOK: print the plan; with --write, write the copy",
         description="Without --write nothing is written. With --write a new file is written next to WORKBOOK (or "
                     "at --output): never over the input. The dashboard is always new; existing ones are not "
-                    "touched. Exit code 1 on an error.",
+                    "touched. Exit codes: 4 on an error, 5 when the output exists.",
     )
     ap_.add_argument("workbook")
     ap_.add_argument("scaffold")
@@ -1331,10 +1324,8 @@ def _run_scaffold(argv: list[str]) -> int:
         print(f"new dashboard {args.name!r}: {report['zones']} zone(s); existing dashboards untouched", file=sys.stderr)
         print("not opened in Tableau: check a copy first", file=sys.stderr)
         return 0
-    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile, etree.XMLSyntaxError,
-            json.JSONDecodeError) as e:   # ScaffoldError is a ValueError
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    except Exception as e:
+        return _fail(e)
 
 
 def _is_reserved_subcommand(argv: list[str], name: str) -> bool:
@@ -1486,8 +1477,8 @@ def _run_sheet(argv: list[str]) -> int:
     sub = ap.add_subparsers(dest="action", required=True)
     cp = sub.add_parser(
         "copy", help="copy worksheets from SRC into TARGET (a new file with --write)",
-        description="Exit codes: 0 done, 1 error or the run stopped (a clash under --on-clash fail, --strict "
-                    "refusal, nothing copyable), 2 some sheet was refused (the others are written).")
+        description="Exit codes: 0 done, 2 usage, 3 crash, 4 unreadable file or name not found, 5 refused (a clash under --on-clash fail, "
+                    "--strict refusal, nothing copyable, output exists), 7 some sheet was refused (the others are written).")
     cp.add_argument("source", metavar="SRC", help="the .twb or .twbx to copy from")
     cp.add_argument("--sheets", action="append", default=[], metavar="A,B", help="comma-separated worksheet names")
     cp.add_argument("--sheet", action="append", default=[], metavar="NAME",
@@ -1510,9 +1501,8 @@ def _run_sheet(argv: list[str]) -> int:
                                       args.overwrite)
         else:
             out, report = None, plan_sheet_copy(args.source, args.to, sheets, args.on_clash, args.strict)
-    except (SheetCopyError, FileExistsError, *_WORKBOOK_ERRORS) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    except Exception as e:
+        return _fail(e)
     print(json.dumps(report, indent=2, ensure_ascii=False, default=str) if args.format == "json"
           else sheetcopy_report(report))
     if out:
@@ -1521,8 +1511,8 @@ def _run_sheet(argv: list[str]) -> int:
         print("plan only, nothing written; add --write to make the workbook", file=sys.stderr)
     if not report["copied"] and not report["skipped"]:
         print("error: no sheet can be copied", file=sys.stderr)
-        return 1
-    return 2 if report["refused"] else 0
+        return int(ExitCode.REFUSED)
+    return int(ExitCode.PARTIAL) if report["refused"] else 0
 
 
 def _run_dashboard(argv: list[str]) -> int:
@@ -1538,8 +1528,8 @@ def _run_dashboard(argv: list[str]) -> int:
     sub = ap.add_subparsers(dest="action", required=True)
     cp = sub.add_parser(
         "copy", help="copy dashboards from SRC into TARGET (a new file with --write)",
-        description="Exit codes: 0 done, 1 error or the run stopped (a clash under --on-clash fail, --strict "
-                    "refusal, nothing copyable), 2 some dashboard was refused (the others are written).")
+        description="Exit codes: 0 done, 2 usage, 3 crash, 4 unreadable file or name not found, 5 refused (a clash under --on-clash fail, "
+                    "--strict refusal, nothing copyable, output exists), 7 some dashboard was refused (the others are written).")
     cp.add_argument("source", metavar="SRC", help="the .twb or .twbx to copy from")
     cp.add_argument("--dashboards", action="append", default=[], metavar="A,B", help="comma-separated dashboard names")
     cp.add_argument("--dashboard", action="append", default=[], metavar="NAME",
@@ -1564,9 +1554,8 @@ def _run_dashboard(argv: list[str]) -> int:
                                           args.overwrite)
         else:
             out, report = None, plan_dashboard_copy(args.source, args.to, names, args.on_clash, args.strict)
-    except (SheetCopyError, FileExistsError, *_WORKBOOK_ERRORS) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    except Exception as e:
+        return _fail(e)
     print(json.dumps(report, indent=2, ensure_ascii=False, default=str) if args.format == "json"
           else dashcopy_report(report))
     if out:
@@ -1575,8 +1564,8 @@ def _run_dashboard(argv: list[str]) -> int:
         print("plan only, nothing written; add --write to make the workbook", file=sys.stderr)
     if not report["copied"] and not report["skipped"]:
         print("error: no dashboard can be copied", file=sys.stderr)
-        return 1
-    return 2 if report["refused"] else 0
+        return int(ExitCode.REFUSED)
+    return int(ExitCode.PARTIAL) if report["refused"] else 0
 
 
 def _run_slice(argv: list[str]) -> int:
