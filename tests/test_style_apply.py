@@ -208,13 +208,13 @@ def test_on_clash_fail_writes_nothing(tmp_path, capsys):
     assert not out.exists()
     sj = tmp_path / "s.style.json"
     sj.write_text(json.dumps(style), encoding="utf-8")
-    assert cli.main(["style", "apply", str(sj), TARGET, "--scope", "workbook", "--on-clash", "fail", "--write", "-o", str(out)]) == 1
+    assert cli.main(["style", "apply", str(sj), TARGET, "--scope", "workbook", "--on-clash", "fail", "--write", "-o", str(out)]) == 5
     assert not out.exists() and "writes nothing" in capsys.readouterr().err
     with pytest.raises(StyleError, match="contradict"):
         plan_style(TARGET, style, force=True, on_clash="fail")
     with pytest.raises(StyleError, match="on_clash must be"):
         plan_style(TARGET, style, on_clash="rename")
-    assert cli.main(["style", "apply", str(sj), TARGET, "--on-clash", "fail", "--force"]) == 1
+    assert cli.main(["style", "apply", str(sj), TARGET, "--on-clash", "fail", "--force"]) == 4
 
 
 def test_fcp_elements_byte_equal():
@@ -455,18 +455,18 @@ def test_cli_write_exit_codes(tmp_path, capsys):
     assert "nothing here has been opened in Tableau" in err and "marks keep their colours" in err
     assert "font family 'Segoe UI' may not exist" in err
     # exit 1: existing output, the input, a missing target, an unknown dashboard, a tps target, a bad style
-    assert cli.main(["style", "apply", str(V2), BARE, "--scope", "workbook", "--write", "-o", str(out)]) == 1
+    assert cli.main(["style", "apply", str(V2), BARE, "--scope", "workbook", "--write", "-o", str(out)]) == 5
     assert "refusing to overwrite" in capsys.readouterr().err
-    assert cli.main(["style", "apply", str(V2), BARE, "--scope", "workbook", "--write", "-o", BARE, "--overwrite"]) == 1
-    assert cli.main(["style", "apply", str(V2), str(tmp_path / "missing.twb")]) == 1
-    assert cli.main(["style", "apply", str(V2), BARE, "--dashboard", "Nope"]) == 1
-    assert cli.main(["style", "apply", str(V2), str(STYLE / "Preferences.tps")]) == 1
-    assert cli.main(["style", "apply", str(STYLE / "bad-format.style.json"), BARE]) == 1
-    assert cli.main(["style", "apply", str(V2), BARE, "--scope", "elsewhere"]) == 1
+    assert cli.main(["style", "apply", str(V2), BARE, "--scope", "workbook", "--write", "-o", BARE, "--overwrite"]) == 5
+    assert cli.main(["style", "apply", str(V2), str(tmp_path / "missing.twb")]) == 4
+    assert cli.main(["style", "apply", str(V2), BARE, "--dashboard", "Nope"]) == 4
+    assert cli.main(["style", "apply", str(V2), str(STYLE / "Preferences.tps")]) == 4
+    assert cli.main(["style", "apply", str(STYLE / "bad-format.style.json"), BARE]) == 4
+    assert cli.main(["style", "apply", str(V2), BARE, "--scope", "elsewhere"]) == 4
     capsys.readouterr()
     # exit 2: something unsupported (dashboard formatting is not built yet) but the rest was written
     out2 = tmp_path / "o2.twb"
-    assert cli.main(["style", "apply", str(V2), BARE, "--write", "-o", str(out2)]) == 2
+    assert cli.main(["style", "apply", str(V2), BARE, "--write", "-o", str(out2)]) == 7
     err = capsys.readouterr().err
     assert out2.exists() and "unsupported 10" in err and "not written (unsupported or no target)" in err
     # a skip is not an error: the format was kept and it says so

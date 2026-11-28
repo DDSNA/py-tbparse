@@ -462,7 +462,7 @@ def test_the_command_line_makes_shows_and_applies_with_tokens(book, tmp_path, ca
     data, entry = csv_for(t, tmp_path)
     result = tmp_path / "cli.twbx"
     assert main(["template", "apply", str(out), "--data", data, "--datasource", entry, "--allow-missing",
-                 "--write", str(result)]) == 1
+                 "--write", str(result)]) == 4
     assert "no value for token(s): customer" in capsys.readouterr().err
     assert main(["template", "apply", str(out), "--data", data, "--datasource", entry, "--allow-missing",
                  "--token", "customer=ACME", "--write", str(result)]) == 0

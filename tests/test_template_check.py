@@ -506,7 +506,7 @@ def test_cli_check_malformed_manifest_is_exit_2(clean, tmp_path, capsys):
         err = capsys.readouterr().err
         assert "error:" in err and "Traceback" not in err, label
     # the other template subcommands report it as an error too (exit 1 there), not as a traceback
-    assert main(["template", "show", _manifest_replaced(shutil.copy(clean, tmp_path / "d.twbx"), [])]) == 1
+    assert main(["template", "show", _manifest_replaced(shutil.copy(clean, tmp_path / "d.twbx"), [])]) == 4
     capsys.readouterr()
 
 
@@ -571,5 +571,5 @@ def test_show_markdown_with_format_is_an_error(clean, capsys):
 
 def test_show_markdown_output_never_overwrites_the_template(clean, capsys):
     before = Path(clean).read_bytes()
-    assert main(["template", "show", clean, "--markdown", "-o", clean]) == 1
+    assert main(["template", "show", clean, "--markdown", "-o", clean]) == 5
     assert "template" in capsys.readouterr().err and Path(clean).read_bytes() == before

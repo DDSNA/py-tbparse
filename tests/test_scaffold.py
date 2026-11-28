@@ -304,7 +304,7 @@ def test_schema_check_on_a_small_workbook(wb_path, scaffold):
 def test_cli_make_show_apply(wb_path, tmp_path, capsys):
     sc = tmp_path / "o.scaffold.json"
     assert main(["scaffold", "make", str(wb_path), "-d", "Overview", "-o", str(sc)]) == 0
-    assert main(["scaffold", "make", str(wb_path), "-d", "Overview", "-o", str(sc)]) == 1      # exists
+    assert main(["scaffold", "make", str(wb_path), "-d", "Overview", "-o", str(sc)]) == 5      # exists
     capsys.readouterr()
     assert main(["scaffold", "show", str(sc)]) == 0
     shown = capsys.readouterr().out
@@ -318,9 +318,9 @@ def test_cli_make_show_apply(wb_path, tmp_path, capsys):
                  "-o", str(out), "--write"]) == 0
     assert TwbParser(str(out)).xml_doc.xpath("//dashboard[@name='N']")
     capsys.readouterr()
-    assert main(["scaffold", "apply", str(wb_path), str(sc), "--name", "N", "--sheets", "Sales"]) == 1
+    assert main(["scaffold", "apply", str(wb_path), str(sc), "--name", "N", "--sheets", "Sales"]) == 4
     assert "no sheet for slot 2" in capsys.readouterr().err
-    assert main(["scaffold", "make", str(wb_path), "-d", "Floating", "-o", str(tmp_path / "f.json")]) == 1
+    assert main(["scaffold", "make", str(wb_path), "-d", "Floating", "-o", str(tmp_path / "f.json")]) == 4
 
 
 # --- the corpus ---

@@ -238,7 +238,7 @@ def test_an_excel_backed_output_adds_no_schema_or_reference_errors(name, tmp_pat
 
 def test_the_command_line_takes_excel_and_a_sheet(cache_template, tmp_path, capsys):
     xlsx = make_xlsx(tmp_path / "q3.xlsx", {"Orders": ORDERS, "Other": [["z"], [1]]})
-    assert main(["template", "apply", cache_template.path, "--data", xlsx]) == 1
+    assert main(["template", "apply", cache_template.path, "--data", xlsx]) == 4
     assert "pick one with sheet=" in capsys.readouterr().err
     assert main(["template", "apply", cache_template.path, "--data", xlsx, "--sheet", "Orders"]) == 0
     assert "Category" in capsys.readouterr().out

@@ -272,9 +272,9 @@ def test_cli_runs_from_answers_and_profiles_and_explains(setup, tmp_path, capsys
     capsys.readouterr()
     assert read_answers(third)["parameters"]["New Quota"] == "900" and read_answers(third)["profile"] == "prod"
 
-    assert main(["template", "apply", t.path, "--allow-missing"]) == 1
+    assert main(["template", "apply", t.path, "--allow-missing"]) == 4
     assert "no data" in capsys.readouterr().err
-    assert main(["template", "apply", t.path, "--answers", str(path), "--profile", "dev"]) == 1
+    assert main(["template", "apply", t.path, "--answers", str(path), "--profile", "dev"]) == 4
     assert "no profile 'dev'" in capsys.readouterr().err
 
 

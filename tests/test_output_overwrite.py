@@ -102,21 +102,21 @@ def test_template_show_markdown_refuses_existing(filtering, tmp_path, capsys):
     out = tmp_path / "SHOW.md"
     out.write_text("keep me")
     rc, err = run(capsys, "template", "show", tpl, "--markdown", "-o", out)
-    assert rc == 1 and REFUSED in err and "Traceback" not in err
+    assert rc == 5 and REFUSED in err and "Traceback" not in err
     assert out.read_text() == "keep me"
     fresh = tmp_path / "fresh.md"
     rc, err = run(capsys, "template", "show", tpl, "--markdown", "-o", fresh)
     assert rc == 0 and fresh.read_text()
     before = Path(tpl).read_bytes()
     rc, err = run(capsys, "template", "show", tpl, "--markdown", "-o", tpl)
-    assert rc == 1 and Path(tpl).read_bytes() == before
+    assert rc == 5 and Path(tpl).read_bytes() == before
 
 
 def test_library_export_overwrite_flag_still_replaces(tmp_path, capsys):
     out = tmp_path / "keep.json"
     out.write_text("old")
     rc, err = run(capsys, "library", "export", LIB / "source.twb", "-o", out)
-    assert rc == 1 and "Errno" not in err and REFUSED in err and out.read_text() == "old"
+    assert rc == 5 and "Errno" not in err and REFUSED in err and out.read_text() == "old"
     rc, err = run(capsys, "library", "export", LIB / "source.twb", "-o", out, "--overwrite")
     assert rc == 0 and out.read_text() != "old"
 

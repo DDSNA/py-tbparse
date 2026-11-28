@@ -328,10 +328,10 @@ def test_cli_apply_errors(filtering, tmp_path, capsys):
     capsys.readouterr()
     assert main(["template", "apply", tpl, "--data", str(other)]) == 0
     assert "missing: Burst Out Set list" in capsys.readouterr().err
-    assert main(["template", "apply", tpl, "--data", str(other), "--write"]) == 1
+    assert main(["template", "apply", tpl, "--data", str(other), "--write"]) == 4
     assert "would break" in capsys.readouterr().err
-    assert main(["template", "apply", tpl, "--data", str(tmp_path / "none.csv")]) == 1
-    assert main(["template", "show", str(filtering)]) == 1
+    assert main(["template", "apply", tpl, "--data", str(tmp_path / "none.csv")]) == 4
+    assert main(["template", "show", str(filtering)]) == 4
     with pytest.raises(SystemExit):
         main(["template", "apply", tpl, "--data", str(other), "-p", "novalue"])
 

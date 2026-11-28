@@ -380,7 +380,7 @@ def test_the_command_line_applies_a_target(cache_template, tmp_path, capsys):
     out = tmp_path / "cli.twbx"
     assert main(["template", "apply", cache_template.path, "--data", target, "--allow-missing", "--write", str(out)]) == 0
     assert out.exists() and b"class='postgres'" in _twb(str(out)) or b'class="postgres"' in _twb(str(out))
-    assert main(["template", "apply", cache_template.path, "--data", target_of(tmp_path, password="x", name="p.target.json")]) == 1
+    assert main(["template", "apply", cache_template.path, "--data", target_of(tmp_path, password="x", name="p.target.json")]) == 4
     assert "credentials" in capsys.readouterr().err
 
 
@@ -388,7 +388,7 @@ def test_the_command_line_applies_a_target(cache_template, tmp_path, capsys):
 def test_experimental_reaches_the_loader(cache_template, tmp_path, monkeypatch, capsys):
     monkeypatch.setitem(CLASSES, "oracle", ConnClass("oracle", "docs", default_port="1521", attributes={"class": "oracle"}, schema="required"))
     path = target_of(tmp_path, **{"class": "oracle"})
-    assert main(["template", "apply", cache_template.path, "--data", path]) == 1
+    assert main(["template", "apply", cache_template.path, "--data", path]) == 4
     assert "experimental" in capsys.readouterr().err
     assert main(["template", "apply", cache_template.path, "--data", path, "--experimental"]) == 0
 
@@ -599,7 +599,7 @@ def test_target_make_writes_a_checked_file_from_columns_or_a_schema_file(tmp_pat
     assert "password" not in body and "username" not in body
     assert "not opened in Tableau" in capsys.readouterr().err
     assert main(["template", "target-make", "--class", "postgres", "--server", "h", "--dbname", "d", "--schema", "public",
-                 "--table", "orders", "-c", "id:bigint", "-o", str(out)]) == 1                 # never overwrites
+                 "--table", "orders", "-c", "id:bigint", "-o", str(out)]) == 5                 # never overwrites
     assert "refusing to overwrite" in capsys.readouterr().err
     (tmp_path / "orders.sql").write_text("create table sales.orders (id int, at timestamp);", encoding="utf-8")
     other = tmp_path / "b.target.json"
@@ -615,7 +615,7 @@ def test_target_make_writes_a_checked_file_from_columns_or_a_schema_file(tmp_pat
 def test_target_make_removes_a_file_it_cannot_accept(tmp_path, capsys):
     out = tmp_path / "bad.target.json"
     assert main(["template", "target-make", "--class", "mysql", "--server", "h", "--dbname", "d", "--schema", "x",
-                 "--table", "t", "-c", "a:int", "-o", str(out)]) == 1
+                 "--table", "t", "-c", "a:int", "-o", str(out)]) == 4
     assert "class mysql has no schema" in capsys.readouterr().err and not out.exists()
     with pytest.raises(SystemExit):
         main(["template", "target-make", "--class", "mysql", "--server", "h", "--dbname", "d", "--table", "t",
@@ -672,7 +672,7 @@ def test_credentials_in_values_are_refused(tmp_path, changes):
 def test_target_make_refuses_credentials_before_writing(tmp_path, capsys):
     out = tmp_path / "c.target.json"
     assert main(["template", "target-make", "--class", "postgres", "--server", "bob:hunter2@h", "--dbname", "d",
-                 "--schema", "public", "--table", "t", "-c", "a:int", "-o", str(out)]) == 1
+                 "--schema", "public", "--table", "t", "-c", "a:int", "-o", str(out)]) == 4
     err = capsys.readouterr().err
     assert "credentials" in err and "hunter2" not in err and not out.exists()
 
@@ -730,7 +730,7 @@ def test_target_make_overwrite_keeps_old_file_when_validation_fails(tmp_path, ca
     assert main(base) == 0
     good = out.read_text(encoding="utf-8")
     capsys.readouterr()
-    assert main(base + ["--overwrite", "--port", "99999"]) == 1
+    assert main(base + ["--overwrite", "--port", "99999"]) == 4
     assert out.read_text(encoding="utf-8") == good
     assert [p.name for p in tmp_path.iterdir()] == ["a.target.json"]                 # no temp file left behind
     assert main(base[:-2] + ["-c", "b:text", "-o", str(out), "--overwrite"]) == 0

@@ -25,7 +25,7 @@ py-tbparse library import other.twb kpis.library.json                   # print 
 py-tbparse library import other.twb kpis.library.json --write           # write other_library.twb beside it
 ```
 
-Options: `export` takes `--datasource` (needed when several datasources have a connection), `--folder`, `--field`, `--no-dependencies`, `--no-parameters`, `--name`, `--description` and `--overwrite`. `import` takes `--datasource`, `--mapping`, `--on-clash`, `-o`, `--overwrite`, `--write` and `--format`. `import` exits 1 on an error and 2 when some entry could not be imported (the rest is still written). Every command's codes: [cli.md](cli.md#exit-codes).
+Options: `export` takes `--datasource` (needed when several datasources have a connection), `--folder`, `--field`, `--no-dependencies`, `--no-parameters`, `--name`, `--description` and `--overwrite`. `import` takes `--datasource`, `--mapping`, `--on-clash`, `-o`, `--overwrite`, `--write` and `--format`. `import` exits 4 on an error, 5 on a clash under `--on-clash fail` or an existing output, 7 with `--write` when some entry could not be imported (the rest is still written), and 1 for a dry run that finds entries it could not import. Every command's codes: [cli.md](cli.md#exit-codes).
 
 ## How an import works
 

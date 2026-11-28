@@ -250,13 +250,13 @@ def test_cli_dry_run_then_write_and_exit_codes(src, dst, tmp_path, capsys):
                      "--format", "json"]) == 0
     cap = capsys.readouterr()
     assert json.loads(cap.out)["copied"] == 1 and "wrote" in cap.err
-    assert cli.main(["dashboard", "copy", src, "--dashboards", "Dash", "--to", o]) == 1
+    assert cli.main(["dashboard", "copy", src, "--dashboards", "Dash", "--to", o]) == 5
     assert "on_clash='fail'" in capsys.readouterr().err
-    assert cli.main(["dashboard", "copy", src, "--dashboards", "Dash", "--to", dst, "--strict"]) == 1
-    assert cli.main(["dashboard", "copy", src, "--dashboards", "Nope", "--to", dst]) == 1
+    assert cli.main(["dashboard", "copy", src, "--dashboards", "Dash", "--to", dst, "--strict"]) == 5
+    assert cli.main(["dashboard", "copy", src, "--dashboards", "Nope", "--to", dst]) == 4
     capsys.readouterr()
     other = write(tmp_path, target_text(ds=datasource(path="C:/x/o.xlsx")), "o3.twb")
-    assert cli.main(["dashboard", "copy", src, "--dashboards", "Dash", "--to", other]) == 1
+    assert cli.main(["dashboard", "copy", src, "--dashboards", "Dash", "--to", other]) == 5
     with pytest.raises(SystemExit):
         cli.main(["dashboard", "copy", src, "--dashboards", "Dash", "--to", dst, "-o", o])
 
@@ -266,7 +266,7 @@ def test_cli_partial_refusal_is_exit_2(tmp_path, dst, capsys):
                                 "</dashboard></dashboards>")
     s = write(tmp_path, two, "two.twb")
     o = str(tmp_path / "p.twb")
-    assert cli.main(["dashboard", "copy", s, "--dashboards", "Dash,Lone", "--to", dst, "--write", "-o", o]) == 2
+    assert cli.main(["dashboard", "copy", s, "--dashboards", "Dash,Lone", "--to", dst, "--write", "-o", o]) == 7
     assert "refused" in capsys.readouterr().out
     assert names(TwbParser(o).xml_doc, "/workbook/dashboards/dashboard/@name") == ["Dash"]
 
