@@ -16,12 +16,12 @@ py-tbparse sales.twb validate --format junit -o validate.xml
 
 ## Exit codes
 
-They do not depend on the format and did not change.
+They do not depend on the format. Since 0.6.0 a workbook or template that cannot be read gives 4, not 2, and a broken relationship in `validate` gives 6, not 2 (a CI step that treated 2 as "findings" must now look at 1 and 6).
 
-| Command | 0 | 1 | 2 | 3 |
-| --- | --- | --- | --- | --- |
-| `audit`, `template check`, `template drift` | no finding at `--fail-on` (default `error`) | a finding at or above `--fail-on` | file cannot be read, or a bad option | a rule crashed (the traceback goes to stderr) |
-| `validate` | relationships are fine | the workbook cannot be loaded | a relationship refers to a table or field the workbook lacks | (not used) |
+| Command | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `audit`, `template check`, `template drift` | no finding at `--fail-on` (default `error`) | a finding at or above `--fail-on` | a bad option (`--only`/`--skip`) or usage | a rule crashed, or py-tbparse itself failed (the traceback goes to stderr) | file cannot be read (drift: or no file matches, or more files than `--max-files`) | `-o` exists or is the workbook (`audit`, `validate`); drift: a `--save-answers` file exists | (not used) |
+| `validate` | relationships are fine | (not used) | usage | py-tbparse itself failed | the workbook cannot be loaded | `-o` exists or is the workbook | a relationship refers to a table or field the workbook lacks |
 
 The other commands (`sanitize`, `prune`, `slice`, `sheet copy`, `library import` and the rest) use 1 and 2 in their own ways: the full table is in [cli.md](cli.md#exit-codes).
 

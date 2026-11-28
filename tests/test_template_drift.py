@@ -494,13 +494,13 @@ def test_cli_json_and_csv(template, monthly, capsys):
     assert out.splitlines()[0] == ",".join(FINDING_COLUMNS)
 
 
-def test_cli_errors_are_exit_2(template, monthly, tmp_path, capsys):
-    assert run_cli(["template", "drift", template, str(tmp_path / "none" / "*.csv")], capsys)[0] == 2
-    assert run_cli(["template", "drift", str(tmp_path / "gone.twbx"), str(monthly)], capsys)[0] == 2
+def test_cli_errors_are_exit_2_or_4(template, monthly, tmp_path, capsys):
+    assert run_cli(["template", "drift", template, str(tmp_path / "none" / "*.csv")], capsys)[0] == 4
+    assert run_cli(["template", "drift", str(tmp_path / "gone.twbx"), str(monthly)], capsys)[0] == 4
     assert run_cli(["template", "drift", template, str(monthly), "--only", "D999"], capsys)[0] == 2
     assert run_cli(["template", "drift", template, str(monthly), "--only", " "], capsys)[0] == 2
     rc, _, err = run_cli(["template", "drift", template, str(monthly), "--max-files", "2"], capsys)
-    assert rc == 2 and "at most 2" in err
+    assert rc == 4 and "at most 2" in err
 
 
 def test_cli_save_answers(template, monthly, tmp_path, capsys):
@@ -510,7 +510,7 @@ def test_cli_save_answers(template, monthly, tmp_path, capsys):
                           "--fail-on", "never"], capsys)
     assert rc == 0 and out.exists() and f"wrote {out}" in err
     rc, _, err = run_cli(["template", "drift", template, str(monthly), "-a", path, "--save-answers", str(out)], capsys)
-    assert rc == 2 and "refusing to overwrite" in err
+    assert rc == 5 and "refusing to overwrite" in err
     rc, _, err = run_cli(["template", "drift", path, str(monthly), "--fail-on", "never"], capsys)
     assert rc == 0 and "differs from the saved answers" in err
 

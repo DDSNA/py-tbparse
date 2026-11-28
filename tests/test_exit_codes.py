@@ -4,7 +4,9 @@ Every row of the table has at least one case here that runs a cheap failure or s
 code it really returns is listed in that row (not "not used"). A code that changes without the table, or a row
 without a case, fails. The table is the contract; 0.6.0 moves the commands to one scheme and this file follows each move."""
 
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -81,6 +83,7 @@ def cases(tmp_path, monkeypatch):
     dsrc = dash_write(tmp_path, two, "two.twb")
     ddst = dash_write(tmp_path, dash_target(), "dst.twb")
     sanitized = tmp_path / "san.twb"
+    (tmp_path / "notjson.style.json").write_text("{not json")
     return [
         ("WORKBOOK [TABLE]", [WENJIE, "overview"], 0),
         ("WORKBOOK [TABLE]", [missing], 4),
@@ -92,7 +95,9 @@ def cases(tmp_path, monkeypatch):
         ("diff A B", ["diff", WENJIE], 2),
         ("diff-xml A B", ["diff-xml", WENJIE, WENJIE], 0),
         ("diff-xml A B", ["diff-xml", WENJIE, TEMPLATE], 1),
-        ("diff-xml A B", ["diff-xml", WENJIE, missing], 2),
+        ("diff-xml A B", ["diff-xml", WENJIE, missing], 4),
+        ("diff-xml A B", ["diff-xml", WENJIE, WENJIE, "-o", WENJIE], 5),
+        ("diff-xml A B", ["diff-xml", WENJIE], 2),
         ("batch DIR", ["batch", str(HERE / "fixtures"), "overview"], 0),
         ("batch DIR", ["batch", missing], 4),
         ("batch DIR", ["batch"], 2),
@@ -101,11 +106,15 @@ def cases(tmp_path, monkeypatch):
         ("rename WORKBOOK", ["rename", WENJIE, "--missing"], 2),
         ("audit WORKBOOK", ["audit", WENJIE, "--fail-on", "never"], 0),
         ("audit WORKBOOK", ["audit", WENJIE, "--fail-on", "info"], 1),
-        ("audit WORKBOOK", ["audit", missing], 2),
+        ("audit WORKBOOK", ["audit", missing], 4),
+        ("audit WORKBOOK", ["audit", WENJIE, "--only", "Z999"], 2),
+        ("audit WORKBOOK", ["audit", WENJIE, "--only", " "], 2),
         ("template check TEMPLATE", ["template", "check", TEMPLATE], 0),
         ("template check TEMPLATE", ["template", "check", TEMPLATE, "--fail-on", "info"], 1),
-        ("template check TEMPLATE", ["template", "check", WENJIE], 2),
-        ("template drift TEMPLATE FILES", ["template", "drift", TEMPLATE, missing], 2),
+        ("template check TEMPLATE", ["template", "check", WENJIE], 4),
+        ("template check TEMPLATE", ["template", "check", TEMPLATE, "--only", " "], 2),
+        ("template drift TEMPLATE FILES", ["template", "drift", TEMPLATE, missing], 4),
+        ("template drift TEMPLATE FILES", ["template", "drift", TEMPLATE, missing, "--only", " "], 2),
         ("template make", ["template", "show", TEMPLATE], 0),
         ("template make", ["template", "show", missing], 1),
         ("template make", ["template", "target-make", "--class", "postgres", "--server", "s", "--dbname", "d",
@@ -118,8 +127,13 @@ def cases(tmp_path, monkeypatch):
         ("library import", ["library", "import", str(LIB / "target.twb"), str(lib_json)], 1),
         ("library import", ["library", "import", str(lib_target), str(lib_json), "--on-clash", "rename",
                             "--write", "-o", str(tmp_path / "lo.twb")], 2),
-        ("style show", ["style", "check", str(STYLE / "Preferences.tps")], 0),
-        ("style show", ["style", "check", str(STYLE / "bad.tps")], 1),
+        ("style show", ["style", "show", str(STYLE / "Preferences.tps")], 0),
+        ("style check FILE", ["style", "check", str(STYLE / "Preferences.tps")], 0),
+        ("style check FILE", ["style", "check", str(STYLE / "bad.tps")], 1),                  # readable XML, a bad palette in it
+        ("style check FILE", ["style", "check", str(STYLE / "bad-format.style.json")], 1),    # parses, breaks the schema
+        ("style check FILE", ["style", "check", str(tmp_path / "none.style.json")], 4),
+        ("style check FILE", ["style", "check", str(tmp_path / "notjson.style.json")], 4),
+        ("style check FILE", ["style", "check", WENJIE], 2),
         ("style export", ["style", "export", str(STYLE / "bad.tps"), "-o", str(tmp_path / "b.tps")], 2),
         ("style export", ["style", "show", missing], 1),
         ("style apply", ["style", "apply", str(STYLE / "format.style.json"), str(STYLE / "format-bare.twb"), "--scope", "workbook"], 0),
@@ -160,12 +174,24 @@ def test_rule_crash_is_3_where_the_table_says_so(monkeypatch, capsys):
     assert not ROWS[row("template check TEMPLATE")][3].lower().startswith("not used")
 
 
-def test_validate_broken_relationship_is_2(monkeypatch, capsys):
+def test_validate_broken_relationship_is_6(monkeypatch, capsys):
     from py_tbparse import TwbParser
     monkeypatch.setattr(TwbParser, "validate", lambda self: {"ok": False, "issues": {}})
-    assert code_of([WENJIE, "validate"]) == 2
-    assert code_of([WENJIE, "validate", "--format", "junit"]) == 2
-    assert not ROWS[row("WORKBOOK validate")][2].lower().startswith("not used")
+    assert code_of([WENJIE, "validate"]) == 6
+    assert code_of([WENJIE, "validate", "--format", "junit"]) == 6
+    assert not ROWS[row("WORKBOOK validate")][6].lower().startswith("not used")
+
+
+def test_diff_xml_output_that_is_an_input_leaves_it_unchanged(tmp_path):
+    before = Path(WENJIE).read_bytes()
+    assert code_of(["diff-xml", WENJIE, WENJIE, "-o", WENJIE]) == 5
+    assert Path(WENJIE).read_bytes() == before
+
+
+def test_fail_on_never_keeps_finding_0_and_crash_3(monkeypatch, capsys):
+    assert code_of(["audit", WENJIE, "--fail-on", "never"]) == 0
+    crash_after(monkeypatch, "audit")
+    assert code_of(["audit", WENJIE, "--fail-on", "never"]) == 3
 
 
 def test_sheet_copy_partial_refusal_is_2(tmp_path, capsys):
@@ -318,3 +344,16 @@ def test_o_existing_is_5_and_missing_folder_is_4_for_other_writers(argv, tmp_pat
     assert out.read_text() == "keep"
     assert code_of([*argv, "-o", tmp_path / "no" / "x.out"]) == 4
     assert "Traceback" not in capsys.readouterr().err
+
+
+def test_style_check_unreadable_folder_and_non_utf8_are_4(tmp_path, capsys):
+    (tmp_path / "dir.style.json").mkdir()
+    (tmp_path / "dir2.tps").mkdir()
+    bad = tmp_path / "latin.style.json"
+    bad.write_bytes(b"\xff\xfe\x00{")
+    for f in ("dir.style.json", "dir2.tps", "latin.style.json"):
+        assert code_of(["style", "check", str(tmp_path / f)]) == 4, f
+        capsys.readouterr()
+        run = subprocess.run([sys.executable, "-m", "py_tbparse.cli", "style", "check", str(tmp_path / f)],
+                             capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(HERE.parent)})
+        assert run.returncode == 4, (f, run.stderr)

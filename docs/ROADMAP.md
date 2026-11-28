@@ -42,7 +42,7 @@ Owner decisions (2026-10-16, with the plan's choices confirmed 2026-11-20, see "
 | A2 | 25 `raise FileExistsError` sites become `OutputRefusedError` | in progress (branch `feat/exit-a2-output-refused`) | WP2 | `exit-wp2-output-refused.md` | A1 (built) |
 | A3 | 38 library `raise ValueError` sites get a class; feature subclasses for refusal and integrity | planned for 0.6.0 | WP3 | `exit-wp3-classify-errors.md` | A2 (owner may veto rows in the PR) |
 | A4 | central exit handling in `cli.py`, crash = 3 everywhere, table commands, `diff`, `batch`, `docs` | in progress (branch `feat/exit-central-handling`) | WP4 | `exit-wp4-central-handling.md` | A3 |
-| A5 | checks: `validate`, `audit`, `template check`/`drift`, `diff-xml`, `style check` | planned for 0.6.0 | WP5 | `exit-wp5-check-commands.md` | A4 |
+| A5 | checks: `validate`, `audit`, `template check`/`drift`, `diff-xml`, `style check` | in review (PR #236) | WP5 | `exit-wp5-check-commands.md` | A4 |
 | A6 | writers: `sanitize`, `prune`, `slice`, `rename`, `scaffold`, `docs` | planned for 0.6.0 | WP6 | `exit-wp6-writer-commands.md` | A4 |
 | A7 | partial results and clashes: `sheet copy`, `dashboard copy`, `library`, `style`, `template` writers, `apply-folder` | planned for 0.6.0 | WP7 | `exit-wp7-partial-and-refused.md` | A4 (dry-run codes answered: 0 if clean, 1 if changes found) |
 | A8 | pre-commit wrapper by precedence, all docs, grep guard | planned for 0.6.0 | WP8 | `exit-wp8-precommit-and-docs.md` | A5, A6, A7 NOTE from the A4 review: `precommit.py` combines codes with `max()`, which contradicts `errors.PRECEDENCE` (3, 2, 4, 5, 6, 7, 1, 0); A8 must replace it (`first_by_precedence`). |

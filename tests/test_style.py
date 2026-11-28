@@ -402,3 +402,26 @@ def test_workbook_bytes_refactor_is_shared():
     # slice 1 reuses rename._serialize_workbook (the helper WP6 added); there is only one
     import py_tbparse.library as lib, py_tbparse.rename as ren, py_tbparse.style as st
     assert lib._serialize_workbook is ren._serialize_workbook is st._serialize_workbook
+
+
+def test_check_style_file_raise_unreadable(tmp_path):
+    from py_tbparse.errors import InputError, UsageError
+    missing = tmp_path / "missing.tps"
+    assert check_style_file(missing)[0].startswith("file not found")        # the default is unchanged
+    with pytest.raises(InputError, match="file not found"):
+        check_style_file(missing, raise_unreadable=True)
+    bad_json = tmp_path / "x.style.json"
+    bad_json.write_text("{nope")
+    assert "not JSON" in check_style_file(bad_json)[0]
+    with pytest.raises(InputError, match="not JSON"):
+        check_style_file(bad_json, raise_unreadable=True)
+    bad_xml = tmp_path / "z.tps"
+    bad_xml.write_text("<workbook>")
+    with pytest.raises(InputError, match="not XML"):
+        check_style_file(bad_xml, raise_unreadable=True)
+    (tmp_path / "w.txt").write_text("x")
+    with pytest.raises(UsageError):
+        check_style_file(tmp_path / "w.txt", raise_unreadable=True)
+    # a readable file with a problem in it stays a list entry
+    assert check_style_file(BAD, raise_unreadable=True)
+    assert check_style_file(Path(BAD).parent / "bad-format.style.json", raise_unreadable=True)

@@ -195,7 +195,7 @@ def test_audit_output_file_and_errors_keep_their_exit_codes(broken, tmp_path, ca
     target = tmp_path / "audit.sarif"
     assert main(["audit", broken, "--format", "sarif", "-o", str(target)]) == 1
     json.loads(target.read_text(encoding="utf-8"))
-    assert main(["audit", str(tmp_path / "missing.twb"), "--format", "junit"]) == 2
+    assert main(["audit", str(tmp_path / "missing.twb"), "--format", "junit"]) == 4
     assert main(["audit", broken, "--format", "sarif", "--only", "A999"]) == 2
 
 
@@ -230,7 +230,7 @@ def test_template_check_formats_and_exit_codes(template, capsys):
 
 
 def test_template_check_unreadable_is_exit_2(tmp_path, capsys):
-    assert main(["template", "check", str(tmp_path / "nope.twbx"), "--format", "sarif"]) == 2
+    assert main(["template", "check", str(tmp_path / "nope.twbx"), "--format", "sarif"]) == 4
 
 
 # ------------------------------------------------------------ validate --
@@ -260,16 +260,16 @@ def test_validate_ci_formats_keep_exit_codes(wenjie_path, monkeypatch, capsys):
 
     monkeypatch.setattr(TwbParser, "validate", lambda self, error=False: _broken_result())
     rc, out, _ = run_cli([wenjie_path, "validate", "--format", "junit"], capsys)
-    assert rc == 2
+    assert rc == 6
     assert ET.fromstring(out).find("testsuite").get("failures") == "2"
     rc, out, _ = run_cli([wenjie_path, "validate", "--format", "sarif"], capsys)
-    assert rc == 2
+    assert rc == 6
     run = check_sarif_structure(out, "validate", 2)
     assert [r["ruleId"] for r in run["results"]] == ["V001", "V002"]
     rc, out, _ = run_cli([wenjie_path, "validate", "--format", "github"], capsys)
-    assert rc == 2 and out.count("::error ") == 2 and "title=V001" in out
+    assert rc == 6 and out.count("::error ") == 2 and "title=V001" in out
     rc, out, _ = run_cli([wenjie_path, "validate", "--format", "json"], capsys)    # the old formats are unchanged
-    assert rc == 2 and json.loads(out)["ok"] is False
+    assert rc == 6 and json.loads(out)["ok"] is False
 
 
 def test_validate_unreadable_workbook_is_exit_4(tmp_path, capsys):
@@ -297,7 +297,7 @@ def test_precommit_runs_every_file_and_returns_the_worst_code(broken, tmp_path, 
     clean = workbook(tmp_path, name="clean.twb")
     assert precommit.main(["audit", "--fail-on", "never", broken, clean]) == 0
     assert precommit.main(["audit", clean, broken]) == 1                       # the second file has an error
-    assert precommit.main(["audit", "--format", "github", str(tmp_path / "missing.twb")]) == 2
+    assert precommit.main(["audit", "--format", "github", str(tmp_path / "missing.twb")]) == 4
     assert precommit.main(["audit", "--bogus", clean]) == 2
     assert precommit.main(["nope", clean]) == 2 and precommit.main([]) == 2
     assert precommit.main(["validate", clean]) == 0

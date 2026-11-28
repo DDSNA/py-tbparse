@@ -460,8 +460,8 @@ def test_cli_check_usage_errors_exit_2(tmp_path, capsys):
     path = _template(tmp_path)
     assert main(["template", "check", path, "--only", "T999"]) == 2
     assert "T999" in capsys.readouterr().err
-    assert main(["template", "check", str(tmp_path / "missing.twbx")]) == 2
-    assert main(["template", "check", str(PUBLIC / "filtering.twb")]) == 2
+    assert main(["template", "check", str(tmp_path / "missing.twbx")]) == 4
+    assert main(["template", "check", str(PUBLIC / "filtering.twb")]) == 4
     capsys.readouterr()
 
 
@@ -495,14 +495,14 @@ def _manifest_replaced(path, manifest):
     return str(path)
 
 
-def test_cli_check_malformed_manifest_is_exit_2(clean, tmp_path, capsys):
+def test_cli_check_malformed_manifest_is_exit_4(clean, tmp_path, capsys):
     def nameless(m):
         del m["datasources"][0]["name"]
     for label, bad in (("nameless", _rewrite(shutil.copy(clean, tmp_path / "a.twbx"), nameless)),
                        ("list", _manifest_replaced(shutil.copy(clean, tmp_path / "b.twbx"), [])),
                        ("datasources", _rewrite(shutil.copy(clean, tmp_path / "c.twbx"),
                                                 lambda m: m.update(datasources="x")))):
-        assert main(["template", "check", bad]) == 2, label
+        assert main(["template", "check", bad]) == 4, label
         err = capsys.readouterr().err
         assert "error:" in err and "Traceback" not in err, label
     # the other template subcommands report it as an error too (exit 1 there), not as a traceback

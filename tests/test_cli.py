@@ -278,7 +278,7 @@ def test_style_import_exit_code_2_when_a_palette_is_invalid(tmp_path, capsys):
 def test_style_check_exit_codes(tmp_path, capsys):
     assert cli.main(["style", "check", str(STYLE_DIR / "bad.tps")]) == 1
     assert "problem" in capsys.readouterr().err
-    assert cli.main(["style", "check", str(tmp_path / "nope.tps")]) == 1
+    assert cli.main(["style", "check", str(tmp_path / "nope.tps")]) == 4
     assert cli.main(["style", "show", str(tmp_path / "nope.tps")]) == 1
     assert cli.main(["style", "export", str(STYLE_DIR / "palettes.twb"), "-o", str(tmp_path / "x.json")]) == 1
 

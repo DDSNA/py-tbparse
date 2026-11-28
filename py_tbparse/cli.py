@@ -26,7 +26,7 @@ from pathlib import Path
 import pandas as pd
 from lxml import etree
 
-from .errors import INTERRUPTED, InputError, OutputRefusedError, UsageError, _ENVIRONMENT_ERRNOS, exit_code_for
+from .errors import INTERRUPTED, ExitCode, InputError, OutputRefusedError, UsageError, _ENVIRONMENT_ERRNOS, exit_code_for
 from ._tables import TABLE_NAMES, TABLE_SPECS
 from .batch import scan_folder
 from .diff import diff_workbooks
@@ -418,9 +418,9 @@ def build_template_arg_parser() -> argparse.ArgumentParser:
         "check", help="lint a template: leftovers, empty parameters, dangling references",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description="Look for what a template author probably did not mean. Findings go to stdout, a count to "
-                    "stderr; the exit code is 1 when a finding is at or above --fail-on, 2 when the template "
-                    "cannot be read or an option is wrong, 3 when a rule crashed (whatever --fail-on says; the "
-                    "traceback goes to stderr). Rule ids are stable: use them in CI configs.",
+                    "stderr; the exit code is 1 when a finding is at or above --fail-on, 2 when an "
+                    "option is wrong, 3 when a rule crashed (whatever --fail-on says; the traceback goes to "
+                    "stderr) or py-tbparse itself failed, 4 when the template cannot be read. Rule ids are stable: use them in CI configs.",
         epilog="rules:\n" + rules_help(),
     )
     ck.add_argument("template")
@@ -737,11 +737,7 @@ def _ids(text: str | None, option: str = "--only") -> list[str] | None:
 
 
 def _run_template_check(args) -> int:
-    try:
-        found = check_template(args.template, only=_ids(args.only, "--only"), skip=_ids(args.skip, "--skip") or ())
-    except (FileNotFoundError, ValueError, OSError, zipfile.BadZipFile, json.JSONDecodeError, etree.XMLSyntaxError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    found = check_template(args.template, only=_ids(args.only, "--only"), skip=_ids(args.skip, "--skip") or ())
     _write(format_findings(found, args.format, path=args.template), None)
     print(findings_summary(found), file=sys.stderr)
     crashed = found.attrs.get("crashed") or []
@@ -755,17 +751,12 @@ def _run_template_check(args) -> int:
 
 def _run_template_drift(args) -> int:
     files = args.files if len(args.files) > 1 else args.files[0]
-    try:
-        found = check_drift(args.template, files, answers=args.answers, datasource=args.datasource,
-                            sheet=_sheet_arg(args.sheet), only=_ids(args.only, "--only"),
-                            skip=_ids(args.skip, "--skip") or (), max_files=args.max_files)
-        if args.save_answers:
-            save_union_answers(args.template, files, args.save_answers, answers=args.answers,
-                               datasource=args.datasource, sheet=_sheet_arg(args.sheet))
-    except (FileNotFoundError, FileExistsError, ValueError, OSError, zipfile.BadZipFile, json.JSONDecodeError,
-            etree.XMLSyntaxError) as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    found = check_drift(args.template, files, answers=args.answers, datasource=args.datasource,
+                        sheet=_sheet_arg(args.sheet), only=_ids(args.only, "--only"),
+                        skip=_ids(args.skip, "--skip") or (), max_files=args.max_files)
+    if args.save_answers:
+        save_union_answers(args.template, files, args.save_answers, answers=args.answers,
+                           datasource=args.datasource, sheet=_sheet_arg(args.sheet))
     _write(format_findings(found, args.format, path=found.attrs.get("path")), None)
     saved = found.attrs.get("saved_fingerprint")
     print(f"{found.attrs['files']} file(s), merged fingerprint {found.attrs['fingerprint']}"
@@ -1116,7 +1107,7 @@ def build_style_arg_parser() -> argparse.ArgumentParser:
     ap_apply.add_argument("--write", action="store_true", help="write the file")
     ap_apply.add_argument("--format", choices=("table", "csv", "json"), default="table", help="plan format (default: table)")
 
-    ck = sub.add_parser("check", help="look for problems in a .tps or .style.json file (exit 1 if any)")
+    ck = sub.add_parser("check", help="look for problems in a .tps or .style.json file (exit 1 if a problem is found, 4 if the file cannot be read)")
     ck.add_argument("file")
     return ap
 
@@ -1202,7 +1193,10 @@ def _run_style(argv: list[str]) -> int:
                 return 2
             return 0
         if args.action == "check":
-            problems = _style.check_style_file(args.file)
+            try:
+                problems = _style.check_style_file(args.file, raise_unreadable=True)
+            except (InputError, UsageError) as e:   # unreadable (4) or wrong file type (2); not a problem found
+                return _fail(e)
             for line in problems:
                 print(line)
             hard = [p for p in problems if not p.startswith("warning:")]
@@ -1354,9 +1348,9 @@ def _run_audit(argv: list[str]) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description="Look for what a workbook author probably did not mean: unused calculations and parameters, "
                     "duplicate or circular calculations, custom SQL, extract leftovers. Findings go to stdout, a "
-                    "count to stderr; the exit code is 1 when a finding is at or above --fail-on, 2 when the "
-                    "workbook cannot be read or an option is wrong, 3 when a rule crashed (whatever --fail-on "
-                    "says; the traceback goes to stderr). Rule ids are stable: use them in CI configs. Nothing "
+                    "count to stderr; the exit code is 1 when a finding is at or above --fail-on, 2 when "
+                    "an option is wrong, 3 when a rule crashed (whatever --fail-on says; the traceback goes to "
+                    "stderr) or py-tbparse itself failed, 4 when the workbook cannot be read. Rule ids are stable: use them in CI configs. Nothing "
                     "is written or changed, and nothing is opened in Tableau.",
         epilog="rules:\n" + audit_rules_help(),
     )
@@ -1369,11 +1363,7 @@ def _run_audit(argv: list[str]) -> int:
     ap.add_argument("--skip", help="comma-separated rule ids not to run")
     ap.add_argument("--output", "-o", help="write the findings to this file instead of printing them")
     args = ap.parse_args(argv)
-    try:
-        found = audit(args.workbook, only=_ids(args.only, "--only"), skip=_ids(args.skip, "--skip") or ())
-    except _WORKBOOK_ERRORS as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    found = audit(args.workbook, only=_ids(args.only, "--only"), skip=_ids(args.skip, "--skip") or ())
     _write(format_findings(found, args.format, path=args.workbook), args.output, inputs=(args.workbook,))
     print(findings_summary(found), file=sys.stderr)
     crashed = found.attrs.get("crashed") or []
@@ -1654,7 +1644,7 @@ def _run_diff_xml(argv: list[str]) -> int:
         description="Unified diff of two workbooks' XML after normalising attribute order, quotes, empty-element "
                     "style and indentation, so only real changes show. Takes .twb or .twbx (the workbook member "
                     "is compared, other archive members are not). Exit code 0: no differences, 1: differences, "
-                    "2: a file cannot be read. Nothing is written or opened in Tableau.",
+                    "2: usage, 3: crash, 4: a file cannot be read, 5: --output is one of the inputs. Nothing is written or opened in Tableau.",
     )
     ap.add_argument("workbook_a", help="the 'before' .twb/.twbx file")
     ap.add_argument("workbook_b", help="the 'after' .twb/.twbx file")
@@ -1663,15 +1653,10 @@ def _run_diff_xml(argv: list[str]) -> int:
     args = ap.parse_args(argv)
     if args.context < 0:
         ap.error("--context must be 0 or more")
-    try:
-        text = normalised_diff(args.workbook_a, args.workbook_b, context=args.context)
-    except _WORKBOOK_ERRORS as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    text = normalised_diff(args.workbook_a, args.workbook_b, context=args.context)
     if args.output:
         if any(Path(args.output).resolve() == Path(w).resolve() for w in (args.workbook_a, args.workbook_b)):
-            print("error: --output is one of the workbooks; refusing to overwrite it", file=sys.stderr)
-            return 2
+            raise OutputRefusedError("--output is one of the workbooks; refusing to overwrite it")
         _write(text, args.output, inputs=(args.workbook_a, args.workbook_b))
     else:
         sys.stdout.write(text)
@@ -1797,7 +1782,7 @@ def _main(argv: list[str] | None) -> int:
     if args.table == "validate":
         result = parser.validate()
         if args.format in CI_FORMATS:
-            # the exit code stays the one of the plain formats: 0, or 2 when a relationship is broken
+            # the exit code stays the one of the plain formats: 0, or 6 when a relationship is broken
             _write(format_findings(validation_findings(result, args.workbook), args.format, path=args.workbook),
                    args.output, inputs=(args.workbook,))
         elif args.format == "json":
@@ -1815,7 +1800,7 @@ def _main(argv: list[str] | None) -> int:
                 lines.append(f"\n{name}:")
                 lines.append(df.to_string(index=False))
             _write("\n".join(lines), args.output, inputs=(args.workbook,))
-        return 0 if result["ok"] else 2
+        return 0 if result["ok"] else int(ExitCode.INTEGRITY)
 
     getter = TABLE_SPECS[args.table]
     df = getter(

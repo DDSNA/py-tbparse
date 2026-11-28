@@ -118,7 +118,7 @@ def test_cli_exit_codes(tmp_path, capsys, wenjie_path):
     assert main(["diff-xml", str(a), str(b)]) == 1
     out = capsys.readouterr().out
     assert "-  <f>[A] + 1</f>" in out and "+  <f>[A] + 2</f>" in out
-    assert main(["diff-xml", str(a), str(tmp_path / "missing.twb")]) == 2
+    assert main(["diff-xml", str(a), str(tmp_path / "missing.twb")]) == 4
     assert "error:" in capsys.readouterr().err
 
 
@@ -131,7 +131,7 @@ def test_cli_output_file_and_refusal(tmp_path, capsys):
     assert main(["diff-xml", str(a), str(b), "-o", str(out), "-U", "0"]) == 1
     assert "+  <f>[A] + 2</f>" in out.read_text(encoding="utf-8")
     assert capsys.readouterr().out == ""
-    assert main(["diff-xml", str(a), str(b), "-o", str(a)]) == 2
+    assert main(["diff-xml", str(a), str(b), "-o", str(a)]) == 5
     assert a.read_text(encoding="utf-8") == A
 
 
